@@ -9,11 +9,14 @@ async function bodegaKennedyId() {
 export async function GET() {
   try {
     const ventas = await sql`
-      SELECT m.id, m.cantidad, m.nota, m.creado_en, p.referencia, p.nombre
-      FROM movimientos_stock m
-      JOIN productos p ON p.id = m.producto_id
-      WHERE m.tipo = 'venta' AND m.creado_en >= CURRENT_DATE
-      ORDER BY m.creado_en DESC
+      SELECT
+        v.id,
+        v.total,
+        v.creado_en,
+        (SELECT COUNT(*) FROM movimientos_stock m WHERE m.venta_id = v.id) AS items
+      FROM ventas v
+      WHERE v.creado_en >= CURRENT_DATE
+      ORDER BY v.creado_en DESC
     `;
     return NextResponse.json({ ok: true, ventas });
   } catch (error) {
@@ -23,10 +26,10 @@ export async function GET() {
 
 export async function POST(request) {
   try {
-    const { producto_id, cantidad, nota } = await request.json();
+    const { items } = await request.json();
 
-    if (!producto_id || !cantidad || cantidad <= 0) {
-      return NextResponse.json({ ok: false, error: 'Producto y cantidad son obligatorios' }, { status: 400 });
+    if (!Array.isArray(items) || items.length === 0) {
+      return NextResponse.json({ ok: false, error: 'Agrega al menos un producto' }, { status: 400 });
     }
 
     const bodegaId = await bodegaKennedyId();
@@ -34,24 +37,41 @@ export async function POST(request) {
       return NextResponse.json({ ok: false, error: 'No existe la bodega Kennedy' }, { status: 500 });
     }
 
-    const [producto] = await sql`SELECT precio_venta FROM productos WHERE id = ${producto_id}`;
-
-    const actualizado = await sql`
-      UPDATE stock SET cantidad = cantidad - ${cantidad}
-      WHERE producto_id = ${producto_id} AND bodega_id = ${bodegaId} AND cantidad >= ${cantidad}
-      RETURNING cantidad
-    `;
-
-    if (actualizado.length === 0) {
-      return NextResponse.json({ ok: false, error: 'Stock insuficiente para esa cantidad' }, { status: 409 });
+    // Fase 1: validar que haya stock suficiente para cada ítem antes de escribir nada
+    for (const item of items) {
+      const [row] = await sql`
+        SELECT cantidad FROM stock WHERE producto_id = ${item.producto_id} AND bodega_id = ${bodegaId}
+      `;
+      const disponible = row?.cantidad ?? 0;
+      if (disponible < item.cantidad) {
+        return NextResponse.json(
+          { ok: false, error: `Stock insuficiente para uno de los productos (disponible: ${disponible})` },
+          { status: 409 }
+        );
+      }
     }
 
-    await sql`
-      INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, nota, precio_unitario)
-      VALUES (${producto_id}, ${bodegaId}, 'venta', ${cantidad}, ${nota || null}, ${producto?.precio_venta ?? null})
-    `;
+    const itemsConTotal = items.map((item) => {
+      const descuento = Number(item.descuento_porcentaje) || 0;
+      const precioNeto = Number(item.precio_unitario) * (1 - descuento / 100);
+      return { ...item, precioNeto, subtotal: precioNeto * Number(item.cantidad) };
+    });
+    const total = itemsConTotal.reduce((acc, i) => acc + i.subtotal, 0);
 
-    return NextResponse.json({ ok: true, stock: actualizado[0].cantidad });
+    const [venta] = await sql`INSERT INTO ventas (total) VALUES (${total}) RETURNING id`;
+
+    for (const item of itemsConTotal) {
+      await sql`
+        UPDATE stock SET cantidad = cantidad - ${item.cantidad}
+        WHERE producto_id = ${item.producto_id} AND bodega_id = ${bodegaId}
+      `;
+      await sql`
+        INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, descuento_porcentaje, venta_id)
+        VALUES (${item.producto_id}, ${bodegaId}, 'venta', ${item.cantidad}, ${item.precioNeto}, ${item.descuento_porcentaje || 0}, ${venta.id})
+      `;
+    }
+
+    return NextResponse.json({ ok: true, ventaId: venta.id, total });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }

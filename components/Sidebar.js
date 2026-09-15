@@ -1,0 +1,128 @@
+'use client';
+
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+
+const links = [
+  { href: '/', label: 'Inicio', icon: IconHome },
+  { href: '/productos', label: 'Productos', icon: IconBox },
+  { href: '/ventas', label: 'Vender', icon: IconCart },
+  { href: '/entradas', label: 'Entradas', icon: IconInbox },
+  { href: '/reportes', label: 'Reportes', icon: IconChart },
+];
+
+export default function Sidebar() {
+  const pathname = usePathname();
+
+  return (
+    <nav style={styles.nav}>
+      <div style={styles.logo}>P</div>
+      {links.map(({ href, label, icon: Icon }) => {
+        const activo = pathname === href;
+        return (
+          <Link
+            key={href}
+            href={href}
+            style={{ ...styles.link, ...(activo ? styles.linkActivo : {}) }}
+            title={label}
+          >
+            <Icon />
+          </Link>
+        );
+      })}
+      <a href="/api/logout" style={{ ...styles.link, marginTop: 'auto', marginBottom: '16px' }} title="Cerrar sesión">
+        <IconLogout />
+      </a>
+    </nav>
+  );
+}
+
+const styles = {
+  nav: {
+    width: '64px',
+    background: '#fff',
+    borderRight: '1px solid var(--border)',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    paddingTop: '16px',
+    gap: '8px',
+    minHeight: '100vh',
+  },
+  logo: {
+    width: '36px',
+    height: '36px',
+    borderRadius: '10px',
+    background: 'var(--teal)',
+    color: '#fff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 'bold',
+    marginBottom: '16px',
+  },
+  link: {
+    width: '40px',
+    height: '40px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: '10px',
+    color: '#6b7280',
+  },
+  linkActivo: {
+    background: 'var(--teal-light)',
+    color: 'var(--teal-dark)',
+  },
+};
+
+function IconHome() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M3 11l9-8 9 8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M5 10v10h14V10" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconBox() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M21 8l-9-5-9 5 9 5 9-5z" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3 8v8l9 5 9-5V8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 13v8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconCart() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="9" cy="20" r="1.5" />
+      <circle cx="18" cy="20" r="1.5" />
+      <path d="M2 3h2l2.4 12.2a2 2 0 002 1.8h8.6a2 2 0 002-1.6L21 7H6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconInbox() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M3 12h4l2 3h6l2-3h4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M5 12L3 5h18l-2 7" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3 12v6a1 1 0 001 1h16a1 1 0 001-1v-6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconChart() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M4 20V10M12 20V4M20 20v-7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconLogout() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M16 17l5-5-5-5M21 12H9" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}

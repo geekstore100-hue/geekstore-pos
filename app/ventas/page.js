@@ -1,27 +1,24 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Shell from '../../components/Shell';
 
 export default function VentasPage() {
   const [productos, setProductos] = useState([]);
-  const [ventas, setVentas] = useState([]);
+  const [ventasHoy, setVentasHoy] = useState([]);
   const [busqueda, setBusqueda] = useState('');
-  const [productoId, setProductoId] = useState('');
-  const [cantidad, setCantidad] = useState(1);
-  const [nota, setNota] = useState('');
+  const [carrito, setCarrito] = useState([]);
+  const [editandoId, setEditandoId] = useState(null);
   const [error, setError] = useState('');
   const [mensaje, setMensaje] = useState('');
   const [guardando, setGuardando] = useState(false);
 
   async function cargarTodo() {
-    const [rProd, rVentas] = await Promise.all([
-      fetch('/api/productos'),
-      fetch('/api/ventas'),
-    ]);
+    const [rProd, rVentas] = await Promise.all([fetch('/api/productos'), fetch('/api/ventas')]);
     const dProd = await rProd.json();
     const dVentas = await rVentas.json();
     if (dProd.ok) setProductos(dProd.productos.filter((p) => p.activo));
-    if (dVentas.ok) setVentas(dVentas.ventas);
+    if (dVentas.ok) setVentasHoy(dVentas.ventas);
   }
 
   useEffect(() => {
@@ -31,20 +28,57 @@ export default function VentasPage() {
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
     if (!q) return productos;
-    return productos.filter(
-      (p) => p.referencia.toLowerCase().includes(q) || p.nombre.toLowerCase().includes(q)
-    );
+    return productos.filter((p) => p.referencia.toLowerCase().includes(q) || p.nombre.toLowerCase().includes(q));
   }, [busqueda, productos]);
 
-  const seleccionado = productos.find((p) => String(p.id) === String(productoId));
+  function agregarAlCarrito(producto) {
+    setCarrito((prev) => {
+      const existente = prev.find((i) => i.producto_id === producto.id);
+      if (existente) {
+        return prev.map((i) => (i.producto_id === producto.id ? { ...i, cantidad: i.cantidad + 1 } : i));
+      }
+      return [
+        ...prev,
+        {
+          producto_id: producto.id,
+          referencia: producto.referencia,
+          nombre: producto.nombre,
+          cantidad: 1,
+          precio_unitario: Number(producto.precio_venta) || 0,
+          descuento_porcentaje: 0,
+        },
+      ];
+    });
+  }
 
-  async function confirmarVenta(e) {
-    e.preventDefault();
+  function cambiarCantidad(producto_id, delta) {
+    setCarrito((prev) =>
+      prev.map((i) => (i.producto_id === producto_id ? { ...i, cantidad: i.cantidad + delta } : i)).filter((i) => i.cantidad > 0)
+    );
+  }
+
+  function quitarDelCarrito(producto_id) {
+    setCarrito((prev) => prev.filter((i) => i.producto_id !== producto_id));
+    setEditandoId(null);
+  }
+
+  function actualizarItem(producto_id, campo, valor) {
+    setCarrito((prev) => prev.map((i) => (i.producto_id === producto_id ? { ...i, [campo]: valor } : i)));
+  }
+
+  function subtotalItem(item) {
+    const descuento = Number(item.descuento_porcentaje) || 0;
+    return item.cantidad * Number(item.precio_unitario) * (1 - descuento / 100);
+  }
+
+  const total = carrito.reduce((acc, i) => acc + subtotalItem(i), 0);
+
+  async function confirmarVenta() {
     setError('');
     setMensaje('');
 
-    if (!productoId) {
-      setError('Selecciona un producto');
+    if (carrito.length === 0) {
+      setError('Agrega al menos un producto');
       return;
     }
 
@@ -52,126 +86,233 @@ export default function VentasPage() {
     const res = await fetch('/api/ventas', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ producto_id: Number(productoId), cantidad: Number(cantidad), nota }),
+      body: JSON.stringify({
+        items: carrito.map((i) => ({
+          producto_id: i.producto_id,
+          cantidad: i.cantidad,
+          precio_unitario: i.precio_unitario,
+          descuento_porcentaje: i.descuento_porcentaje || 0,
+        })),
+      }),
     });
     const data = await res.json();
     setGuardando(false);
 
     if (data.ok) {
       setMensaje('Venta registrada.');
-      setProductoId('');
-      setCantidad(1);
-      setNota('');
-      setBusqueda('');
+      setCarrito([]);
+      setEditandoId(null);
       cargarTodo();
     } else {
       setError(data.error || 'No se pudo registrar la venta');
     }
   }
 
-  return (
-    <main style={{ fontFamily: 'sans-serif', padding: '24px', maxWidth: '700px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h1 style={{ margin: 0 }}>Venta de mostrador — Kennedy</h1>
-        <a href="/">Inicio</a>
-      </div>
+  function moneda(n) {
+    return `$${Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
+  }
 
-      <form onSubmit={confirmarVenta} style={formStyle}>
-        <label style={{ display: 'block', marginBottom: '10px' }}>
-          Buscar producto (referencia o nombre)
+  return (
+    <Shell title="Vender">
+      <div style={styles.layout}>
+        <div style={styles.columnaProductos}>
           <input
             value={busqueda}
-            onChange={(e) => {
-              setBusqueda(e.target.value);
-              setProductoId('');
-            }}
-            style={input}
-            placeholder="Escribe para buscar..."
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar productos por referencia o nombre..."
+            style={styles.buscador}
           />
-        </label>
+          <div style={styles.grid}>
+            {filtrados.map((p) => {
+              const enCarrito = carrito.find((i) => i.producto_id === p.id);
+              const agotado = Number(p.stock) <= 0;
+              return (
+                <div
+                  key={p.id}
+                  onClick={() => !agotado && agregarAlCarrito(p)}
+                  style={{
+                    ...styles.tarjeta,
+                    ...(enCarrito ? styles.tarjetaActiva : {}),
+                    ...(agotado ? styles.tarjetaAgotada : {}),
+                  }}
+                >
+                  <div style={styles.tarjetaTop}>
+                    <span style={styles.referencia}>{p.referencia}</span>
+                    {enCarrito && <span style={styles.badgeCantidad}>{enCarrito.cantidad}</span>}
+                  </div>
+                  <div style={styles.icono}>📦</div>
+                  <div style={styles.nombre}>{p.nombre}</div>
+                  {agotado ? <div style={styles.agotado}>Agotado</div> : <div style={styles.precio}>{moneda(p.precio_venta)}</div>}
+                </div>
+              );
+            })}
+            {filtrados.length === 0 && <p style={{ color: 'var(--text-secondary)' }}>Sin productos.</p>}
+          </div>
+        </div>
 
-        {busqueda && !productoId && (
-          <div style={listaResultados}>
-            {filtrados.slice(0, 8).map((p) => (
-              <div
-                key={p.id}
-                onClick={() => {
-                  setProductoId(String(p.id));
-                  setBusqueda(`${p.referencia} - ${p.nombre}`);
-                }}
-                style={itemResultado}
-              >
-                {p.referencia} — {p.nombre} (stock: {p.stock})
+        <div style={styles.columnaCarrito}>
+          <h3 style={{ marginTop: 0 }}>Factura de venta</h3>
+
+          <div style={styles.listaCarrito}>
+            {carrito.length === 0 && <p style={{ color: 'var(--text-secondary)' }}>Toca un producto para agregarlo.</p>}
+            {carrito.map((item) => (
+              <div key={item.producto_id} style={styles.itemCarrito}>
+                <div style={styles.itemHeader}>
+                  <strong
+                    onClick={() => setEditandoId(editandoId === item.producto_id ? null : item.producto_id)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    {item.nombre}
+                  </strong>
+                  <button onClick={() => quitarDelCarrito(item.producto_id)} style={styles.btnQuitar}>×</button>
+                </div>
+
+                <div style={styles.itemControles}>
+                  <div style={styles.stepper}>
+                    <button onClick={() => cambiarCantidad(item.producto_id, -1)} style={styles.stepperBtn}>−</button>
+                    <span>{item.cantidad}</span>
+                    <button onClick={() => cambiarCantidad(item.producto_id, 1)} style={styles.stepperBtn}>+</button>
+                  </div>
+                  <span style={{ fontWeight: 600 }}>{moneda(subtotalItem(item))}</span>
+                </div>
+
+                {editandoId === item.producto_id && (
+                  <div style={styles.edicion}>
+                    <label style={styles.labelEdicion}>
+                      Precio
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={item.precio_unitario}
+                        onChange={(e) => actualizarItem(item.producto_id, 'precio_unitario', e.target.value)}
+                        style={styles.inputEdicion}
+                      />
+                    </label>
+                    <label style={styles.labelEdicion}>
+                      Descuento %
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        max="100"
+                        value={item.descuento_porcentaje}
+                        onChange={(e) => actualizarItem(item.producto_id, 'descuento_porcentaje', e.target.value)}
+                        style={styles.inputEdicion}
+                      />
+                    </label>
+                  </div>
+                )}
               </div>
             ))}
-            {filtrados.length === 0 && <div style={itemResultado}>Sin resultados</div>}
           </div>
-        )}
 
-        {seleccionado && (
-          <p style={{ color: '#555' }}>
-            Stock actual en Kennedy: <strong>{seleccionado.stock}</strong>
-          </p>
-        )}
+          {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
+          {mensaje && <p style={{ color: 'var(--teal-dark)' }}>{mensaje}</p>}
 
-        <label style={{ display: 'block', marginBottom: '10px' }}>
-          Cantidad
-          <input type="number" min="1" value={cantidad} onChange={(e) => setCantidad(e.target.value)} style={input} />
-        </label>
+          <button onClick={confirmarVenta} disabled={guardando || carrito.length === 0} style={styles.btnVender}>
+            <span>{guardando ? 'Registrando...' : 'Vender'}</span>
+            <span>{moneda(total)}</span>
+          </button>
 
-        <label style={{ display: 'block', marginBottom: '10px' }}>
-          Nota (opcional)
-          <input value={nota} onChange={(e) => setNota(e.target.value)} style={input} />
-        </label>
+          <div style={styles.piePagina}>
+            <span>{carrito.length} producto(s)</span>
+            <button onClick={() => setCarrito([])} style={styles.btnCancelar}>Cancelar</button>
+          </div>
 
-        {error && <p style={{ color: '#c00' }}>{error}</p>}
-        {mensaje && <p style={{ color: '#080' }}>{mensaje}</p>}
-
-        <button type="submit" disabled={guardando} style={btnPrimario}>
-          {guardando ? 'Registrando...' : 'Confirmar venta'}
-        </button>
-      </form>
-
-      <h3>Ventas de hoy</h3>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr style={{ textAlign: 'left', borderBottom: '2px solid #ddd' }}>
-            <th style={th}>Hora</th>
-            <th style={th}>Producto</th>
-            <th style={th}>Cantidad</th>
-            <th style={th}>Nota</th>
-          </tr>
-        </thead>
-        <tbody>
-          {ventas.map((v) => (
-            <tr key={v.id} style={{ borderBottom: '1px solid #eee' }}>
-              <td style={td}>
-                {new Date(v.creado_en).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
-              </td>
-              <td style={td}>
-                {v.referencia} — {v.nombre}
-              </td>
-              <td style={td}>{v.cantidad}</td>
-              <td style={td}>{v.nota || '-'}</td>
-            </tr>
-          ))}
-          {ventas.length === 0 && (
-            <tr>
-              <td style={td} colSpan={4}>
-                Sin ventas registradas hoy.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </main>
+          <h4 style={{ marginTop: '24px' }}>Ventas de hoy</h4>
+          <div>
+            {ventasHoy.map((v) => (
+              <div key={v.id} style={styles.filaVentaHoy}>
+                <span>{new Date(v.creado_en).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</span>
+                <span>{v.items} ítem(s)</span>
+                <span>{moneda(v.total)}</span>
+              </div>
+            ))}
+            {ventasHoy.length === 0 && <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Sin ventas hoy.</p>}
+          </div>
+        </div>
+      </div>
+    </Shell>
   );
 }
 
-const input = { display: 'block', width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' };
-const formStyle = { background: '#f9f9f9', padding: '16px', borderRadius: '10px', marginBottom: '24px', border: '1px solid #eee' };
-const th = { padding: '8px', fontSize: '14px', color: '#555' };
-const td = { padding: '8px', fontSize: '14px' };
-const btnPrimario = { padding: '8px 14px', borderRadius: '6px', border: 'none', background: '#111', color: '#fff', cursor: 'pointer' };
-const listaResultados = { border: '1px solid #ddd', borderRadius: '6px', marginTop: '4px', marginBottom: '10px', maxHeight: '160px', overflowY: 'auto', background: '#fff' };
-const itemResultado = { padding: '8px', cursor: 'pointer', borderBottom: '1px solid #eee' };
+const styles = {
+  layout: { display: 'flex', gap: '20px', alignItems: 'flex-start' },
+  columnaProductos: { flex: 1, minWidth: 0 },
+  buscador: {
+    width: '100%',
+    padding: '10px 14px',
+    borderRadius: 'var(--radius)',
+    border: '1px solid var(--border)',
+    marginBottom: '16px',
+    boxSizing: 'border-box',
+  },
+  grid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+    gap: '12px',
+  },
+  tarjeta: {
+    background: '#fff',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius)',
+    padding: '12px',
+    cursor: 'pointer',
+    textAlign: 'center',
+    position: 'relative',
+  },
+  tarjetaActiva: { border: '2px solid var(--teal)' },
+  tarjetaAgotada: { opacity: 0.5, cursor: 'not-allowed' },
+  tarjetaTop: { display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' },
+  referencia: {},
+  badgeCantidad: {
+    background: 'var(--teal)',
+    color: '#fff',
+    borderRadius: '999px',
+    width: '18px',
+    height: '18px',
+    fontSize: '11px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  icono: { fontSize: '28px', margin: '8px 0' },
+  nombre: { fontSize: '13px', fontWeight: 600, marginBottom: '4px', minHeight: '32px' },
+  precio: { fontSize: '13px', color: 'var(--text-secondary)' },
+  agotado: { fontSize: '12px', color: 'var(--warning)' },
+  columnaCarrito: {
+    width: '340px',
+    flexShrink: 0,
+    background: '#fff',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius)',
+    padding: '16px',
+  },
+  listaCarrito: { maxHeight: '320px', overflowY: 'auto', marginBottom: '12px' },
+  itemCarrito: { borderBottom: '1px solid var(--border)', padding: '10px 0' },
+  itemHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '14px' },
+  btnQuitar: { border: 'none', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '16px' },
+  itemControles: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' },
+  stepper: { display: 'flex', alignItems: 'center', gap: '10px' },
+  stepperBtn: { width: '24px', height: '24px', borderRadius: '6px', border: '1px solid var(--border)', background: '#fff', cursor: 'pointer' },
+  edicion: { display: 'flex', gap: '10px', marginTop: '8px' },
+  labelEdicion: { fontSize: '12px', color: 'var(--text-secondary)', flex: 1 },
+  inputEdicion: { display: 'block', width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', marginTop: '2px' },
+  btnVender: {
+    width: '100%',
+    padding: '14px',
+    borderRadius: 'var(--radius)',
+    border: 'none',
+    background: 'var(--teal)',
+    color: '#fff',
+    fontWeight: 700,
+    fontSize: '15px',
+    cursor: 'pointer',
+    display: 'flex',
+    justifyContent: 'space-between',
+    marginTop: '8px',
+  },
+  piePagina: { display: 'flex', justifyContent: 'space-between', marginTop: '10px', fontSize: '13px', color: 'var(--text-secondary)' },
+  btnCancelar: { border: 'none', background: 'none', color: 'var(--teal-dark)', cursor: 'pointer' },
+  filaVentaHoy: { display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '6px 0', borderBottom: '1px solid var(--border)' },
+};

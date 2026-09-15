@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Shell from '../../components/Shell';
 
 function hoyISO() {
   return new Date().toISOString().slice(0, 10);
@@ -42,108 +43,100 @@ export default function ReportesPage() {
   const totalVendido = ventasPorItem.reduce((acc, v) => acc + Number(v.total || 0), 0);
 
   return (
-    <main style={{ fontFamily: 'sans-serif', padding: '24px', maxWidth: '900px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h1 style={{ margin: 0 }}>Reportes — Kennedy</h1>
-        <a href="/">Inicio</a>
+    <Shell title="Reportes">
+      <h3 style={{ marginTop: 0 }}>Valor de inventario actual</h3>
+      <div style={styles.tableCard}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+              <th style={styles.th}>Referencia</th>
+              <th style={styles.th}>Nombre</th>
+              <th style={styles.th}>Stock</th>
+              <th style={styles.th}>Valor costo</th>
+              <th style={styles.th}>Valor venta</th>
+            </tr>
+          </thead>
+          <tbody>
+            {inventario.map((p) => (
+              <tr key={p.referencia} style={{ borderBottom: '1px solid var(--border)' }}>
+                <td style={styles.td}>{p.referencia}</td>
+                <td style={styles.td}>{p.nombre}</td>
+                <td style={styles.td}>{p.cantidad}</td>
+                <td style={styles.td}>{moneda(p.valor_costo)}</td>
+                <td style={styles.td}>{moneda(p.valor_venta)}</td>
+              </tr>
+            ))}
+            {inventario.length === 0 && !cargando && (
+              <tr>
+                <td style={styles.td} colSpan={5}>No hay productos activos.</td>
+              </tr>
+            )}
+          </tbody>
+          <tfoot>
+            <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 'bold' }}>
+              <td style={styles.td} colSpan={3}>Total</td>
+              <td style={styles.td}>{moneda(totalCosto)}</td>
+              <td style={styles.td}>{moneda(totalVenta)}</td>
+            </tr>
+          </tfoot>
+        </table>
       </div>
 
-      <h2>Valor de inventario actual</h2>
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '32px' }}>
-        <thead>
-          <tr style={{ textAlign: 'left', borderBottom: '2px solid #ddd' }}>
-            <th style={th}>Referencia</th>
-            <th style={th}>Nombre</th>
-            <th style={th}>Stock</th>
-            <th style={th}>Valor costo</th>
-            <th style={th}>Valor venta</th>
-          </tr>
-        </thead>
-        <tbody>
-          {inventario.map((p) => (
-            <tr key={p.referencia} style={{ borderBottom: '1px solid #eee' }}>
-              <td style={td}>{p.referencia}</td>
-              <td style={td}>{p.nombre}</td>
-              <td style={td}>{p.cantidad}</td>
-              <td style={td}>{moneda(p.valor_costo)}</td>
-              <td style={td}>{moneda(p.valor_venta)}</td>
-            </tr>
-          ))}
-          {inventario.length === 0 && !cargando && (
-            <tr>
-              <td style={td} colSpan={5}>
-                No hay productos activos.
-              </td>
-            </tr>
-          )}
-        </tbody>
-        <tfoot>
-          <tr style={{ borderTop: '2px solid #ddd', fontWeight: 'bold' }}>
-            <td style={td} colSpan={3}>
-              Total
-            </td>
-            <td style={td}>{moneda(totalCosto)}</td>
-            <td style={td}>{moneda(totalVenta)}</td>
-          </tr>
-        </tfoot>
-      </table>
-
-      <h2>Ventas por ítem</h2>
+      <h3>Ventas por ítem</h3>
       <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', marginBottom: '16px' }}>
         <label>
           Desde
-          <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} style={input} />
+          <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} style={styles.input} />
         </label>
         <label>
           Hasta
-          <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} style={input} />
+          <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} style={styles.input} />
         </label>
-        <button onClick={cargar} style={btnPrimario}>
-          Consultar
-        </button>
+        <button onClick={cargar} style={styles.btnPrimario}>Consultar</button>
       </div>
 
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr style={{ textAlign: 'left', borderBottom: '2px solid #ddd' }}>
-            <th style={th}>Referencia</th>
-            <th style={th}>Nombre</th>
-            <th style={th}>Unidades vendidas</th>
-            <th style={th}>Total vendido</th>
-          </tr>
-        </thead>
-        <tbody>
-          {ventasPorItem.map((v) => (
-            <tr key={v.referencia} style={{ borderBottom: '1px solid #eee' }}>
-              <td style={td}>{v.referencia}</td>
-              <td style={td}>{v.nombre}</td>
-              <td style={td}>{v.unidades}</td>
-              <td style={td}>{moneda(v.total)}</td>
+      <div style={styles.tableCard}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+              <th style={styles.th}>Referencia</th>
+              <th style={styles.th}>Nombre</th>
+              <th style={styles.th}>Unidades vendidas</th>
+              <th style={styles.th}>Total vendido</th>
             </tr>
-          ))}
-          {ventasPorItem.length === 0 && !cargando && (
-            <tr>
-              <td style={td} colSpan={4}>
-                Sin ventas en ese rango.
-              </td>
+          </thead>
+          <tbody>
+            {ventasPorItem.map((v) => (
+              <tr key={v.referencia} style={{ borderBottom: '1px solid var(--border)' }}>
+                <td style={styles.td}>{v.referencia}</td>
+                <td style={styles.td}>{v.nombre}</td>
+                <td style={styles.td}>{v.unidades}</td>
+                <td style={styles.td}>{moneda(v.total)}</td>
+              </tr>
+            ))}
+            {ventasPorItem.length === 0 && !cargando && (
+              <tr>
+                <td style={styles.td} colSpan={4}>Sin ventas en ese rango.</td>
+              </tr>
+            )}
+          </tbody>
+          <tfoot>
+            <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 'bold' }}>
+              <td style={styles.td} colSpan={2}>Total</td>
+              <td style={styles.td}>{totalUnidadesVendidas}</td>
+              <td style={styles.td}>{moneda(totalVendido)}</td>
             </tr>
-          )}
-        </tbody>
-        <tfoot>
-          <tr style={{ borderTop: '2px solid #ddd', fontWeight: 'bold' }}>
-            <td style={td} colSpan={2}>
-              Total
-            </td>
-            <td style={td}>{totalUnidadesVendidas}</td>
-            <td style={td}>{moneda(totalVendido)}</td>
-          </tr>
-        </tfoot>
-      </table>
-    </main>
+          </tfoot>
+        </table>
+      </div>
+    </Shell>
   );
 }
 
-const input = { display: 'block', padding: '8px', marginTop: '4px', borderRadius: '6px', border: '1px solid #ccc' };
-const th = { padding: '8px', fontSize: '14px', color: '#555' };
-const td = { padding: '8px', fontSize: '14px' };
-const btnPrimario = { padding: '8px 14px', borderRadius: '6px', border: 'none', background: '#111', color: '#fff', cursor: 'pointer', height: '38px' };
+const styles = {
+  tableCard: { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '8px 16px', marginBottom: '32px' },
+  input: { display: 'block', padding: '9px', marginTop: '4px', borderRadius: '8px', border: '1px solid var(--border)' },
+  th: { padding: '10px 8px', fontSize: '13px', color: 'var(--text-secondary)' },
+  td: { padding: '10px 8px', fontSize: '14px' },
+  btnPrimario: { padding: '9px 16px', borderRadius: '8px', border: 'none', background: 'var(--teal)', color: '#fff', cursor: 'pointer', fontWeight: 600, height: '38px' },
+};
