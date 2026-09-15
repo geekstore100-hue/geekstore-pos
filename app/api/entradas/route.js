@@ -34,6 +34,8 @@ export async function POST(request) {
       return NextResponse.json({ ok: false, error: 'No existe la bodega Kennedy' }, { status: 500 });
     }
 
+    const [producto] = await sql`SELECT precio_costo FROM productos WHERE id = ${producto_id}`;
+
     const actualizado = await sql`
       INSERT INTO stock (producto_id, bodega_id, cantidad)
       VALUES (${producto_id}, ${bodegaId}, ${cantidad})
@@ -43,8 +45,8 @@ export async function POST(request) {
     `;
 
     await sql`
-      INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, nota)
-      VALUES (${producto_id}, ${bodegaId}, 'entrada', ${cantidad}, ${nota || null})
+      INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, nota, precio_unitario)
+      VALUES (${producto_id}, ${bodegaId}, 'entrada', ${cantidad}, ${nota || null}, ${producto?.precio_costo ?? null})
     `;
 
     return NextResponse.json({ ok: true, stock: actualizado[0].cantidad });
