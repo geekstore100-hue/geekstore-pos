@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../lib/db';
 
-async function bodegaKennedyId() {
-  const [b] = await sql`SELECT id FROM bodegas WHERE nombre = 'Kennedy'`;
+async function bodegaPrincipalId() {
+  const [b] = await sql`SELECT id FROM bodegas WHERE nombre = 'Principal'`;
   return b?.id;
 }
 
@@ -33,15 +33,18 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { items, numero_factura, fecha_compra, fecha_vencimiento, notas, proveedor_id, proveedor_nuevo } = body;
+    const { items, numero_factura, fecha_compra, fecha_vencimiento, notas, proveedor_id, proveedor_nuevo, bodega_id } = body;
 
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ ok: false, error: 'Agrega al menos un producto' }, { status: 400 });
     }
 
-    const bodegaId = await bodegaKennedyId();
+    let bodegaId = bodega_id ? Number(bodega_id) : null;
     if (!bodegaId) {
-      return NextResponse.json({ ok: false, error: 'No existe la bodega Kennedy' }, { status: 500 });
+      bodegaId = await bodegaPrincipalId();
+    }
+    if (!bodegaId) {
+      return NextResponse.json({ ok: false, error: 'Selecciona una bodega' }, { status: 400 });
     }
 
     // Resolver proveedor: uno existente, o crear uno nuevo al vuelo

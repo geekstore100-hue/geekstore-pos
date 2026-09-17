@@ -2,7 +2,7 @@ import './globals.css';
 
 export const metadata = {
   title: 'POS Geek Store',
-  description: 'Sistema interno de inventario y ventas — Geek Store Kennedy',
+  description: 'Sistema interno de inventario y ventas — Geek Store',
 };
 
 export default function RootLayout({ children }) {

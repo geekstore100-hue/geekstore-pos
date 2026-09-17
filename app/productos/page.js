@@ -87,7 +87,7 @@ export default function ProductosPage() {
   return (
     <Shell title="Productos">
       <div style={styles.header}>
-        <h2 style={{ margin: 0 }}>Catálogo — Kennedy</h2>
+        <h2 style={{ margin: 0 }}>Catálogo</h2>
         <button onClick={nuevoProducto} style={styles.btnPrimario}>+ Nuevo producto</button>
       </div>
 
@@ -145,7 +145,7 @@ export default function ProductosPage() {
                 <th style={styles.th}>Nombre</th>
                 <th style={styles.th}>Categoría</th>
                 <th style={styles.th}>Precio venta</th>
-                <th style={styles.th}>Stock Kennedy</th>
+                <th style={styles.th}>Stock</th>
                 <th style={styles.th}>Activo</th>
                 <th style={styles.th}></th>
               </tr>

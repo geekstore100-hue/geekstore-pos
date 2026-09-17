@@ -13,8 +13,7 @@ function nuevaLinea() {
   return {
     _key: contadorKey,
     producto_id: '',
-    nombreNuevo: '',
-    referenciaNuevo: '',
+    busquedaProducto: '',
     precio_unitario: '',
     descuento_porcentaje: '',
     cantidad: 1,
@@ -22,15 +21,20 @@ function nuevaLinea() {
   };
 }
 
+const productoVacio = { nombre: '', referencia: '', categoria: '', precio_venta: '', precio_costo: '', descripcion: '' };
+
 export default function EntradasPage() {
   const [productos, setProductos] = useState([]);
   const [proveedores, setProveedores] = useState([]);
+  const [bodegas, setBodegas] = useState([]);
   const [comprasRecientes, setComprasRecientes] = useState([]);
   const [carrito, setCarrito] = useState([nuevaLinea()]);
+  const [filaBuscando, setFilaBuscando] = useState(null);
 
   const [numeroFactura, setNumeroFactura] = useState('');
   const [fechaCompra, setFechaCompra] = useState(hoyISO());
   const [fechaVencimiento, setFechaVencimiento] = useState(hoyISO());
+  const [bodegaId, setBodegaId] = useState('');
   const [notas, setNotas] = useState('');
 
   const [proveedorId, setProveedorId] = useState('');
@@ -43,17 +47,34 @@ export default function EntradasPage() {
   const [mensaje, setMensaje] = useState('');
   const [guardando, setGuardando] = useState(false);
 
+  // Modal de creación de producto
+  const [modalAbierto, setModalAbierto] = useState(false);
+  const [filaModal, setFilaModal] = useState(null);
+  const [formProducto, setFormProducto] = useState(productoVacio);
+  const [errorModal, setErrorModal] = useState('');
+  const [guardandoProducto, setGuardandoProducto] = useState(false);
+
   async function cargarTodo() {
-    const [rProd, rProv, rCompras] = await Promise.all([
+    const [rProd, rProv, rBod, rCompras] = await Promise.all([
       fetch('/api/productos'),
       fetch('/api/proveedores'),
+      fetch('/api/bodegas'),
       fetch('/api/compras'),
     ]);
     const dProd = await rProd.json();
     const dProv = await rProv.json();
+    const dBod = await rBod.json();
     const dCompras = await rCompras.json();
     if (dProd.ok) setProductos(dProd.productos.filter((p) => p.activo));
     if (dProv.ok) setProveedores(dProv.proveedores);
+    if (dBod.ok) {
+      setBodegas(dBod.bodegas);
+      setBodegaId((actual) => {
+        if (actual) return actual;
+        const principal = dBod.bodegas.find((b) => b.nombre === 'Principal');
+        return String((principal || dBod.bodegas[0])?.id || '');
+      });
+    }
     if (dCompras.ok) setComprasRecientes(dCompras.compras);
   }
 
@@ -65,41 +86,74 @@ export default function EntradasPage() {
     setCarrito((prev) => prev.map((l) => (l._key === key ? { ...l, [campo]: valor } : l)));
   }
 
-  function seleccionarProducto(key, valor) {
-    if (valor === '__nuevo__') {
-      actualizarLinea(key, 'producto_id', '__nuevo__');
-      return;
-    }
-    const producto = productos.find((p) => String(p.id) === String(valor));
+  function buscarEnLinea(key, texto) {
+    setCarrito((prev) => prev.map((l) => (l._key === key ? { ...l, busquedaProducto: texto, producto_id: '' } : l)));
+    setFilaBuscando(key);
+  }
+
+  function resultadosPara(texto) {
+    const q = texto.trim().toLowerCase();
+    if (!q) return productos.slice(0, 8);
+    return productos.filter((p) => p.referencia.toLowerCase().includes(q) || p.nombre.toLowerCase().includes(q)).slice(0, 8);
+  }
+
+  function seleccionarProducto(key, producto) {
     setCarrito((prev) =>
       prev.map((l) =>
         l._key === key
-          ? { ...l, producto_id: valor, precio_unitario: producto?.precio_costo || l.precio_unitario || '' }
+          ? {
+              ...l,
+              producto_id: String(producto.id),
+              busquedaProducto: `${producto.referencia} - ${producto.nombre}`,
+              precio_unitario: l.precio_unitario || producto.precio_costo || '',
+            }
           : l
       )
     );
+    setFilaBuscando(null);
   }
 
-  async function crearProductoEnLinea(key) {
-    setError('');
-    const linea = carrito.find((l) => l._key === key);
-    if (!linea.nombreNuevo.trim() || !linea.referenciaNuevo.trim()) {
-      setError('Completa nombre y referencia del nuevo producto');
+  function abrirModalNuevoProducto(key, textoBusqueda) {
+    setFilaModal(key);
+    setFormProducto({ ...productoVacio, nombre: textoBusqueda || '' });
+    setErrorModal('');
+    setModalAbierto(true);
+    setFilaBuscando(null);
+  }
+
+  function cerrarModal() {
+    setModalAbierto(false);
+    setFilaModal(null);
+    setFormProducto(productoVacio);
+    setErrorModal('');
+  }
+
+  async function crearProducto() {
+    setErrorModal('');
+    if (!formProducto.nombre.trim() || !formProducto.referencia.trim()) {
+      setErrorModal('Nombre y referencia son obligatorios');
       return;
     }
 
+    setGuardandoProducto(true);
     const res = await fetch('/api/productos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        referencia: linea.referenciaNuevo.trim(),
-        nombre: linea.nombreNuevo.trim(),
+        referencia: formProducto.referencia.trim(),
+        nombre: formProducto.nombre.trim(),
+        categoria: formProducto.categoria,
+        precio_venta: formProducto.precio_venta || '',
+        precio_costo: formProducto.precio_costo || '',
+        descripcion: formProducto.descripcion,
         activo: true,
       }),
     });
     const data = await res.json();
+    setGuardandoProducto(false);
+
     if (!data.ok) {
-      setError(data.error || 'No se pudo crear el producto');
+      setErrorModal(data.error || 'No se pudo crear el producto');
       return;
     }
 
@@ -109,19 +163,27 @@ export default function EntradasPage() {
     if (dProd.ok) {
       setProductos(dProd.productos.filter((p) => p.activo));
       if (!nuevoId) {
-        const encontrado = dProd.productos.find((p) => p.referencia === linea.referenciaNuevo.trim());
+        const encontrado = dProd.productos.find((p) => p.referencia === formProducto.referencia.trim());
         nuevoId = encontrado?.id ?? null;
       }
     }
 
-    if (!nuevoId) {
-      setError('El producto se creó pero no se pudo seleccionar automáticamente. Búscalo en la lista.');
-      return;
+    if (filaModal && nuevoId) {
+      setCarrito((prev) =>
+        prev.map((l) =>
+          l._key === filaModal
+            ? {
+                ...l,
+                producto_id: String(nuevoId),
+                busquedaProducto: `${formProducto.referencia.trim()} - ${formProducto.nombre.trim()}`,
+                precio_unitario: l.precio_unitario || formProducto.precio_costo || '',
+              }
+            : l
+        )
+      );
     }
 
-    setCarrito((prev) =>
-      prev.map((l) => (l._key === key ? { ...l, producto_id: String(nuevoId), nombreNuevo: '', referenciaNuevo: '' } : l))
-    );
+    cerrarModal();
   }
 
   function agregarLinea() {
@@ -143,7 +205,7 @@ export default function EntradasPage() {
     return (Number(l.precio_unitario) || 0) * (Number(l.cantidad) || 0);
   }
 
-  const lineasValidas = carrito.filter((l) => l.producto_id && l.producto_id !== '__nuevo__');
+  const lineasValidas = carrito.filter((l) => l.producto_id);
   const subtotal = lineasValidas.reduce((acc, l) => acc + lineaSubtotal(l), 0);
   const total = lineasValidas.reduce((acc, l) => acc + lineaTotal(l), 0);
   const descuentoTotal = subtotal - total;
@@ -160,6 +222,10 @@ export default function EntradasPage() {
       setError('Selecciona un proveedor o crea uno nuevo');
       return;
     }
+    if (!bodegaId) {
+      setError('Selecciona una bodega');
+      return;
+    }
 
     setGuardando(true);
     const res = await fetch('/api/compras', {
@@ -173,6 +239,7 @@ export default function EntradasPage() {
         numero_factura: numeroFactura,
         fecha_compra: fechaCompra,
         fecha_vencimiento: fechaVencimiento,
+        bodega_id: Number(bodegaId),
         notas,
         items: lineasValidas.map((l) => ({
           producto_id: Number(l.producto_id),
@@ -277,19 +344,18 @@ export default function EntradasPage() {
           </label>
         </div>
 
-        <div style={styles.grid3}>
-          <label style={styles.labelCampo}>
-            Moneda
-            <input value="COP" disabled style={styles.inputCampo} />
-          </label>
+        <div style={styles.grid2}>
           <label style={styles.labelCampo}>
             Fecha de vencimiento *
             <input type="date" value={fechaVencimiento} onChange={(e) => setFechaVencimiento(e.target.value)} style={styles.inputCampo} />
           </label>
           <label style={styles.labelCampo}>
-            Bodega
-            <select disabled style={styles.inputCampo}>
-              <option>Kennedy</option>
+            Bodega *
+            <select value={bodegaId} onChange={(e) => setBodegaId(e.target.value)} style={styles.inputCampo}>
+              <option value="">Seleccionar</option>
+              {bodegas.map((b) => (
+                <option key={b.id} value={b.id}>{b.nombre}</option>
+              ))}
             </select>
           </label>
         </div>
@@ -311,38 +377,36 @@ export default function EntradasPage() {
             <tbody>
               {carrito.map((l) => (
                 <tr key={l._key} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ ...styles.td, minWidth: '220px' }}>
-                    {l.producto_id === '__nuevo__' ? (
-                      <div style={styles.nuevoProductoBox}>
-                        <input
-                          value={l.nombreNuevo}
-                          onChange={(e) => actualizarLinea(l._key, 'nombreNuevo', e.target.value)}
-                          placeholder="Nombre del producto"
-                          style={styles.inputCampo}
-                        />
-                        <input
-                          value={l.referenciaNuevo}
-                          onChange={(e) => actualizarLinea(l._key, 'referenciaNuevo', e.target.value)}
-                          placeholder="Referencia"
-                          style={styles.inputCampo}
-                        />
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <button type="button" onClick={() => crearProductoEnLinea(l._key)} style={styles.btnCrearChico}>Crear</button>
-                          <button type="button" onClick={() => actualizarLinea(l._key, 'producto_id', '')} style={styles.linkBtn}>Cancelar</button>
+                  <td style={{ ...styles.td, minWidth: '240px', position: 'relative' }}>
+                    <input
+                      value={l.busquedaProducto}
+                      onChange={(e) => buscarEnLinea(l._key, e.target.value)}
+                      onFocus={() => setFilaBuscando(l._key)}
+                      onBlur={() => setTimeout(() => setFilaBuscando((actual) => (actual === l._key ? null : actual)), 150)}
+                      placeholder="Escribe referencia o nombre..."
+                      style={styles.inputCampo}
+                    />
+                    {filaBuscando === l._key && (
+                      <div style={styles.listaResultados}>
+                        {resultadosPara(l.busquedaProducto).map((p) => (
+                          <div
+                            key={p.id}
+                            onMouseDown={() => seleccionarProducto(l._key, p)}
+                            style={styles.itemResultado}
+                          >
+                            {p.referencia} — {p.nombre}
+                          </div>
+                        ))}
+                        {resultadosPara(l.busquedaProducto).length === 0 && (
+                          <div style={{ ...styles.itemResultado, color: 'var(--text-secondary)' }}>Sin resultados</div>
+                        )}
+                        <div
+                          onMouseDown={() => abrirModalNuevoProducto(l._key, l.busquedaProducto)}
+                          style={{ ...styles.itemResultado, color: 'var(--teal-dark)', fontWeight: 600 }}
+                        >
+                          + Crear nuevo producto
                         </div>
                       </div>
-                    ) : (
-                      <select
-                        value={l.producto_id}
-                        onChange={(e) => seleccionarProducto(l._key, e.target.value)}
-                        style={styles.inputCampo}
-                      >
-                        <option value="">Seleccionar</option>
-                        {productos.map((p) => (
-                          <option key={p.id} value={p.id}>{p.referencia} - {p.nombre}</option>
-                        ))}
-                        <option value="__nuevo__">+ Crear nuevo producto</option>
-                      </select>
                     )}
                   </td>
                   <td style={styles.td}>
@@ -450,6 +514,83 @@ export default function EntradasPage() {
           </tbody>
         </table>
       </div>
+
+      {modalAbierto && (
+        <div style={styles.overlay} onMouseDown={cerrarModal}>
+          <div style={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Nuevo producto</h3>
+
+            <div style={styles.grid2}>
+              <label style={styles.labelCampo}>
+                Nombre *
+                <input
+                  value={formProducto.nombre}
+                  onChange={(e) => setFormProducto({ ...formProducto, nombre: e.target.value })}
+                  style={styles.inputCampo}
+                />
+              </label>
+              <label style={styles.labelCampo}>
+                Referencia *
+                <input
+                  value={formProducto.referencia}
+                  onChange={(e) => setFormProducto({ ...formProducto, referencia: e.target.value })}
+                  style={styles.inputCampo}
+                />
+              </label>
+            </div>
+
+            <div style={styles.grid2}>
+              <label style={styles.labelCampo}>
+                Categoría
+                <input
+                  value={formProducto.categoria}
+                  onChange={(e) => setFormProducto({ ...formProducto, categoria: e.target.value })}
+                  style={styles.inputCampo}
+                />
+              </label>
+              <label style={styles.labelCampo}>
+                Precio de venta
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formProducto.precio_venta}
+                  onChange={(e) => setFormProducto({ ...formProducto, precio_venta: e.target.value })}
+                  style={styles.inputCampo}
+                />
+              </label>
+            </div>
+
+            <label style={styles.labelCampo}>
+              Costo inicial (opcional — se usa como precio de esta línea de compra si no lo escribes tú)
+              <input
+                type="number"
+                step="0.01"
+                value={formProducto.precio_costo}
+                onChange={(e) => setFormProducto({ ...formProducto, precio_costo: e.target.value })}
+                style={styles.inputCampo}
+              />
+            </label>
+
+            <label style={styles.labelCampo}>
+              Descripción
+              <textarea
+                value={formProducto.descripcion}
+                onChange={(e) => setFormProducto({ ...formProducto, descripcion: e.target.value })}
+                style={{ ...styles.inputCampo, minHeight: '60px' }}
+              />
+            </label>
+
+            {errorModal && <p style={{ color: 'var(--danger)' }}>{errorModal}</p>}
+
+            <div style={styles.filaBotones}>
+              <button type="button" onClick={cerrarModal} style={styles.btnSecundario}>Cancelar</button>
+              <button type="button" onClick={crearProducto} disabled={guardandoProducto} style={styles.btnPrimario}>
+                {guardandoProducto ? 'Creando...' : 'Crear producto'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Shell>
   );
 }
@@ -459,6 +600,7 @@ const styles = {
   subtitulo: { marginBottom: '10px' },
   filaTop: { display: 'flex', gap: '16px', maxWidth: '500px', marginBottom: '8px' },
   grid3: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '4px' },
+  grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '4px' },
   labelCampo: { display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' },
   inputCampo: {
     display: 'block',
@@ -475,8 +617,21 @@ const styles = {
   th: { padding: '10px 8px', fontSize: '13px', color: 'var(--text-secondary)', textAlign: 'left' },
   td: { padding: '8px', fontSize: '14px', verticalAlign: 'top' },
   inputCelda: { width: '90px', padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', boxSizing: 'border-box' },
-  nuevoProductoBox: { display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '200px' },
-  btnCrearChico: { padding: '6px 12px', borderRadius: '6px', border: 'none', background: 'var(--teal)', color: '#fff', cursor: 'pointer', fontSize: '13px' },
+  listaResultados: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    background: '#fff',
+    border: '1px solid var(--border)',
+    borderRadius: '8px',
+    marginTop: '2px',
+    maxHeight: '220px',
+    overflowY: 'auto',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+  },
+  itemResultado: { padding: '8px 10px', cursor: 'pointer', borderBottom: '1px solid var(--border)', fontSize: '13px' },
   btnQuitar: { border: 'none', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '16px' },
   btnAgregarProducto: {
     marginTop: '12px',
@@ -495,4 +650,23 @@ const styles = {
   btnSecundario: { padding: '10px 20px', borderRadius: '8px', border: '1px solid var(--border)', background: '#fff', cursor: 'pointer' },
   btnPrimario: { padding: '10px 20px', borderRadius: '8px', border: 'none', background: 'var(--teal)', color: '#fff', cursor: 'pointer', fontWeight: 600 },
   tableCard: { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '8px 16px' },
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.4)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 100,
+  },
+  modal: {
+    background: '#fff',
+    borderRadius: 'var(--radius)',
+    padding: '24px',
+    width: '480px',
+    maxWidth: '92vw',
+    maxHeight: '90vh',
+    overflowY: 'auto',
+    boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
+  },
 };

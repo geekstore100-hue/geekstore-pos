@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../lib/db';
 
-async function bodegaKennedyId() {
-  const [b] = await sql`SELECT id FROM bodegas WHERE nombre = 'Kennedy'`;
+async function bodegaPrincipalId() {
+  const [b] = await sql`SELECT id FROM bodegas WHERE nombre = 'Principal'`;
   return b?.id;
 }
 
@@ -32,9 +32,9 @@ export async function POST(request) {
       return NextResponse.json({ ok: false, error: 'Agrega al menos un producto' }, { status: 400 });
     }
 
-    const bodegaId = await bodegaKennedyId();
+    const bodegaId = await bodegaPrincipalId();
     if (!bodegaId) {
-      return NextResponse.json({ ok: false, error: 'No existe la bodega Kennedy' }, { status: 500 });
+      return NextResponse.json({ ok: false, error: 'No existe la bodega Principal' }, { status: 500 });
     }
 
     // Fase 1: validar que haya stock suficiente para cada ítem antes de escribir nada

@@ -30,7 +30,7 @@ export default function Home() {
       </div>
 
       <div style={styles.grid}>
-        <Tarjeta href="/productos" titulo="Productos" descripcion="Catálogo y stock en Kennedy" />
+        <Tarjeta href="/productos" titulo="Productos" descripcion="Catálogo y stock" />
         <Tarjeta href="/ventas" titulo="Vender" descripcion="Registrar venta de mostrador" />
         <Tarjeta href="/entradas" titulo="Entradas" descripcion="Registrar mercancía que llega" />
         <Tarjeta href="/reportes" titulo="Reportes" descripcion="Inventario y ventas por ítem" />

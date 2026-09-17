@@ -7,7 +7,7 @@ export default function Shell({ title, children }) {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         <header style={styles.topbar}>
           <span style={styles.title}>{title}</span>
-          <span style={styles.badge}>Geek Store · Kennedy</span>
+          <span style={styles.badge}>Geek Store</span>
         </header>
         <main style={styles.main}>{children}</main>
       </div>

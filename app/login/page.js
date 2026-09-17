@@ -35,7 +35,6 @@ export default function LoginPage() {
       <form onSubmit={handleSubmit} style={styles.form}>
         <div style={styles.logo}>P</div>
         <h1 style={styles.title}>POS Geek Store</h1>
-        <p style={styles.subtitle}>Kennedy</p>
         <input
           type="password"
           placeholder="Clave de acceso"

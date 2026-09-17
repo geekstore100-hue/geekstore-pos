@@ -9,19 +9,20 @@ export async function GET(request) {
     const desde = searchParams.get('desde') || primerDiaMes;
     const hasta = searchParams.get('hasta') || hoy;
 
+    // Suma el stock de TODAS las bodegas por producto (ya no depende de un nombre de bodega fijo)
     const inventario = await sql`
       SELECT
         p.referencia,
         p.nombre,
-        COALESCE(s.cantidad, 0) AS cantidad,
+        COALESCE(SUM(s.cantidad), 0) AS cantidad,
         p.precio_costo,
         p.precio_venta,
-        COALESCE(s.cantidad, 0) * COALESCE(p.precio_costo, 0) AS valor_costo,
-        COALESCE(s.cantidad, 0) * COALESCE(p.precio_venta, 0) AS valor_venta
+        COALESCE(SUM(s.cantidad), 0) * COALESCE(p.precio_costo, 0) AS valor_costo,
+        COALESCE(SUM(s.cantidad), 0) * COALESCE(p.precio_venta, 0) AS valor_venta
       FROM productos p
-      LEFT JOIN bodegas b ON b.nombre = 'Kennedy'
-      LEFT JOIN stock s ON s.producto_id = p.id AND s.bodega_id = b.id
+      LEFT JOIN stock s ON s.producto_id = p.id
       WHERE p.activo = true
+      GROUP BY p.id, p.referencia, p.nombre, p.precio_costo, p.precio_venta
       ORDER BY valor_costo DESC
     `;
 
