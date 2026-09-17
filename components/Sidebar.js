@@ -2,38 +2,69 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useState } from 'react';
 
 const links = [
   { href: '/', label: 'Inicio', icon: IconHome },
   { href: '/productos', label: 'Productos', icon: IconBox },
   { href: '/ventas', label: 'Vender', icon: IconCart },
-  { href: '/entradas', label: 'Entradas', icon: IconInbox },
+  { href: '/entradas', label: 'Compras', icon: IconInbox },
   { href: '/reportes', label: 'Reportes', icon: IconChart },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const [expandido, setExpandido] = useState(false);
 
   return (
-    <nav style={styles.nav}>
-      <div style={styles.logo}>P</div>
-      {links.map(({ href, label, icon: Icon }) => {
-        const activo = pathname === href;
-        return (
-          <Link
-            key={href}
-            href={href}
-            style={{ ...styles.link, ...(activo ? styles.linkActivo : {}) }}
-            title={label}
-          >
-            <Icon />
-          </Link>
-        );
-      })}
-      <a href="/api/logout" style={{ ...styles.link, marginTop: 'auto', marginBottom: '16px' }} title="Cerrar sesión">
-        <IconLogout />
-      </a>
-    </nav>
+    <div
+      style={{ position: 'relative' }}
+      onMouseEnter={() => setExpandido(true)}
+      onMouseLeave={() => setExpandido(false)}
+    >
+      <nav style={styles.nav}>
+        <div style={styles.logo}>P</div>
+        {links.map(({ href, label, icon: Icon }) => {
+          const activo = pathname === href;
+          return (
+            <Link
+              key={href}
+              href={href}
+              style={{ ...styles.link, ...(activo ? styles.linkActivo : {}) }}
+              title={label}
+            >
+              <Icon />
+            </Link>
+          );
+        })}
+        <a href="/api/logout" style={{ ...styles.link, marginTop: 'auto', marginBottom: '16px' }} title="Cerrar sesión">
+          <IconLogout />
+        </a>
+      </nav>
+
+      {expandido && (
+        <div style={styles.flyout}>
+          <div style={styles.flyoutTitulo}>POS Geek Store</div>
+          {links.map(({ href, label, icon: Icon }) => {
+            const activo = pathname === href;
+            return (
+              <Link
+                key={href}
+                href={href}
+                style={{ ...styles.flyoutLink, ...(activo ? styles.flyoutLinkActivo : {}) }}
+              >
+                <Icon />
+                <span>{label}</span>
+              </Link>
+            );
+          })}
+          <a href="/api/logout" style={{ ...styles.flyoutLink, marginTop: 'auto' }}>
+            <IconLogout />
+            <span>Cerrar sesión</span>
+          </a>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -73,6 +104,43 @@ const styles = {
   linkActivo: {
     background: 'var(--teal-light)',
     color: 'var(--teal-dark)',
+  },
+  flyout: {
+    position: 'absolute',
+    top: 0,
+    left: '64px',
+    width: '220px',
+    minHeight: '100vh',
+    background: '#fff',
+    borderRight: '1px solid var(--border)',
+    boxShadow: '4px 0 20px rgba(0,0,0,0.12)',
+    display: 'flex',
+    flexDirection: 'column',
+    padding: '20px 12px',
+    gap: '4px',
+    zIndex: 200,
+  },
+  flyoutTitulo: {
+    fontWeight: 700,
+    fontSize: '14px',
+    padding: '0 12px',
+    marginBottom: '16px',
+    color: 'var(--text)',
+  },
+  flyoutLink: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '10px 12px',
+    borderRadius: '8px',
+    color: '#6b7280',
+    textDecoration: 'none',
+    fontSize: '14px',
+  },
+  flyoutLinkActivo: {
+    background: 'var(--teal-light)',
+    color: 'var(--teal-dark)',
+    fontWeight: 600,
   },
 };
 

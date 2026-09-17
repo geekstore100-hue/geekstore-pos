@@ -41,3 +41,13 @@ textarea:focus {
   border-color: var(--teal) !important;
   box-shadow: 0 0 0 3px var(--teal-light);
 }
+
+/* Quita las flechitas de los campos numéricos en toda la aplicación, para siempre */
+input[type='number'] {
+  -moz-appearance: textfield;
+}
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}

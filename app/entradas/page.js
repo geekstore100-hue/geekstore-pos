@@ -338,8 +338,21 @@ export default function EntradasPage() {
     return `$${Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
   }
 
+  // Formatea un valor numérico con separador de miles (punto), estilo colombiano: 25000 -> "25.000"
+  function formatearMiles(valor) {
+    const soloDigitos = String(valor ?? '').replace(/\D/g, '');
+    if (!soloDigitos) return '';
+    return Number(soloDigitos).toLocaleString('es-CO');
+  }
+
+  // Toma lo que el usuario escribió, se queda solo con los dígitos, y actualiza la línea con el número "crudo"
+  function actualizarPrecioLinea(key, textoEscrito) {
+    const soloDigitos = textoEscrito.replace(/\D/g, '');
+    actualizarLinea(key, 'precio_unitario', soloDigitos);
+  }
+
   return (
-    <Shell title="Entradas">
+    <Shell title="Compras">
       <div style={styles.card}>
         <h2 style={{ marginTop: 0 }}>Nueva compra</h2>
 
@@ -445,10 +458,10 @@ export default function EntradasPage() {
                   </td>
                   <td style={styles.td}>
                     <input
-                      type="number"
-                      step="0.01"
-                      value={l.precio_unitario}
-                      onChange={(e) => actualizarLinea(l._key, 'precio_unitario', e.target.value)}
+                      type="text"
+                      inputMode="numeric"
+                      value={formatearMiles(l.precio_unitario)}
+                      onChange={(e) => actualizarPrecioLinea(l._key, e.target.value)}
                       placeholder="0"
                       style={styles.inputCelda}
                     />
