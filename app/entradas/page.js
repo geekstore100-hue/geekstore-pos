@@ -21,7 +21,16 @@ function nuevaLinea() {
   };
 }
 
-const productoVacio = { nombre: '', referencia: '', categoria: '', precio_venta: '', precio_costo: '', descripcion: '' };
+const productoVacio = {
+  nombre: '',
+  referencia: '',
+  categoria_id: '',
+  subcategoria_id: '',
+  precio_venta: '',
+  precio_costo: '',
+  precio_distribuidor: '',
+  descripcion: '',
+};
 
 const proveedorVacio = {
   tipo_identificacion: 'CC',
@@ -38,6 +47,8 @@ export default function EntradasPage() {
   const [proveedores, setProveedores] = useState([]);
   const [bodegas, setBodegas] = useState([]);
   const [comprasRecientes, setComprasRecientes] = useState([]);
+  const [categorias, setCategorias] = useState([]);
+  const [subcategoriasModal, setSubcategoriasModal] = useState([]);
   const [carrito, setCarrito] = useState([nuevaLinea()]);
   const [filaBuscando, setFilaBuscando] = useState(null);
 
@@ -67,16 +78,18 @@ export default function EntradasPage() {
   const [guardandoProveedor, setGuardandoProveedor] = useState(false);
 
   async function cargarTodo() {
-    const [rProd, rProv, rBod, rCompras] = await Promise.all([
+    const [rProd, rProv, rBod, rCompras, rCat] = await Promise.all([
       fetch('/api/productos'),
       fetch('/api/proveedores'),
       fetch('/api/bodegas'),
       fetch('/api/compras'),
+      fetch('/api/categorias'),
     ]);
     const dProd = await rProd.json();
     const dProv = await rProv.json();
     const dBod = await rBod.json();
     const dCompras = await rCompras.json();
+    const dCat = await rCat.json();
     if (dProd.ok) setProductos(dProd.productos.filter((p) => p.activo));
     if (dProv.ok) setProveedores(dProv.proveedores);
     if (dBod.ok) {
@@ -88,6 +101,22 @@ export default function EntradasPage() {
       });
     }
     if (dCompras.ok) setComprasRecientes(dCompras.compras);
+    if (dCat.ok) setCategorias(dCat.categorias);
+  }
+
+  async function cargarSubcategoriasModal(categoriaId) {
+    if (!categoriaId) {
+      setSubcategoriasModal([]);
+      return;
+    }
+    const res = await fetch(`/api/subcategorias?categoria_id=${categoriaId}`);
+    const data = await res.json();
+    if (data.ok) setSubcategoriasModal(data.subcategorias);
+  }
+
+  function cambiarCategoriaProducto(categoriaId) {
+    setFormProducto({ ...formProducto, categoria_id: categoriaId, subcategoria_id: '' });
+    cargarSubcategoriasModal(categoriaId);
   }
 
   useEffect(() => {
@@ -128,6 +157,7 @@ export default function EntradasPage() {
   function abrirModalNuevoProducto(key, textoBusqueda) {
     setFilaModal(key);
     setFormProducto({ ...productoVacio, nombre: textoBusqueda || '' });
+    setSubcategoriasModal([]);
     setErrorModal('');
     setModalAbierto(true);
     setFilaBuscando(null);
@@ -137,6 +167,7 @@ export default function EntradasPage() {
     setModalAbierto(false);
     setFilaModal(null);
     setFormProducto(productoVacio);
+    setSubcategoriasModal([]);
     setErrorModal('');
   }
 
@@ -224,9 +255,11 @@ export default function EntradasPage() {
       body: JSON.stringify({
         referencia: formProducto.referencia.trim(),
         nombre: formProducto.nombre.trim(),
-        categoria: formProducto.categoria,
+        categoria_id: formProducto.categoria_id || null,
+        subcategoria_id: formProducto.subcategoria_id || null,
         precio_venta: formProducto.precio_venta || '',
         precio_costo: formProducto.precio_costo || '',
+        precio_distribuidor: formProducto.precio_distribuidor || '',
         descripcion: formProducto.descripcion,
         activo: true,
       }),
@@ -603,12 +636,34 @@ export default function EntradasPage() {
             <div style={styles.grid2}>
               <label style={styles.labelCampo}>
                 Categoría
-                <input
-                  value={formProducto.categoria}
-                  onChange={(e) => setFormProducto({ ...formProducto, categoria: e.target.value })}
+                <select
+                  value={formProducto.categoria_id}
+                  onChange={(e) => cambiarCategoriaProducto(e.target.value)}
                   style={styles.inputCampo}
-                />
+                >
+                  <option value="">Sin categoría</option>
+                  {categorias.map((c) => (
+                    <option key={c.id} value={c.id}>{c.nombre}</option>
+                  ))}
+                </select>
               </label>
+              <label style={styles.labelCampo}>
+                Subcategoría
+                <select
+                  value={formProducto.subcategoria_id}
+                  onChange={(e) => setFormProducto({ ...formProducto, subcategoria_id: e.target.value })}
+                  style={styles.inputCampo}
+                  disabled={!formProducto.categoria_id}
+                >
+                  <option value="">Sin subcategoría</option>
+                  {subcategoriasModal.map((s) => (
+                    <option key={s.id} value={s.id}>{s.nombre}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div style={styles.grid2}>
               <label style={styles.labelCampo}>
                 Precio de venta
                 <input
@@ -616,6 +671,16 @@ export default function EntradasPage() {
                   step="0.01"
                   value={formProducto.precio_venta}
                   onChange={(e) => setFormProducto({ ...formProducto, precio_venta: e.target.value })}
+                  style={styles.inputCampo}
+                />
+              </label>
+              <label style={styles.labelCampo}>
+                Precio de distribuidor
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formProducto.precio_distribuidor}
+                  onChange={(e) => setFormProducto({ ...formProducto, precio_distribuidor: e.target.value })}
                   style={styles.inputCampo}
                 />
               </label>

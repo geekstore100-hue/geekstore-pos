@@ -12,6 +12,17 @@ export default function ConfiguracionesPage() {
   const [editandoId, setEditandoId] = useState(null);
   const [nombreEdicion, setNombreEdicion] = useState('');
 
+  // Categorías y subcategorías
+  const [categorias, setCategorias] = useState([]);
+  const [categoriaSeleccionada, setCategoriaSeleccionada] = useState(null);
+  const [subcategorias, setSubcategorias] = useState([]);
+  const [nombreCategoriaNueva, setNombreCategoriaNueva] = useState('');
+  const [nombreSubcategoriaNueva, setNombreSubcategoriaNueva] = useState('');
+  const [errorCategoria, setErrorCategoria] = useState('');
+  const [errorSubcategoria, setErrorSubcategoria] = useState('');
+  const [guardandoCategoria, setGuardandoCategoria] = useState(false);
+  const [guardandoSubcategoria, setGuardandoSubcategoria] = useState(false);
+
   async function cargar() {
     setCargando(true);
     const res = await fetch('/api/vendedores');
@@ -20,9 +31,80 @@ export default function ConfiguracionesPage() {
     setCargando(false);
   }
 
+  async function cargarCategorias() {
+    const res = await fetch('/api/categorias');
+    const data = await res.json();
+    if (data.ok) setCategorias(data.categorias);
+  }
+
+  async function cargarSubcategorias(categoriaId) {
+    const res = await fetch(`/api/subcategorias?categoria_id=${categoriaId}`);
+    const data = await res.json();
+    if (data.ok) setSubcategorias(data.subcategorias);
+  }
+
   useEffect(() => {
     cargar();
+    cargarCategorias();
   }, []);
+
+  useEffect(() => {
+    if (categoriaSeleccionada) {
+      cargarSubcategorias(categoriaSeleccionada.id);
+    } else {
+      setSubcategorias([]);
+    }
+  }, [categoriaSeleccionada]);
+
+  async function crearCategoria(e) {
+    e.preventDefault();
+    setErrorCategoria('');
+    if (!nombreCategoriaNueva.trim()) {
+      setErrorCategoria('Escribe un nombre');
+      return;
+    }
+    setGuardandoCategoria(true);
+    const res = await fetch('/api/categorias', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nombre: nombreCategoriaNueva }),
+    });
+    const data = await res.json();
+    setGuardandoCategoria(false);
+    if (data.ok) {
+      setNombreCategoriaNueva('');
+      cargarCategorias();
+    } else {
+      setErrorCategoria(data.error || 'No se pudo crear la categoría');
+    }
+  }
+
+  async function crearSubcategoria(e) {
+    e.preventDefault();
+    setErrorSubcategoria('');
+    if (!categoriaSeleccionada) {
+      setErrorSubcategoria('Selecciona primero una categoría');
+      return;
+    }
+    if (!nombreSubcategoriaNueva.trim()) {
+      setErrorSubcategoria('Escribe un nombre');
+      return;
+    }
+    setGuardandoSubcategoria(true);
+    const res = await fetch('/api/subcategorias', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoria_id: categoriaSeleccionada.id, nombre: nombreSubcategoriaNueva }),
+    });
+    const data = await res.json();
+    setGuardandoSubcategoria(false);
+    if (data.ok) {
+      setNombreSubcategoriaNueva('');
+      cargarSubcategorias(categoriaSeleccionada.id);
+    } else {
+      setErrorSubcategoria(data.error || 'No se pudo crear la subcategoría');
+    }
+  }
 
   async function crearVendedor(e) {
     e.preventDefault();
@@ -149,6 +231,106 @@ export default function ConfiguracionesPage() {
           </table>
         )}
       </div>
+
+      <h2 style={{ marginTop: '36px' }}>Categorías y subcategorías</h2>
+      <p style={{ color: 'var(--text-secondary)', marginTop: '-8px' }}>
+        Las opciones que aparecen en el campo "Categoría" de la ficha de un producto.
+      </p>
+
+      <div style={styles.grid2Cat}>
+        <div>
+          <form onSubmit={crearCategoria} style={styles.formCard}>
+            <label style={{ display: 'block', marginBottom: '10px' }}>
+              Nueva categoría
+              <input
+                value={nombreCategoriaNueva}
+                onChange={(e) => setNombreCategoriaNueva(e.target.value)}
+                placeholder="Ej: Computadores"
+                style={styles.input}
+              />
+            </label>
+            {errorCategoria && <p style={{ color: 'var(--danger)' }}>{errorCategoria}</p>}
+            <button type="submit" disabled={guardandoCategoria} style={styles.btnPrimario}>
+              {guardandoCategoria ? 'Guardando...' : '+ Agregar categoría'}
+            </button>
+          </form>
+
+          <div style={styles.tableCard}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                  <th style={styles.th}>Categoría</th>
+                </tr>
+              </thead>
+              <tbody>
+                {categorias.map((c) => (
+                  <tr
+                    key={c.id}
+                    onClick={() => setCategoriaSeleccionada(c)}
+                    style={{
+                      ...styles.filaClickeable,
+                      background: categoriaSeleccionada?.id === c.id ? 'var(--teal-bg, #e6faf7)' : 'transparent',
+                    }}
+                  >
+                    <td style={styles.td}>{c.nombre}</td>
+                  </tr>
+                ))}
+                {categorias.length === 0 && (
+                  <tr>
+                    <td style={styles.td}>No hay categorías creadas todavía.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div>
+          <form onSubmit={crearSubcategoria} style={styles.formCard}>
+            <label style={{ display: 'block', marginBottom: '10px' }}>
+              Nueva subcategoría {categoriaSeleccionada ? `de "${categoriaSeleccionada.nombre}"` : ''}
+              <input
+                value={nombreSubcategoriaNueva}
+                onChange={(e) => setNombreSubcategoriaNueva(e.target.value)}
+                placeholder={categoriaSeleccionada ? 'Ej: Portátiles' : 'Selecciona una categoría primero'}
+                style={styles.input}
+                disabled={!categoriaSeleccionada}
+              />
+            </label>
+            {errorSubcategoria && <p style={{ color: 'var(--danger)' }}>{errorSubcategoria}</p>}
+            <button type="submit" disabled={guardandoSubcategoria || !categoriaSeleccionada} style={styles.btnPrimario}>
+              {guardandoSubcategoria ? 'Guardando...' : '+ Agregar subcategoría'}
+            </button>
+          </form>
+
+          <div style={styles.tableCard}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                  <th style={styles.th}>Subcategoría</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!categoriaSeleccionada && (
+                  <tr>
+                    <td style={styles.td}>Elige una categoría a la izquierda para ver sus subcategorías.</td>
+                  </tr>
+                )}
+                {categoriaSeleccionada && subcategorias.map((s) => (
+                  <tr key={s.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={styles.td}>{s.nombre}</td>
+                  </tr>
+                ))}
+                {categoriaSeleccionada && subcategorias.length === 0 && (
+                  <tr>
+                    <td style={styles.td}>Esta categoría no tiene subcategorías todavía.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </Shell>
   );
 }
@@ -162,4 +344,6 @@ const styles = {
   td: { padding: '10px 8px', fontSize: '14px' },
   btnPrimario: { padding: '9px 16px', borderRadius: '8px', border: 'none', background: 'var(--teal)', color: '#fff', cursor: 'pointer', fontWeight: 600 },
   btnSecundario: { padding: '7px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: '#fff', marginLeft: '8px', cursor: 'pointer', fontSize: '13px' },
+  grid2Cat: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', alignItems: 'start' },
+  filaClickeable: { borderBottom: '1px solid var(--border)', cursor: 'pointer' },
 };

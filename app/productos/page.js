@@ -8,14 +8,18 @@ const vacio = {
   referencia: '',
   nombre: '',
   descripcion: '',
-  categoria: '',
+  categoria_id: '',
+  subcategoria_id: '',
   precio_venta: '',
   precio_costo: '',
+  precio_distribuidor: '',
   activo: true,
 };
 
 export default function ProductosPage() {
   const [productos, setProductos] = useState([]);
+  const [categorias, setCategorias] = useState([]);
+  const [subcategorias, setSubcategorias] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [form, setForm] = useState(vacio);
   const [mostrarForm, setMostrarForm] = useState(false);
@@ -30,12 +34,30 @@ export default function ProductosPage() {
     setCargando(false);
   }
 
+  async function cargarCategorias() {
+    const res = await fetch('/api/categorias');
+    const data = await res.json();
+    if (data.ok) setCategorias(data.categorias);
+  }
+
+  async function cargarSubcategorias(categoriaId) {
+    if (!categoriaId) {
+      setSubcategorias([]);
+      return;
+    }
+    const res = await fetch(`/api/subcategorias?categoria_id=${categoriaId}`);
+    const data = await res.json();
+    if (data.ok) setSubcategorias(data.subcategorias);
+  }
+
   useEffect(() => {
     cargarProductos();
+    cargarCategorias();
   }, []);
 
   function nuevoProducto() {
     setForm(vacio);
+    setSubcategorias([]);
     setError('');
     setMostrarForm(true);
   }
@@ -46,13 +68,21 @@ export default function ProductosPage() {
       referencia: p.referencia,
       nombre: p.nombre,
       descripcion: p.descripcion || '',
-      categoria: p.categoria || '',
+      categoria_id: p.categoria_id || '',
+      subcategoria_id: p.subcategoria_id || '',
       precio_venta: p.precio_venta || '',
       precio_costo: p.precio_costo || '',
+      precio_distribuidor: p.precio_distribuidor || '',
       activo: p.activo,
     });
     setError('');
     setMostrarForm(true);
+    cargarSubcategorias(p.categoria_id || '');
+  }
+
+  function cambiarCategoria(categoriaId) {
+    setForm({ ...form, categoria_id: categoriaId, subcategoria_id: '' });
+    cargarSubcategorias(categoriaId);
   }
 
   async function guardar(e) {
@@ -105,7 +135,26 @@ export default function ProductosPage() {
             </label>
             <label>
               Categoría
-              <input value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })} style={styles.input} />
+              <select value={form.categoria_id} onChange={(e) => cambiarCategoria(e.target.value)} style={styles.input}>
+                <option value="">Sin categoría</option>
+                {categorias.map((c) => (
+                  <option key={c.id} value={c.id}>{c.nombre}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Subcategoría
+              <select
+                value={form.subcategoria_id}
+                onChange={(e) => setForm({ ...form, subcategoria_id: e.target.value })}
+                style={styles.input}
+                disabled={!form.categoria_id}
+              >
+                <option value="">Sin subcategoría</option>
+                {subcategorias.map((s) => (
+                  <option key={s.id} value={s.id}>{s.nombre}</option>
+                ))}
+              </select>
             </label>
             <label>
               Precio de venta
@@ -114,6 +163,10 @@ export default function ProductosPage() {
             <label>
               Precio de costo
               <input type="number" step="0.01" value={form.precio_costo} onChange={(e) => setForm({ ...form, precio_costo: e.target.value })} style={styles.input} />
+            </label>
+            <label>
+              Precio de distribuidor
+              <input type="number" step="0.01" value={form.precio_distribuidor} onChange={(e) => setForm({ ...form, precio_distribuidor: e.target.value })} style={styles.input} />
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '20px' }}>
               <input type="checkbox" checked={form.activo} onChange={(e) => setForm({ ...form, activo: e.target.checked })} />
@@ -145,6 +198,7 @@ export default function ProductosPage() {
                 <th style={styles.th}>Nombre</th>
                 <th style={styles.th}>Categoría</th>
                 <th style={styles.th}>Precio venta</th>
+                <th style={styles.th}>Precio distribuidor</th>
                 <th style={styles.th}>Stock</th>
                 <th style={styles.th}>Activo</th>
                 <th style={styles.th}></th>
@@ -155,8 +209,9 @@ export default function ProductosPage() {
                 <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={styles.td}>{p.referencia}</td>
                   <td style={styles.td}>{p.nombre}</td>
-                  <td style={styles.td}>{p.categoria}</td>
+                  <td style={styles.td}>{p.categoria_nombre || '-'}</td>
                   <td style={styles.td}>{moneda(p.precio_venta)}</td>
+                  <td style={styles.td}>{moneda(p.precio_distribuidor)}</td>
                   <td style={styles.td}>{p.stock}</td>
                   <td style={styles.td}>{p.activo ? 'Sí' : 'No'}</td>
                   <td style={styles.td}>
@@ -166,7 +221,7 @@ export default function ProductosPage() {
               ))}
               {productos.length === 0 && (
                 <tr>
-                  <td style={styles.td} colSpan={7}>No hay productos todavía.</td>
+                  <td style={styles.td} colSpan={8}>No hay productos todavía.</td>
                 </tr>
               )}
             </tbody>
