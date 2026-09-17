@@ -6,13 +6,26 @@ import { useState } from 'react';
 
 const links = [
   { href: '/inicio', label: 'Inicio', icon: IconHome },
-  { href: '/productos', label: 'Productos', icon: IconBox },
+  {
+    href: '/productos',
+    label: 'Inventario',
+    icon: IconBox,
+    children: [
+      { href: '/productos', label: 'Productos', icon: IconBox },
+      { href: '/ajustes-inventario', label: 'Ajustes de inventario', icon: IconAdjust },
+    ],
+  },
   { href: '/ventas', label: 'Vender', icon: IconCart },
   { href: '/entradas', label: 'Compras', icon: IconInbox },
   { href: '/historial', label: 'Historial', icon: IconHistorial },
   { href: '/reportes', label: 'Reportes', icon: IconChart },
   { href: '/configuraciones', label: 'Configuraciones', icon: IconSettings },
 ];
+
+function esActivo(pathname, item) {
+  if (item.children) return item.children.some((c) => pathname === c.href);
+  return pathname === item.href;
+}
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -26,14 +39,15 @@ export default function Sidebar() {
     >
       <nav style={styles.nav}>
         <div style={styles.logo}>P</div>
-        {links.map(({ href, label, icon: Icon }) => {
-          const activo = pathname === href;
+        {links.map((item) => {
+          const activo = esActivo(pathname, item);
+          const Icon = item.icon;
           return (
             <Link
-              key={href}
-              href={href}
+              key={item.href}
+              href={item.href}
               style={{ ...styles.link, ...(activo ? styles.linkActivo : {}) }}
-              title={label}
+              title={item.label}
             >
               <Icon />
             </Link>
@@ -47,16 +61,45 @@ export default function Sidebar() {
       {expandido && (
         <div style={styles.flyout}>
           <div style={styles.flyoutTitulo}>POS Geek Store</div>
-          {links.map(({ href, label, icon: Icon }) => {
-            const activo = pathname === href;
+          {links.map((item) => {
+            const activo = esActivo(pathname, item);
+            const Icon = item.icon;
+
+            if (item.children) {
+              return (
+                <div key={item.href} style={{ marginBottom: '4px' }}>
+                  <div style={{ ...styles.flyoutGrupoTitulo, ...(activo ? styles.flyoutLinkActivo : {}) }}>
+                    <Icon />
+                    <span>{item.label}</span>
+                  </div>
+                  <div style={styles.flyoutSubgrupo}>
+                    {item.children.map((child) => {
+                      const childActivo = pathname === child.href;
+                      const ChildIcon = child.icon;
+                      return (
+                        <Link
+                          key={child.href}
+                          href={child.href}
+                          style={{ ...styles.flyoutLink, ...styles.flyoutLinkHijo, ...(childActivo ? styles.flyoutLinkActivo : {}) }}
+                        >
+                          <ChildIcon />
+                          <span>{child.label}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            }
+
             return (
               <Link
-                key={href}
-                href={href}
+                key={item.href}
+                href={item.href}
                 style={{ ...styles.flyoutLink, ...(activo ? styles.flyoutLinkActivo : {}) }}
               >
                 <Icon />
-                <span>{label}</span>
+                <span>{item.label}</span>
               </Link>
             );
           })}
@@ -144,6 +187,27 @@ const styles = {
     color: 'var(--teal-dark)',
     fontWeight: 600,
   },
+  flyoutGrupoTitulo: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '10px 12px',
+    borderRadius: '8px',
+    color: '#6b7280',
+    fontSize: '14px',
+  },
+  flyoutSubgrupo: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+    marginLeft: '16px',
+    borderLeft: '1px solid var(--border)',
+    paddingLeft: '8px',
+  },
+  flyoutLinkHijo: {
+    fontSize: '13px',
+    padding: '8px 12px',
+  },
 };
 
 function IconHome() {
@@ -205,6 +269,16 @@ function IconSettings() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+    </svg>
+  );
+}
+function IconAdjust() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h13M21 18h-1" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="16" cy="6" r="2" />
+      <circle cx="10" cy="12" r="2" />
+      <circle cx="19" cy="18" r="2" />
     </svg>
   );
 }

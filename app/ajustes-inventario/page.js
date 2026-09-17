@@ -1,0 +1,395 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import Shell from '../../components/Shell';
+
+let contadorKey = 0;
+function nuevaLinea() {
+  contadorKey += 1;
+  return {
+    _key: contadorKey,
+    producto_id: '',
+    busquedaProducto: '',
+    costo: 0,
+    objetivo: 'incrementar',
+    cantidad: '',
+  };
+}
+
+export default function AjustesInventarioPage() {
+  const [productos, setProductos] = useState([]);
+  const [bodegas, setBodegas] = useState([]);
+  const [bodegaId, setBodegaId] = useState('');
+  const [stockPorProducto, setStockPorProducto] = useState({});
+  const [ajustesRecientes, setAjustesRecientes] = useState([]);
+  const [filas, setFilas] = useState([nuevaLinea()]);
+  const [filaBuscando, setFilaBuscando] = useState(null);
+  const [observaciones, setObservaciones] = useState('');
+  const [error, setError] = useState('');
+  const [mensaje, setMensaje] = useState('');
+  const [guardando, setGuardando] = useState(false);
+
+  async function cargarTodo() {
+    const [rProd, rBod, rAjustes] = await Promise.all([
+      fetch('/api/productos'),
+      fetch('/api/bodegas'),
+      fetch('/api/ajustes-inventario'),
+    ]);
+    const dProd = await rProd.json();
+    const dBod = await rBod.json();
+    const dAjustes = await rAjustes.json();
+    if (dProd.ok) setProductos(dProd.productos.filter((p) => p.activo));
+    if (dBod.ok) {
+      setBodegas(dBod.bodegas);
+      setBodegaId((actual) => {
+        if (actual) return actual;
+        const principal = dBod.bodegas.find((b) => b.nombre === 'Principal');
+        return String((principal || dBod.bodegas[0])?.id || '');
+      });
+    }
+    if (dAjustes.ok) setAjustesRecientes(dAjustes.ajustes);
+  }
+
+  async function cargarStock(bId) {
+    if (!bId) {
+      setStockPorProducto({});
+      return;
+    }
+    const res = await fetch(`/api/stock?bodega_id=${bId}`);
+    const data = await res.json();
+    if (data.ok) {
+      const mapa = {};
+      data.stock.forEach((s) => {
+        mapa[s.producto_id] = Number(s.cantidad);
+      });
+      setStockPorProducto(mapa);
+    }
+  }
+
+  useEffect(() => {
+    cargarTodo();
+  }, []);
+
+  useEffect(() => {
+    if (bodegaId) cargarStock(bodegaId);
+  }, [bodegaId]);
+
+  function actualizarFila(key, campo, valor) {
+    setFilas((prev) => prev.map((f) => (f._key === key ? { ...f, [campo]: valor } : f)));
+  }
+
+  function buscarEnFila(key, texto) {
+    setFilas((prev) => prev.map((f) => (f._key === key ? { ...f, busquedaProducto: texto, producto_id: '' } : f)));
+    setFilaBuscando(key);
+  }
+
+  function resultadosPara(texto) {
+    const q = texto.trim().toLowerCase();
+    if (!q) return productos.slice(0, 8);
+    return productos.filter((p) => p.referencia.toLowerCase().includes(q) || p.nombre.toLowerCase().includes(q)).slice(0, 8);
+  }
+
+  function seleccionarProducto(key, producto) {
+    setFilas((prev) =>
+      prev.map((f) =>
+        f._key === key
+          ? {
+              ...f,
+              producto_id: String(producto.id),
+              busquedaProducto: `${producto.referencia} - ${producto.nombre}`,
+              costo: Number(producto.precio_costo) || 0,
+            }
+          : f
+      )
+    );
+    setFilaBuscando(null);
+  }
+
+  function agregarFila() {
+    setFilas((prev) => [...prev, nuevaLinea()]);
+  }
+
+  function quitarFila(key) {
+    setFilas((prev) => (prev.length > 1 ? prev.filter((f) => f._key !== key) : prev));
+  }
+
+  function cantidadActualDe(fila) {
+    if (!fila.producto_id) return 0;
+    return stockPorProducto[fila.producto_id] ?? 0;
+  }
+
+  function cantidadFinalDe(fila) {
+    const actual = cantidadActualDe(fila);
+    const cambio = Number(fila.cantidad) || 0;
+    return fila.objetivo === 'incrementar' ? actual + cambio : actual - cambio;
+  }
+
+  function totalAjustadoDe(fila) {
+    const cambio = Number(fila.cantidad) || 0;
+    return fila.costo * cambio;
+  }
+
+  function moneda(n) {
+    return `$${Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
+  }
+
+  const totalGeneral = filas.reduce((acc, f) => acc + totalAjustadoDe(f), 0);
+
+  async function guardar() {
+    setError('');
+    setMensaje('');
+
+    if (!bodegaId) {
+      setError('Selecciona la bodega');
+      return;
+    }
+    const lineasValidas = filas.filter((f) => f.producto_id && Number(f.cantidad) > 0);
+    if (lineasValidas.length === 0) {
+      setError('Agrega al menos un producto con una cantidad mayor a 0');
+      return;
+    }
+
+    setGuardando(true);
+    const res = await fetch('/api/ajustes-inventario', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bodega_id: bodegaId,
+        observaciones,
+        items: lineasValidas.map((f) => ({
+          producto_id: f.producto_id,
+          objetivo: f.objetivo,
+          cantidad: Number(f.cantidad),
+        })),
+      }),
+    });
+    const data = await res.json();
+    setGuardando(false);
+
+    if (!data.ok) {
+      setError(data.error || 'No se pudo guardar el ajuste');
+      return;
+    }
+
+    setMensaje('Ajuste guardado correctamente');
+    setFilas([nuevaLinea()]);
+    setObservaciones('');
+    cargarTodo();
+    cargarStock(bodegaId);
+  }
+
+  function cancelar() {
+    setFilas([nuevaLinea()]);
+    setObservaciones('');
+    setError('');
+    setMensaje('');
+  }
+
+  return (
+    <Shell title="Ajustes de inventario">
+      <div style={styles.card}>
+        <h2 style={{ marginTop: 0 }}>Nuevo ajuste de inventario</h2>
+        <p style={{ color: 'var(--text-secondary)', marginTop: '-8px' }}>
+          Modifica las cantidades de los productos que tienes en la bodega seleccionada.
+        </p>
+
+        <div style={styles.grid2}>
+          <label style={styles.labelCampo}>
+            Bodega *
+            <select value={bodegaId} onChange={(e) => setBodegaId(e.target.value)} style={styles.inputCampo}>
+              <option value="">Seleccionar</option>
+              {bodegas.map((b) => (
+                <option key={b.id} value={b.id}>{b.nombre}</option>
+              ))}
+            </select>
+          </label>
+          <label style={styles.labelCampo}>
+            Numeración
+            <select value="ajuste" style={styles.inputCampo} disabled>
+              <option value="ajuste">Ajuste de Inventario</option>
+            </select>
+          </label>
+        </div>
+
+        <label style={styles.labelCampo}>
+          Observaciones
+          <textarea
+            value={observaciones}
+            onChange={(e) => setObservaciones(e.target.value)}
+            style={{ ...styles.inputCampo, minHeight: '50px' }}
+          />
+        </label>
+
+        <h3 style={styles.subtitulo}>Productos a ajustar</h3>
+        <div>
+          <table style={styles.tabla}>
+            <thead>
+              <tr style={{ background: 'var(--bg)' }}>
+                <th style={styles.th}>Producto</th>
+                <th style={styles.th}>Costo</th>
+                <th style={styles.th}>Cantidad actual</th>
+                <th style={styles.th}>Objetivo</th>
+                <th style={styles.th}>Cantidad</th>
+                <th style={styles.th}>Cantidad final</th>
+                <th style={styles.th}>Total ajustado</th>
+                <th style={styles.th}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filas.map((f) => (
+                <tr key={f._key} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{ ...styles.td, minWidth: '220px', position: 'relative' }}>
+                    <input
+                      value={f.busquedaProducto}
+                      onChange={(e) => buscarEnFila(f._key, e.target.value)}
+                      onFocus={() => setFilaBuscando(f._key)}
+                      onBlur={() => setTimeout(() => setFilaBuscando((actual) => (actual === f._key ? null : actual)), 150)}
+                      placeholder="Escribe referencia o nombre..."
+                      style={styles.inputCampo}
+                      disabled={!bodegaId}
+                    />
+                    {filaBuscando === f._key && (
+                      <div style={styles.listaResultados}>
+                        {resultadosPara(f.busquedaProducto).map((p) => (
+                          <div key={p.id} onMouseDown={() => seleccionarProducto(f._key, p)} style={styles.itemResultado}>
+                            {p.referencia} — {p.nombre}
+                          </div>
+                        ))}
+                        {resultadosPara(f.busquedaProducto).length === 0 && (
+                          <div style={{ ...styles.itemResultado, color: 'var(--text-secondary)' }}>Sin resultados</div>
+                        )}
+                      </div>
+                    )}
+                  </td>
+                  <td style={styles.td}>{f.producto_id ? moneda(f.costo) : '-'}</td>
+                  <td style={styles.td}>{f.producto_id ? cantidadActualDe(f) : '-'}</td>
+                  <td style={styles.td}>
+                    <select
+                      value={f.objetivo}
+                      onChange={(e) => actualizarFila(f._key, 'objetivo', e.target.value)}
+                      style={styles.inputCelda}
+                    >
+                      <option value="incrementar">Incrementar</option>
+                      <option value="disminuir">Disminuir</option>
+                    </select>
+                  </td>
+                  <td style={styles.td}>
+                    <input
+                      type="number"
+                      min="0"
+                      value={f.cantidad}
+                      onChange={(e) => actualizarFila(f._key, 'cantidad', e.target.value)}
+                      style={styles.inputCelda}
+                    />
+                  </td>
+                  <td style={styles.td}>{f.producto_id ? cantidadFinalDe(f) : '-'}</td>
+                  <td style={styles.td}>{f.producto_id ? moneda(totalAjustadoDe(f)) : '-'}</td>
+                  <td style={styles.td}>
+                    <button type="button" onClick={() => quitarFila(f._key)} style={styles.btnQuitar}>×</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button type="button" onClick={agregarFila} style={styles.linkBtn}>+ Agregar producto</button>
+        </div>
+
+        {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
+        {mensaje && <p style={{ color: 'var(--teal-dark)' }}>{mensaje}</p>}
+
+        <div style={styles.filaInferior}>
+          <div style={{ flex: 1 }} />
+          <div style={styles.resumen}>
+            <div style={{ ...styles.filaResumen, fontWeight: 700 }}>
+              <span>Total del ajuste</span>
+              <span>{moneda(totalGeneral)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div style={styles.filaBotones}>
+          <button type="button" onClick={cancelar} style={styles.btnSecundario}>Cancelar</button>
+          <button type="button" onClick={guardar} disabled={guardando} style={styles.btnPrimario}>
+            {guardando ? 'Guardando...' : 'Guardar cambios'}
+          </button>
+        </div>
+      </div>
+
+      <h3 style={{ marginBottom: '10px' }}>Ajustes recientes</h3>
+      <div style={styles.tableCard}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+              <th style={styles.th}>Fecha</th>
+              <th style={styles.th}>Bodega</th>
+              <th style={styles.th}>Observaciones</th>
+              <th style={styles.th}>Ítems</th>
+              <th style={styles.th}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ajustesRecientes.map((a) => (
+              <tr key={a.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                <td style={styles.td}>{new Date(a.creado_en).toLocaleString('es-CO')}</td>
+                <td style={styles.td}>{a.bodega_nombre || '-'}</td>
+                <td style={styles.td}>{a.observaciones || '-'}</td>
+                <td style={styles.td}>{a.items}</td>
+                <td style={styles.td}>{moneda(a.total)}</td>
+              </tr>
+            ))}
+            {ajustesRecientes.length === 0 && (
+              <tr>
+                <td style={styles.td} colSpan={5}>Sin ajustes registrados.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </Shell>
+  );
+}
+
+const styles = {
+  card: { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '24px', marginBottom: '28px' },
+  subtitulo: { marginBottom: '10px' },
+  grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '4px', maxWidth: '600px' },
+  labelCampo: { display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' },
+  inputCampo: {
+    display: 'block',
+    width: '100%',
+    padding: '9px',
+    marginTop: '4px',
+    borderRadius: '8px',
+    border: '1px solid var(--border)',
+    boxSizing: 'border-box',
+    fontSize: '14px',
+  },
+  linkBtn: { border: 'none', background: 'none', color: 'var(--teal-dark)', cursor: 'pointer', fontSize: '13px', padding: 0, marginTop: '8px' },
+  tabla: { width: '100%', borderCollapse: 'collapse', marginTop: '8px' },
+  th: { padding: '10px 8px', fontSize: '13px', color: 'var(--text-secondary)', textAlign: 'left' },
+  td: { padding: '8px', fontSize: '14px', verticalAlign: 'top' },
+  inputCelda: { width: '110px', padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', boxSizing: 'border-box' },
+  listaResultados: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    background: '#fff',
+    border: '1px solid var(--border)',
+    borderRadius: '8px',
+    marginTop: '2px',
+    maxHeight: '220px',
+    overflowY: 'auto',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+  },
+  itemResultado: { padding: '8px 10px', cursor: 'pointer', borderBottom: '1px solid var(--border)', fontSize: '13px' },
+  btnQuitar: { border: 'none', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '16px' },
+  filaInferior: { display: 'flex', gap: '24px', marginTop: '24px', alignItems: 'flex-start' },
+  resumen: { width: '280px', flexShrink: 0, background: 'var(--bg)', borderRadius: 'var(--radius)', padding: '16px' },
+  filaResumen: { display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '14px' },
+  filaBotones: { display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '16px' },
+  btnSecundario: { padding: '10px 20px', borderRadius: '8px', border: '1px solid var(--border)', background: '#fff', cursor: 'pointer' },
+  btnPrimario: { padding: '10px 20px', borderRadius: '8px', border: 'none', background: 'var(--teal)', color: '#fff', cursor: 'pointer', fontWeight: 600 },
+  tableCard: { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '8px 16px' },
+};
