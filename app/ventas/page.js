@@ -5,20 +5,19 @@ import Shell from '../../components/Shell';
 
 export default function VentasPage() {
   const [productos, setProductos] = useState([]);
-  const [ventasHoy, setVentasHoy] = useState([]);
   const [busqueda, setBusqueda] = useState('');
   const [carrito, setCarrito] = useState([]);
   const [editandoId, setEditandoId] = useState(null);
+  const [medioPago, setMedioPago] = useState('');
+  const [vendedor, setVendedor] = useState('');
   const [error, setError] = useState('');
   const [mensaje, setMensaje] = useState('');
   const [guardando, setGuardando] = useState(false);
 
   async function cargarTodo() {
-    const [rProd, rVentas] = await Promise.all([fetch('/api/productos'), fetch('/api/ventas')]);
-    const dProd = await rProd.json();
-    const dVentas = await rVentas.json();
-    if (dProd.ok) setProductos(dProd.productos.filter((p) => p.activo));
-    if (dVentas.ok) setVentasHoy(dVentas.ventas);
+    const res = await fetch('/api/productos');
+    const data = await res.json();
+    if (data.ok) setProductos(data.productos.filter((p) => p.activo));
   }
 
   useEffect(() => {
@@ -81,12 +80,18 @@ export default function VentasPage() {
       setError('Agrega al menos un producto');
       return;
     }
+    if (!medioPago) {
+      setError('Selecciona el medio de pago');
+      return;
+    }
 
     setGuardando(true);
     const res = await fetch('/api/ventas', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        medio_pago: medioPago,
+        vendedor,
         items: carrito.map((i) => ({
           producto_id: i.producto_id,
           cantidad: i.cantidad,
@@ -102,6 +107,7 @@ export default function VentasPage() {
       setMensaje('Venta registrada.');
       setCarrito([]);
       setEditandoId(null);
+      setMedioPago('');
       cargarTodo();
     } else {
       setError(data.error || 'No se pudo registrar la venta');
@@ -206,29 +212,36 @@ export default function VentasPage() {
             ))}
           </div>
 
-          {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
-          {mensaje && <p style={{ color: 'var(--teal-dark)' }}>{mensaje}</p>}
+          <div style={styles.piePanel}>
+            <div style={styles.filaDosCampos}>
+              <label style={styles.labelCampo}>
+                Medio de pago *
+                <select value={medioPago} onChange={(e) => setMedioPago(e.target.value)} style={styles.inputCampo}>
+                  <option value="">Seleccionar</option>
+                  <option value="Efectivo">Efectivo</option>
+                  <option value="Tarjeta">Tarjeta</option>
+                  <option value="Transferencia">Transferencia</option>
+                  <option value="Otro">Otro</option>
+                </select>
+              </label>
+              <label style={styles.labelCampo}>
+                Vendedor
+                <input value={vendedor} onChange={(e) => setVendedor(e.target.value)} style={styles.inputCampo} />
+              </label>
+            </div>
 
-          <button onClick={confirmarVenta} disabled={guardando || carrito.length === 0} style={styles.btnVender}>
-            <span>{guardando ? 'Registrando...' : 'Vender'}</span>
-            <span>{moneda(total)}</span>
-          </button>
+            {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
+            {mensaje && <p style={{ color: 'var(--teal-dark)' }}>{mensaje}</p>}
 
-          <div style={styles.piePagina}>
-            <span>{carrito.length} producto(s)</span>
-            <button onClick={() => setCarrito([])} style={styles.btnCancelar}>Cancelar</button>
-          </div>
+            <button onClick={confirmarVenta} disabled={guardando || carrito.length === 0} style={styles.btnVender}>
+              <span>{guardando ? 'Registrando...' : 'Vender'}</span>
+              <span>{moneda(total)}</span>
+            </button>
 
-          <h4 style={{ marginTop: '24px' }}>Ventas de hoy</h4>
-          <div>
-            {ventasHoy.map((v) => (
-              <div key={v.id} style={styles.filaVentaHoy}>
-                <span>{new Date(v.creado_en).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</span>
-                <span>{v.items} ítem(s)</span>
-                <span>{moneda(v.total)}</span>
-              </div>
-            ))}
-            {ventasHoy.length === 0 && <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Sin ventas hoy.</p>}
+            <div style={styles.piePagina}>
+              <span>{carrito.length} producto(s)</span>
+              <button onClick={() => setCarrito([])} style={styles.btnCancelar}>Cancelar</button>
+            </div>
           </div>
         </div>
       </div>
@@ -287,8 +300,13 @@ const styles = {
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius)',
     padding: '16px',
+    display: 'flex',
+    flexDirection: 'column',
+    height: 'calc(100vh - 104px)',
+    position: 'sticky',
+    top: '24px',
   },
-  listaCarrito: { maxHeight: '320px', overflowY: 'auto', marginBottom: '12px' },
+  listaCarrito: { flex: 1, overflowY: 'auto', marginBottom: '12px' },
   itemCarrito: { borderBottom: '1px solid var(--border)', padding: '10px 0' },
   itemHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '14px' },
   btnQuitar: { border: 'none', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '16px' },
@@ -298,6 +316,19 @@ const styles = {
   edicion: { display: 'flex', gap: '10px', marginTop: '8px' },
   labelEdicion: { fontSize: '12px', color: 'var(--text-secondary)', flex: 1 },
   inputEdicion: { display: 'block', width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', marginTop: '2px' },
+  piePanel: { flexShrink: 0, borderTop: '1px solid var(--border)', paddingTop: '12px' },
+  filaDosCampos: { display: 'flex', gap: '10px' },
+  labelCampo: { display: 'block', fontSize: '12px', color: 'var(--text-secondary)', flex: 1, marginBottom: '8px' },
+  inputCampo: {
+    display: 'block',
+    width: '100%',
+    padding: '8px',
+    marginTop: '4px',
+    borderRadius: '8px',
+    border: '1px solid var(--border)',
+    boxSizing: 'border-box',
+    fontSize: '13px',
+  },
   btnVender: {
     width: '100%',
     padding: '14px',
@@ -310,9 +341,8 @@ const styles = {
     cursor: 'pointer',
     display: 'flex',
     justifyContent: 'space-between',
-    marginTop: '8px',
+    marginTop: '4px',
   },
   piePagina: { display: 'flex', justifyContent: 'space-between', marginTop: '10px', fontSize: '13px', color: 'var(--text-secondary)' },
   btnCancelar: { border: 'none', background: 'none', color: 'var(--teal-dark)', cursor: 'pointer' },
-  filaVentaHoy: { display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '6px 0', borderBottom: '1px solid var(--border)' },
 };

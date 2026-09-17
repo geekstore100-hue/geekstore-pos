@@ -5,10 +5,11 @@ import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 
 const links = [
-  { href: '/', label: 'Inicio', icon: IconHome },
+  { href: '/inicio', label: 'Inicio', icon: IconHome },
   { href: '/productos', label: 'Productos', icon: IconBox },
   { href: '/ventas', label: 'Vender', icon: IconCart },
   { href: '/entradas', label: 'Compras', icon: IconInbox },
+  { href: '/historial', label: 'Historial', icon: IconHistorial },
   { href: '/reportes', label: 'Reportes', icon: IconChart },
 ];
 
@@ -183,6 +184,14 @@ function IconChart() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <path d="M4 20V10M12 20V4M20 20v-7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconHistorial() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3.5 2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

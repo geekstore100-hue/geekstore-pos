@@ -23,7 +23,7 @@ export default function LoginPage() {
     setCargando(false);
 
     if (res.ok) {
-      router.push('/');
+      router.push('/ventas');
       router.refresh();
     } else {
       setError('Clave incorrecta');

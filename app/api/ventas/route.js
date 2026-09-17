@@ -6,18 +6,38 @@ async function bodegaPrincipalId() {
   return b?.id;
 }
 
-export async function GET() {
+export async function GET(request) {
   try {
-    const ventas = await sql`
-      SELECT
-        v.id,
-        v.total,
-        v.creado_en,
-        (SELECT COUNT(*) FROM movimientos_stock m WHERE m.venta_id = v.id) AS items
-      FROM ventas v
-      WHERE v.creado_en >= CURRENT_DATE
-      ORDER BY v.creado_en DESC
-    `;
+    const { searchParams } = new URL(request.url);
+    const desde = searchParams.get('desde');
+    const hasta = searchParams.get('hasta');
+
+    const ventas =
+      desde && hasta
+        ? await sql`
+            SELECT
+              v.id,
+              v.total,
+              v.medio_pago,
+              v.vendedor,
+              v.creado_en,
+              (SELECT COUNT(*) FROM movimientos_stock m WHERE m.venta_id = v.id) AS items
+            FROM ventas v
+            WHERE v.creado_en::date BETWEEN ${desde} AND ${hasta}
+            ORDER BY v.creado_en DESC
+          `
+        : await sql`
+            SELECT
+              v.id,
+              v.total,
+              v.medio_pago,
+              v.vendedor,
+              v.creado_en,
+              (SELECT COUNT(*) FROM movimientos_stock m WHERE m.venta_id = v.id) AS items
+            FROM ventas v
+            WHERE v.creado_en >= CURRENT_DATE
+            ORDER BY v.creado_en DESC
+          `;
     return NextResponse.json({ ok: true, ventas });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
@@ -26,10 +46,13 @@ export async function GET() {
 
 export async function POST(request) {
   try {
-    const { items } = await request.json();
+    const { items, medio_pago, vendedor } = await request.json();
 
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ ok: false, error: 'Agrega al menos un producto' }, { status: 400 });
+    }
+    if (!medio_pago) {
+      return NextResponse.json({ ok: false, error: 'Selecciona el medio de pago' }, { status: 400 });
     }
 
     const bodegaId = await bodegaPrincipalId();
@@ -58,7 +81,11 @@ export async function POST(request) {
     });
     const total = itemsConTotal.reduce((acc, i) => acc + i.subtotal, 0);
 
-    const [venta] = await sql`INSERT INTO ventas (total) VALUES (${total}) RETURNING id`;
+    const [venta] = await sql`
+      INSERT INTO ventas (total, medio_pago, vendedor)
+      VALUES (${total}, ${medio_pago}, ${vendedor || null})
+      RETURNING id
+    `;
 
     for (const item of itemsConTotal) {
       await sql`
