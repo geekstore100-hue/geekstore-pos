@@ -361,7 +361,7 @@ export default function EntradasPage() {
         </div>
 
         <h3 style={styles.subtitulo}>Productos comprados</h3>
-        <div style={{ overflowX: 'auto' }}>
+        <div>
           <table style={styles.tabla}>
             <thead>
               <tr style={{ background: 'var(--bg)' }}>
