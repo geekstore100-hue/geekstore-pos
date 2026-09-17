@@ -6,9 +6,10 @@ export async function GET(request, { params }) {
     const { id } = await params;
 
     const [venta] = await sql`
-      SELECT id, total, medio_pago, vendedor, creado_en
-      FROM ventas
-      WHERE id = ${id}
+      SELECT v.id, v.total, v.medio_pago, ve.nombre AS vendedor_nombre, v.creado_en
+      FROM ventas v
+      LEFT JOIN vendedores ve ON ve.id = v.vendedor_id
+      WHERE v.id = ${id}
     `;
     if (!venta) {
       return NextResponse.json({ ok: false, error: 'Venta no encontrada' }, { status: 404 });

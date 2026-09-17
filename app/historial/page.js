@@ -97,7 +97,7 @@ export default function HistorialPage() {
               <tr key={v.id} onClick={() => abrirDetalle(v.id)} style={styles.filaClickeable}>
                 <td style={styles.td}>{fechaHora(v.creado_en)}</td>
                 <td style={styles.td}>{v.medio_pago || '-'}</td>
-                <td style={styles.td}>{v.vendedor || '-'}</td>
+                <td style={styles.td}>{v.vendedor_nombre || '-'}</td>
                 <td style={styles.td}>{v.items}</td>
                 <td style={styles.td}>{moneda(v.total)}</td>
               </tr>
@@ -125,7 +125,7 @@ export default function HistorialPage() {
               <>
                 <div style={styles.filaResumen}><span>Fecha y hora</span><strong>{fechaHora(detalle.venta.creado_en)}</strong></div>
                 <div style={styles.filaResumen}><span>Medio de pago</span><strong>{detalle.venta.medio_pago || '-'}</strong></div>
-                <div style={styles.filaResumen}><span>Vendedor</span><strong>{detalle.venta.vendedor || '-'}</strong></div>
+                <div style={styles.filaResumen}><span>Vendedor</span><strong>{detalle.venta.vendedor_nombre || '-'}</strong></div>
 
                 <h4 style={{ marginTop: '20px', marginBottom: '8px' }}>Artículos</h4>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>

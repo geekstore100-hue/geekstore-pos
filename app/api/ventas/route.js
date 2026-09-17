@@ -19,10 +19,11 @@ export async function GET(request) {
               v.id,
               v.total,
               v.medio_pago,
-              v.vendedor,
+              ve.nombre AS vendedor_nombre,
               v.creado_en,
               (SELECT COUNT(*) FROM movimientos_stock m WHERE m.venta_id = v.id) AS items
             FROM ventas v
+            LEFT JOIN vendedores ve ON ve.id = v.vendedor_id
             WHERE v.creado_en::date BETWEEN ${desde} AND ${hasta}
             ORDER BY v.creado_en DESC
           `
@@ -31,10 +32,11 @@ export async function GET(request) {
               v.id,
               v.total,
               v.medio_pago,
-              v.vendedor,
+              ve.nombre AS vendedor_nombre,
               v.creado_en,
               (SELECT COUNT(*) FROM movimientos_stock m WHERE m.venta_id = v.id) AS items
             FROM ventas v
+            LEFT JOIN vendedores ve ON ve.id = v.vendedor_id
             WHERE v.creado_en >= CURRENT_DATE
             ORDER BY v.creado_en DESC
           `;
@@ -46,7 +48,7 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const { items, medio_pago, vendedor } = await request.json();
+    const { items, medio_pago, vendedor_id } = await request.json();
 
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ ok: false, error: 'Agrega al menos un producto' }, { status: 400 });
@@ -82,8 +84,8 @@ export async function POST(request) {
     const total = itemsConTotal.reduce((acc, i) => acc + i.subtotal, 0);
 
     const [venta] = await sql`
-      INSERT INTO ventas (total, medio_pago, vendedor)
-      VALUES (${total}, ${medio_pago}, ${vendedor || null})
+      INSERT INTO ventas (total, medio_pago, vendedor_id)
+      VALUES (${total}, ${medio_pago}, ${vendedor_id || null})
       RETURNING id
     `;
 

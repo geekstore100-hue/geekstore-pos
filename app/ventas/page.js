@@ -5,19 +5,22 @@ import Shell from '../../components/Shell';
 
 export default function VentasPage() {
   const [productos, setProductos] = useState([]);
+  const [vendedores, setVendedores] = useState([]);
   const [busqueda, setBusqueda] = useState('');
   const [carrito, setCarrito] = useState([]);
   const [editandoId, setEditandoId] = useState(null);
   const [medioPago, setMedioPago] = useState('');
-  const [vendedor, setVendedor] = useState('');
+  const [vendedorId, setVendedorId] = useState('');
   const [error, setError] = useState('');
   const [mensaje, setMensaje] = useState('');
   const [guardando, setGuardando] = useState(false);
 
   async function cargarTodo() {
-    const res = await fetch('/api/productos');
-    const data = await res.json();
-    if (data.ok) setProductos(data.productos.filter((p) => p.activo));
+    const [rProd, rVend] = await Promise.all([fetch('/api/productos'), fetch('/api/vendedores')]);
+    const dProd = await rProd.json();
+    const dVend = await rVend.json();
+    if (dProd.ok) setProductos(dProd.productos.filter((p) => p.activo));
+    if (dVend.ok) setVendedores(dVend.vendedores.filter((v) => v.activo));
   }
 
   useEffect(() => {
@@ -91,7 +94,7 @@ export default function VentasPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         medio_pago: medioPago,
-        vendedor,
+        vendedor_id: vendedorId ? Number(vendedorId) : null,
         items: carrito.map((i) => ({
           producto_id: i.producto_id,
           cantidad: i.cantidad,
@@ -226,7 +229,12 @@ export default function VentasPage() {
               </label>
               <label style={styles.labelCampo}>
                 Vendedor
-                <input value={vendedor} onChange={(e) => setVendedor(e.target.value)} style={styles.inputCampo} />
+                <select value={vendedorId} onChange={(e) => setVendedorId(e.target.value)} style={styles.inputCampo}>
+                  <option value="">Seleccionar</option>
+                  {vendedores.map((v) => (
+                    <option key={v.id} value={v.id}>{v.nombre}</option>
+                  ))}
+                </select>
               </label>
             </div>
 
