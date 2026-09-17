@@ -4,7 +4,7 @@ import sql from '../../../lib/db';
 export async function GET() {
   try {
     const proveedores = await sql`
-      SELECT id, nombre, identificacion, tipo_identificacion, telefono, correo, direccion, ciudad
+      SELECT id, nombre, identificacion, tipo_identificacion, dv, telefono, correo, direccion, ciudad
       FROM proveedores
       ORDER BY nombre ASC
     `;
@@ -16,7 +16,7 @@ export async function GET() {
 
 export async function POST(request) {
   try {
-    const { nombre, identificacion, tipo_identificacion, telefono, correo, direccion, ciudad } = await request.json();
+    const { nombre, identificacion, tipo_identificacion, dv, telefono, correo, direccion, ciudad } = await request.json();
 
     if (!nombre || !nombre.trim()) {
       return NextResponse.json({ ok: false, error: 'El nombre del proveedor es obligatorio' }, { status: 400 });
@@ -26,17 +26,18 @@ export async function POST(request) {
     }
 
     const [proveedor] = await sql`
-      INSERT INTO proveedores (nombre, identificacion, tipo_identificacion, telefono, correo, direccion, ciudad)
+      INSERT INTO proveedores (nombre, identificacion, tipo_identificacion, dv, telefono, correo, direccion, ciudad)
       VALUES (
         ${nombre.trim()},
         ${String(identificacion).trim()},
         ${tipo_identificacion || 'CC'},
+        ${dv || null},
         ${telefono || null},
         ${correo || null},
         ${direccion || null},
         ${ciudad || null}
       )
-      RETURNING id, nombre, identificacion, tipo_identificacion, telefono, correo, direccion, ciudad
+      RETURNING id, nombre, identificacion, tipo_identificacion, dv, telefono, correo, direccion, ciudad
     `;
 
     return NextResponse.json({ ok: true, proveedor });

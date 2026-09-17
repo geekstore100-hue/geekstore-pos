@@ -108,7 +108,7 @@ const styles = {
   flyout: {
     position: 'absolute',
     top: 0,
-    left: '64px',
+    left: 0,
     width: '220px',
     minHeight: '100vh',
     background: '#fff',

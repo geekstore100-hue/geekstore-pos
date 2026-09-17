@@ -140,6 +140,19 @@ export default function EntradasPage() {
     setErrorModal('');
   }
 
+  // Dígito de verificación del NIT, algoritmo oficial de la DIAN (módulo 11)
+  function calcularDVNit(nit) {
+    const digitos = String(nit || '').replace(/\D/g, '');
+    if (!digitos) return '';
+    const pesos = [3, 7, 13, 17, 19, 23, 29, 37, 41, 43, 47, 53, 59, 67, 71];
+    let suma = 0;
+    for (let i = 0; i < digitos.length && i < pesos.length; i++) {
+      suma += Number(digitos[digitos.length - 1 - i]) * pesos[i];
+    }
+    const resto = suma % 11;
+    return String(resto <= 1 ? resto : 11 - resto);
+  }
+
   function abrirPanelNuevoProveedor() {
     setFormProveedor(proveedorVacio);
     setErrorProveedor('');
@@ -166,6 +179,7 @@ export default function EntradasPage() {
       body: JSON.stringify({
         tipo_identificacion: formProveedor.tipo_identificacion,
         identificacion: formProveedor.identificacion.trim(),
+        dv: formProveedor.tipo_identificacion === 'NIT' ? calcularDVNit(formProveedor.identificacion) : null,
         nombre: formProveedor.nombre.trim(),
         correo: formProveedor.correo,
         telefono: formProveedor.telefono,
@@ -661,14 +675,31 @@ export default function EntradasPage() {
               </select>
             </label>
 
-            <label style={styles.labelCampo}>
-              Identificación *
-              <input
-                value={formProveedor.identificacion}
-                onChange={(e) => setFormProveedor({ ...formProveedor, identificacion: e.target.value })}
-                style={styles.inputCampo}
-              />
-            </label>
+            {formProveedor.tipo_identificacion === 'NIT' ? (
+              <div style={styles.grid2}>
+                <label style={styles.labelCampo}>
+                  Identificación *
+                  <input
+                    value={formProveedor.identificacion}
+                    onChange={(e) => setFormProveedor({ ...formProveedor, identificacion: e.target.value })}
+                    style={styles.inputCampo}
+                  />
+                </label>
+                <label style={styles.labelCampo}>
+                  DV
+                  <input value={calcularDVNit(formProveedor.identificacion)} disabled style={styles.inputCampo} />
+                </label>
+              </div>
+            ) : (
+              <label style={styles.labelCampo}>
+                Identificación *
+                <input
+                  value={formProveedor.identificacion}
+                  onChange={(e) => setFormProveedor({ ...formProveedor, identificacion: e.target.value })}
+                  style={styles.inputCampo}
+                />
+              </label>
+            )}
 
             <label style={styles.labelCampo}>
               {formProveedor.tipo_identificacion === 'NIT' ? 'Razón social *' : 'Nombre completo *'}
