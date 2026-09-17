@@ -68,6 +68,21 @@ export async function POST(request) {
     `;
 
     for (const item of itemsConTotal) {
+      // Costo promedio ponderado móvil (cumple NIC 2 / NIIF para pymes):
+      // el nuevo costo se calcula con el stock y costo actuales ANTES de sumar esta compra.
+      const [actual] = await sql`
+        SELECT COALESCE(s.cantidad, 0) AS cantidad, COALESCE(pr.precio_costo, 0) AS precio_costo
+        FROM productos pr
+        LEFT JOIN stock s ON s.producto_id = pr.id AND s.bodega_id = ${bodegaId}
+        WHERE pr.id = ${item.producto_id}
+      `;
+      const stockActual = Number(actual?.cantidad) || 0;
+      const costoActual = Number(actual?.precio_costo) || 0;
+      const cantidadComprada = Number(item.cantidad);
+      const stockNuevo = stockActual + cantidadComprada;
+      const costoPromedioNuevo =
+        stockNuevo > 0 ? (stockActual * costoActual + cantidadComprada * item.precioNeto) / stockNuevo : item.precioNeto;
+
       await sql`
         INSERT INTO stock (producto_id, bodega_id, cantidad)
         VALUES (${item.producto_id}, ${bodegaId}, ${item.cantidad})
@@ -78,9 +93,9 @@ export async function POST(request) {
         INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, descuento_porcentaje, compra_id)
         VALUES (${item.producto_id}, ${bodegaId}, 'entrada', ${item.cantidad}, ${item.precioNeto}, ${item.descuento_porcentaje || 0}, ${compra.id})
       `;
-      // Actualiza el precio de costo del producto al último precio de compra
+      // Actualiza el costo del producto al promedio ponderado móvil (no al último precio pagado)
       await sql`
-        UPDATE productos SET precio_costo = ${item.precioNeto}, actualizado_en = now()
+        UPDATE productos SET precio_costo = ${costoPromedioNuevo}, actualizado_en = now()
         WHERE id = ${item.producto_id}
       `;
     }
