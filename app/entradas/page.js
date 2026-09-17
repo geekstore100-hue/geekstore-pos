@@ -1,29 +1,43 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Shell from '../../components/Shell';
 
 function hoyISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
+let contadorKey = 0;
+function nuevaLinea() {
+  contadorKey += 1;
+  return {
+    _key: contadorKey,
+    producto_id: '',
+    nombreNuevo: '',
+    referenciaNuevo: '',
+    precio_unitario: '',
+    descuento_porcentaje: '',
+    cantidad: 1,
+    observaciones: '',
+  };
+}
+
 export default function EntradasPage() {
   const [productos, setProductos] = useState([]);
   const [proveedores, setProveedores] = useState([]);
   const [comprasRecientes, setComprasRecientes] = useState([]);
-  const [busqueda, setBusqueda] = useState('');
-  const [carrito, setCarrito] = useState([]);
-  const [editandoId, setEditandoId] = useState(null);
+  const [carrito, setCarrito] = useState([nuevaLinea()]);
+
+  const [numeroFactura, setNumeroFactura] = useState('');
+  const [fechaCompra, setFechaCompra] = useState(hoyISO());
+  const [fechaVencimiento, setFechaVencimiento] = useState(hoyISO());
+  const [notas, setNotas] = useState('');
 
   const [proveedorId, setProveedorId] = useState('');
   const [nuevoProveedor, setNuevoProveedor] = useState(false);
   const [nombreProveedor, setNombreProveedor] = useState('');
   const [identificacionProveedor, setIdentificacionProveedor] = useState('');
   const [telefonoProveedor, setTelefonoProveedor] = useState('');
-
-  const [numeroFactura, setNumeroFactura] = useState('');
-  const [fechaCompra, setFechaCompra] = useState(hoyISO());
-  const [notas, setNotas] = useState('');
 
   const [error, setError] = useState('');
   const [mensaje, setMensaje] = useState('');
@@ -38,7 +52,7 @@ export default function EntradasPage() {
     const dProd = await rProd.json();
     const dProv = await rProv.json();
     const dCompras = await rCompras.json();
-    if (dProd.ok) setProductos(dProd.productos);
+    if (dProd.ok) setProductos(dProd.productos.filter((p) => p.activo));
     if (dProv.ok) setProveedores(dProv.proveedores);
     if (dCompras.ok) setComprasRecientes(dCompras.compras);
   }
@@ -47,59 +61,98 @@ export default function EntradasPage() {
     cargarTodo();
   }, []);
 
-  const filtrados = useMemo(() => {
-    const q = busqueda.trim().toLowerCase();
-    if (!q) return productos;
-    return productos.filter((p) => p.referencia.toLowerCase().includes(q) || p.nombre.toLowerCase().includes(q));
-  }, [busqueda, productos]);
-
-  function agregarAlCarrito(producto) {
-    setCarrito((prev) => {
-      const existente = prev.find((i) => i.producto_id === producto.id);
-      if (existente) {
-        return prev.map((i) => (i.producto_id === producto.id ? { ...i, cantidad: i.cantidad + 1 } : i));
-      }
-      return [
-        ...prev,
-        {
-          producto_id: producto.id,
-          referencia: producto.referencia,
-          nombre: producto.nombre,
-          cantidad: 1,
-          precio_unitario: Number(producto.precio_costo) || 0,
-          descuento_porcentaje: 0,
-        },
-      ];
-    });
+  function actualizarLinea(key, campo, valor) {
+    setCarrito((prev) => prev.map((l) => (l._key === key ? { ...l, [campo]: valor } : l)));
   }
 
-  function cambiarCantidad(producto_id, delta) {
+  function seleccionarProducto(key, valor) {
+    if (valor === '__nuevo__') {
+      actualizarLinea(key, 'producto_id', '__nuevo__');
+      return;
+    }
+    const producto = productos.find((p) => String(p.id) === String(valor));
     setCarrito((prev) =>
-      prev.map((i) => (i.producto_id === producto_id ? { ...i, cantidad: i.cantidad + delta } : i)).filter((i) => i.cantidad > 0)
+      prev.map((l) =>
+        l._key === key
+          ? { ...l, producto_id: valor, precio_unitario: producto?.precio_costo || l.precio_unitario || '' }
+          : l
+      )
     );
   }
 
-  function quitarDelCarrito(producto_id) {
-    setCarrito((prev) => prev.filter((i) => i.producto_id !== producto_id));
-    setEditandoId(null);
+  async function crearProductoEnLinea(key) {
+    setError('');
+    const linea = carrito.find((l) => l._key === key);
+    if (!linea.nombreNuevo.trim() || !linea.referenciaNuevo.trim()) {
+      setError('Completa nombre y referencia del nuevo producto');
+      return;
+    }
+
+    const res = await fetch('/api/productos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        referencia: linea.referenciaNuevo.trim(),
+        nombre: linea.nombreNuevo.trim(),
+        activo: true,
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      setError(data.error || 'No se pudo crear el producto');
+      return;
+    }
+
+    const rProd = await fetch('/api/productos');
+    const dProd = await rProd.json();
+    let nuevoId = data.producto?.id ?? data.id ?? null;
+    if (dProd.ok) {
+      setProductos(dProd.productos.filter((p) => p.activo));
+      if (!nuevoId) {
+        const encontrado = dProd.productos.find((p) => p.referencia === linea.referenciaNuevo.trim());
+        nuevoId = encontrado?.id ?? null;
+      }
+    }
+
+    if (!nuevoId) {
+      setError('El producto se creó pero no se pudo seleccionar automáticamente. Búscalo en la lista.');
+      return;
+    }
+
+    setCarrito((prev) =>
+      prev.map((l) => (l._key === key ? { ...l, producto_id: String(nuevoId), nombreNuevo: '', referenciaNuevo: '' } : l))
+    );
   }
 
-  function actualizarItem(producto_id, campo, valor) {
-    setCarrito((prev) => prev.map((i) => (i.producto_id === producto_id ? { ...i, [campo]: valor } : i)));
+  function agregarLinea() {
+    setCarrito((prev) => [...prev, nuevaLinea()]);
   }
 
-  function subtotalItem(item) {
-    const descuento = Number(item.descuento_porcentaje) || 0;
-    return item.cantidad * Number(item.precio_unitario) * (1 - descuento / 100);
+  function quitarLinea(key) {
+    setCarrito((prev) => (prev.length === 1 ? prev : prev.filter((l) => l._key !== key)));
   }
 
-  const total = carrito.reduce((acc, i) => acc + subtotalItem(i), 0);
+  function lineaTotal(l) {
+    const descuento = Number(l.descuento_porcentaje) || 0;
+    const precio = Number(l.precio_unitario) || 0;
+    const cantidad = Number(l.cantidad) || 0;
+    return precio * cantidad * (1 - descuento / 100);
+  }
+
+  function lineaSubtotal(l) {
+    return (Number(l.precio_unitario) || 0) * (Number(l.cantidad) || 0);
+  }
+
+  const lineasValidas = carrito.filter((l) => l.producto_id && l.producto_id !== '__nuevo__');
+  const subtotal = lineasValidas.reduce((acc, l) => acc + lineaSubtotal(l), 0);
+  const total = lineasValidas.reduce((acc, l) => acc + lineaTotal(l), 0);
+  const descuentoTotal = subtotal - total;
 
   async function confirmarCompra() {
     setError('');
     setMensaje('');
 
-    if (carrito.length === 0) {
+    if (lineasValidas.length === 0) {
       setError('Agrega al menos un producto');
       return;
     }
@@ -119,12 +172,14 @@ export default function EntradasPage() {
           : null,
         numero_factura: numeroFactura,
         fecha_compra: fechaCompra,
+        fecha_vencimiento: fechaVencimiento,
         notas,
-        items: carrito.map((i) => ({
-          producto_id: i.producto_id,
-          cantidad: i.cantidad,
-          precio_unitario: i.precio_unitario,
-          descuento_porcentaje: i.descuento_porcentaje || 0,
+        items: lineasValidas.map((l) => ({
+          producto_id: Number(l.producto_id),
+          cantidad: Number(l.cantidad) || 0,
+          precio_unitario: Number(l.precio_unitario) || 0,
+          descuento_porcentaje: Number(l.descuento_porcentaje) || 0,
+          observaciones: l.observaciones,
         })),
       }),
     });
@@ -133,8 +188,7 @@ export default function EntradasPage() {
 
     if (data.ok) {
       setMensaje('Compra registrada.');
-      setCarrito([]);
-      setEditandoId(null);
+      setCarrito([nuevaLinea()]);
       setProveedorId('');
       setNuevoProveedor(false);
       setNombreProveedor('');
@@ -143,6 +197,7 @@ export default function EntradasPage() {
       setNumeroFactura('');
       setNotas('');
       setFechaCompra(hoyISO());
+      setFechaVencimiento(hoyISO());
       cargarTodo();
     } else {
       setError(data.error || 'No se pudo registrar la compra');
@@ -155,250 +210,256 @@ export default function EntradasPage() {
 
   return (
     <Shell title="Entradas">
-      <div style={styles.layout}>
-        <div style={styles.columnaProductos}>
-          <input
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-            placeholder="Buscar productos por referencia o nombre..."
-            style={styles.buscador}
-          />
-          <div style={styles.grid}>
-            {filtrados.map((p) => {
-              const enCarrito = carrito.find((i) => i.producto_id === p.id);
-              return (
-                <div
-                  key={p.id}
-                  onClick={() => agregarAlCarrito(p)}
-                  style={{
-                    ...styles.tarjeta,
-                    ...(enCarrito ? styles.tarjetaActiva : {}),
-                  }}
-                >
-                  <div style={styles.tarjetaTop}>
-                    <span style={styles.referencia}>{p.referencia}</span>
-                    {enCarrito && <span style={styles.badgeCantidad}>{enCarrito.cantidad}</span>}
-                  </div>
-                  <div style={styles.icono}>📦</div>
-                  <div style={styles.nombre}>{p.nombre}</div>
-                  <div style={styles.precio}>Stock: {p.stock}</div>
-                </div>
-              );
-            })}
-            {filtrados.length === 0 && <p style={{ color: 'var(--text-secondary)' }}>Sin productos.</p>}
-          </div>
+      <div style={styles.card}>
+        <h2 style={{ marginTop: 0 }}>Nueva compra</h2>
+
+        <div style={styles.filaTop}>
+          <label style={styles.labelCampo}>
+            Factura de compra N°
+            <input value={numeroFactura} onChange={(e) => setNumeroFactura(e.target.value)} style={styles.inputCampo} />
+          </label>
+          <label style={styles.labelCampo}>
+            Fecha de compra
+            <input type="date" value={fechaCompra} onChange={(e) => setFechaCompra(e.target.value)} style={styles.inputCampo} />
+          </label>
         </div>
 
-        <div style={styles.columnaCarrito}>
-          <h3 style={{ marginTop: 0 }}>Factura de compra</h3>
-
-          <label style={styles.labelCampo}>
-            Proveedor
-            {!nuevoProveedor ? (
-              <select
-                value={proveedorId}
-                onChange={(e) => {
-                  if (e.target.value === '__nuevo__') {
-                    setNuevoProveedor(true);
-                    setProveedorId('');
-                  } else {
-                    setProveedorId(e.target.value);
-                  }
-                }}
-                style={styles.inputCampo}
-              >
-                <option value="">Selecciona un proveedor...</option>
-                {proveedores.map((p) => (
-                  <option key={p.id} value={p.id}>{p.nombre}</option>
-                ))}
-                <option value="__nuevo__">+ Nuevo proveedor</option>
-              </select>
-            ) : (
-              <div style={styles.nuevoProveedorBox}>
+        <h3 style={styles.subtitulo}>Información general</h3>
+        <div style={styles.grid3}>
+          <div>
+            <label style={styles.labelCampo}>
+              Proveedor *
+              {!nuevoProveedor ? (
+                <select value={proveedorId} onChange={(e) => setProveedorId(e.target.value)} style={styles.inputCampo}>
+                  <option value="">Seleccionar</option>
+                  {proveedores.map((p) => (
+                    <option key={p.id} value={p.id}>{p.nombre}</option>
+                  ))}
+                </select>
+              ) : (
                 <input
                   value={nombreProveedor}
                   onChange={(e) => setNombreProveedor(e.target.value)}
                   placeholder="Nombre del proveedor"
                   style={styles.inputCampo}
                 />
-                <input
-                  value={identificacionProveedor}
-                  onChange={(e) => setIdentificacionProveedor(e.target.value)}
-                  placeholder="NIT / identificación (opcional)"
-                  style={styles.inputCampo}
-                />
-                <input
-                  value={telefonoProveedor}
-                  onChange={(e) => setTelefonoProveedor(e.target.value)}
-                  placeholder="Teléfono (opcional)"
-                  style={styles.inputCampo}
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setNuevoProveedor(false);
-                    setNombreProveedor('');
-                    setIdentificacionProveedor('');
-                    setTelefonoProveedor('');
-                  }}
-                  style={styles.btnCancelarChico}
-                >
-                  Cancelar, elegir existente
-                </button>
-              </div>
-            )}
-          </label>
-
-          <div style={styles.filaDosCampos}>
-            <label style={styles.labelCampo}>
-              N.º de factura
-              <input value={numeroFactura} onChange={(e) => setNumeroFactura(e.target.value)} style={styles.inputCampo} />
+              )}
             </label>
-            <label style={styles.labelCampo}>
-              Fecha de compra
-              <input type="date" value={fechaCompra} onChange={(e) => setFechaCompra(e.target.value)} style={styles.inputCampo} />
-            </label>
+            <button
+              type="button"
+              onClick={() => {
+                setNuevoProveedor(!nuevoProveedor);
+                setProveedorId('');
+                setNombreProveedor('');
+              }}
+              style={styles.linkBtn}
+            >
+              {nuevoProveedor ? 'Cancelar, elegir existente' : '+ Nuevo proveedor'}
+            </button>
           </div>
-
-          <div style={styles.listaCarrito}>
-            {carrito.length === 0 && <p style={{ color: 'var(--text-secondary)' }}>Toca un producto para agregarlo.</p>}
-            {carrito.map((item) => (
-              <div key={item.producto_id} style={styles.itemCarrito}>
-                <div style={styles.itemHeader}>
-                  <strong
-                    onClick={() => setEditandoId(editandoId === item.producto_id ? null : item.producto_id)}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    {item.nombre}
-                  </strong>
-                  <button onClick={() => quitarDelCarrito(item.producto_id)} style={styles.btnQuitar}>×</button>
-                </div>
-
-                <div style={styles.itemControles}>
-                  <div style={styles.stepper}>
-                    <button onClick={() => cambiarCantidad(item.producto_id, -1)} style={styles.stepperBtn}>−</button>
-                    <span>{item.cantidad}</span>
-                    <button onClick={() => cambiarCantidad(item.producto_id, 1)} style={styles.stepperBtn}>+</button>
-                  </div>
-                  <span style={{ fontWeight: 600 }}>{moneda(subtotalItem(item))}</span>
-                </div>
-
-                {editandoId === item.producto_id && (
-                  <div style={styles.edicion}>
-                    <label style={styles.labelEdicion}>
-                      Precio
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={item.precio_unitario}
-                        onChange={(e) => actualizarItem(item.producto_id, 'precio_unitario', e.target.value)}
-                        style={styles.inputEdicion}
-                      />
-                    </label>
-                    <label style={styles.labelEdicion}>
-                      Descuento %
-                      <input
-                        type="number"
-                        step="1"
-                        min="0"
-                        max="100"
-                        value={item.descuento_porcentaje}
-                        onChange={(e) => actualizarItem(item.producto_id, 'descuento_porcentaje', e.target.value)}
-                        style={styles.inputEdicion}
-                      />
-                    </label>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-
           <label style={styles.labelCampo}>
-            Notas (opcional)
-            <input value={notas} onChange={(e) => setNotas(e.target.value)} style={styles.inputCampo} />
+            Identificación
+            <input
+              value={identificacionProveedor}
+              onChange={(e) => setIdentificacionProveedor(e.target.value)}
+              style={styles.inputCampo}
+              disabled={!nuevoProveedor && !!proveedorId}
+            />
           </label>
+          <label style={styles.labelCampo}>
+            Teléfono
+            <input
+              value={telefonoProveedor}
+              onChange={(e) => setTelefonoProveedor(e.target.value)}
+              style={styles.inputCampo}
+              disabled={!nuevoProveedor && !!proveedorId}
+            />
+          </label>
+        </div>
 
-          {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
-          {mensaje && <p style={{ color: 'var(--teal-dark)' }}>{mensaje}</p>}
+        <div style={styles.grid3}>
+          <label style={styles.labelCampo}>
+            Moneda
+            <input value="COP" disabled style={styles.inputCampo} />
+          </label>
+          <label style={styles.labelCampo}>
+            Fecha de vencimiento *
+            <input type="date" value={fechaVencimiento} onChange={(e) => setFechaVencimiento(e.target.value)} style={styles.inputCampo} />
+          </label>
+          <label style={styles.labelCampo}>
+            Bodega
+            <select disabled style={styles.inputCampo}>
+              <option>Kennedy</option>
+            </select>
+          </label>
+        </div>
 
-          <button onClick={confirmarCompra} disabled={guardando || carrito.length === 0} style={styles.btnVender}>
-            <span>{guardando ? 'Registrando...' : 'Registrar compra'}</span>
-            <span>{moneda(total)}</span>
-          </button>
+        <h3 style={styles.subtitulo}>Productos comprados</h3>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={styles.tabla}>
+            <thead>
+              <tr style={{ background: 'var(--bg)' }}>
+                <th style={styles.th}>Producto</th>
+                <th style={styles.th}>Precio</th>
+                <th style={styles.th}>Descuento %</th>
+                <th style={styles.th}>Cantidad</th>
+                <th style={styles.th}>Observaciones</th>
+                <th style={styles.th}>Total</th>
+                <th style={styles.th}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {carrito.map((l) => (
+                <tr key={l._key} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{ ...styles.td, minWidth: '220px' }}>
+                    {l.producto_id === '__nuevo__' ? (
+                      <div style={styles.nuevoProductoBox}>
+                        <input
+                          value={l.nombreNuevo}
+                          onChange={(e) => actualizarLinea(l._key, 'nombreNuevo', e.target.value)}
+                          placeholder="Nombre del producto"
+                          style={styles.inputCampo}
+                        />
+                        <input
+                          value={l.referenciaNuevo}
+                          onChange={(e) => actualizarLinea(l._key, 'referenciaNuevo', e.target.value)}
+                          placeholder="Referencia"
+                          style={styles.inputCampo}
+                        />
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button type="button" onClick={() => crearProductoEnLinea(l._key)} style={styles.btnCrearChico}>Crear</button>
+                          <button type="button" onClick={() => actualizarLinea(l._key, 'producto_id', '')} style={styles.linkBtn}>Cancelar</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <select
+                        value={l.producto_id}
+                        onChange={(e) => seleccionarProducto(l._key, e.target.value)}
+                        style={styles.inputCampo}
+                      >
+                        <option value="">Seleccionar</option>
+                        {productos.map((p) => (
+                          <option key={p.id} value={p.id}>{p.referencia} - {p.nombre}</option>
+                        ))}
+                        <option value="__nuevo__">+ Crear nuevo producto</option>
+                      </select>
+                    )}
+                  </td>
+                  <td style={styles.td}>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={l.precio_unitario}
+                      onChange={(e) => actualizarLinea(l._key, 'precio_unitario', e.target.value)}
+                      placeholder="0"
+                      style={styles.inputCelda}
+                    />
+                  </td>
+                  <td style={styles.td}>
+                    <input
+                      type="number"
+                      step="1"
+                      min="0"
+                      max="100"
+                      value={l.descuento_porcentaje}
+                      onChange={(e) => actualizarLinea(l._key, 'descuento_porcentaje', e.target.value)}
+                      placeholder="0"
+                      style={styles.inputCelda}
+                    />
+                  </td>
+                  <td style={styles.td}>
+                    <input
+                      type="number"
+                      min="1"
+                      value={l.cantidad}
+                      onChange={(e) => actualizarLinea(l._key, 'cantidad', e.target.value)}
+                      style={styles.inputCelda}
+                    />
+                  </td>
+                  <td style={styles.td}>
+                    <input
+                      value={l.observaciones}
+                      onChange={(e) => actualizarLinea(l._key, 'observaciones', e.target.value)}
+                      placeholder="Observaciones"
+                      style={styles.inputCelda}
+                    />
+                  </td>
+                  <td style={{ ...styles.td, fontWeight: 600, whiteSpace: 'nowrap' }}>{moneda(lineaTotal(l))}</td>
+                  <td style={styles.td}>
+                    <button type="button" onClick={() => quitarLinea(l._key)} style={styles.btnQuitar}>×</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <button type="button" onClick={agregarLinea} style={styles.btnAgregarProducto}>+ Agregar producto</button>
 
-          <div style={styles.piePagina}>
-            <span>{carrito.length} producto(s)</span>
-            <button onClick={() => setCarrito([])} style={styles.btnCancelar}>Cancelar</button>
-          </div>
-
-          <h4 style={{ marginTop: '24px' }}>Compras recientes</h4>
-          <div>
-            {comprasRecientes.map((c) => (
-              <div key={c.id} style={styles.filaVentaHoy}>
-                <span>{c.numero_factura || `#${c.id}`}</span>
-                <span>{c.proveedor_nombre || 'Sin proveedor'}</span>
-                <span>{moneda(c.total)}</span>
-              </div>
-            ))}
-            {comprasRecientes.length === 0 && <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Sin compras registradas.</p>}
+        <div style={styles.filaInferior}>
+          <label style={{ ...styles.labelCampo, flex: 1 }}>
+            Notas
+            <textarea value={notas} onChange={(e) => setNotas(e.target.value)} style={{ ...styles.inputCampo, minHeight: '80px' }} />
+          </label>
+          <div style={styles.resumen}>
+            <div style={styles.filaResumen}><span>Subtotal</span><span>{moneda(subtotal)}</span></div>
+            <div style={styles.filaResumen}><span>Descuento</span><span>-{moneda(descuentoTotal)}</span></div>
+            <div style={{ ...styles.filaResumen, borderTop: '1px solid var(--border)', paddingTop: '8px', fontWeight: 700 }}>
+              <span>Total</span><span>{moneda(total)}</span>
+            </div>
           </div>
         </div>
+
+        {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
+        {mensaje && <p style={{ color: 'var(--teal-dark)' }}>{mensaje}</p>}
+
+        <div style={styles.filaBotones}>
+          <button type="button" onClick={() => setCarrito([nuevaLinea()])} style={styles.btnSecundario}>Cancelar</button>
+          <button type="button" onClick={confirmarCompra} disabled={guardando} style={styles.btnPrimario}>
+            {guardando ? 'Guardando...' : 'Guardar'}
+          </button>
+        </div>
+      </div>
+
+      <h3>Compras recientes</h3>
+      <div style={styles.tableCard}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+              <th style={styles.th}>Factura</th>
+              <th style={styles.th}>Proveedor</th>
+              <th style={styles.th}>Fecha</th>
+              <th style={styles.th}>Ítems</th>
+              <th style={styles.th}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {comprasRecientes.map((c) => (
+              <tr key={c.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                <td style={styles.td}>{c.numero_factura || `#${c.id}`}</td>
+                <td style={styles.td}>{c.proveedor_nombre || 'Sin proveedor'}</td>
+                <td style={styles.td}>{c.fecha_compra ? new Date(c.fecha_compra).toLocaleDateString('es-CO') : '-'}</td>
+                <td style={styles.td}>{c.items}</td>
+                <td style={styles.td}>{moneda(c.total)}</td>
+              </tr>
+            ))}
+            {comprasRecientes.length === 0 && (
+              <tr>
+                <td style={styles.td} colSpan={5}>Sin compras registradas.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </Shell>
   );
 }
 
 const styles = {
-  layout: { display: 'flex', gap: '20px', alignItems: 'flex-start' },
-  columnaProductos: { flex: 1, minWidth: 0 },
-  buscador: {
-    width: '100%',
-    padding: '10px 14px',
-    borderRadius: 'var(--radius)',
-    border: '1px solid var(--border)',
-    marginBottom: '16px',
-    boxSizing: 'border-box',
-  },
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-    gap: '12px',
-  },
-  tarjeta: {
-    background: '#fff',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius)',
-    padding: '12px',
-    cursor: 'pointer',
-    textAlign: 'center',
-    position: 'relative',
-  },
-  tarjetaActiva: { border: '2px solid var(--teal)' },
-  tarjetaTop: { display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' },
-  referencia: {},
-  badgeCantidad: {
-    background: 'var(--teal)',
-    color: '#fff',
-    borderRadius: '999px',
-    width: '18px',
-    height: '18px',
-    fontSize: '11px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  icono: { fontSize: '28px', margin: '8px 0' },
-  nombre: { fontSize: '13px', fontWeight: 600, marginBottom: '4px', minHeight: '32px' },
-  precio: { fontSize: '13px', color: 'var(--text-secondary)' },
-  columnaCarrito: {
-    width: '360px',
-    flexShrink: 0,
-    background: '#fff',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius)',
-    padding: '16px',
-  },
-  labelCampo: { display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px' },
+  card: { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '24px', marginBottom: '28px' },
+  subtitulo: { marginBottom: '10px' },
+  filaTop: { display: 'flex', gap: '16px', maxWidth: '500px', marginBottom: '8px' },
+  grid3: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '4px' },
+  labelCampo: { display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' },
   inputCampo: {
     display: 'block',
     width: '100%',
@@ -409,34 +470,29 @@ const styles = {
     boxSizing: 'border-box',
     fontSize: '14px',
   },
-  filaDosCampos: { display: 'flex', gap: '10px' },
-  nuevoProveedorBox: { display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' },
-  btnCancelarChico: { border: 'none', background: 'none', color: 'var(--teal-dark)', cursor: 'pointer', fontSize: '12px', padding: 0, textAlign: 'left' },
-  listaCarrito: { maxHeight: '260px', overflowY: 'auto', marginBottom: '12px', borderTop: '1px solid var(--border)' },
-  itemCarrito: { borderBottom: '1px solid var(--border)', padding: '10px 0' },
-  itemHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '14px' },
+  linkBtn: { border: 'none', background: 'none', color: 'var(--teal-dark)', cursor: 'pointer', fontSize: '13px', padding: 0, marginBottom: '12px' },
+  tabla: { width: '100%', borderCollapse: 'collapse', marginTop: '8px' },
+  th: { padding: '10px 8px', fontSize: '13px', color: 'var(--text-secondary)', textAlign: 'left' },
+  td: { padding: '8px', fontSize: '14px', verticalAlign: 'top' },
+  inputCelda: { width: '90px', padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', boxSizing: 'border-box' },
+  nuevoProductoBox: { display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '200px' },
+  btnCrearChico: { padding: '6px 12px', borderRadius: '6px', border: 'none', background: 'var(--teal)', color: '#fff', cursor: 'pointer', fontSize: '13px' },
   btnQuitar: { border: 'none', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '16px' },
-  itemControles: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' },
-  stepper: { display: 'flex', alignItems: 'center', gap: '10px' },
-  stepperBtn: { width: '24px', height: '24px', borderRadius: '6px', border: '1px solid var(--border)', background: '#fff', cursor: 'pointer' },
-  edicion: { display: 'flex', gap: '10px', marginTop: '8px' },
-  labelEdicion: { fontSize: '12px', color: 'var(--text-secondary)', flex: 1 },
-  inputEdicion: { display: 'block', width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', marginTop: '2px' },
-  btnVender: {
-    width: '100%',
-    padding: '14px',
+  btnAgregarProducto: {
+    marginTop: '12px',
+    padding: '10px 18px',
     borderRadius: 'var(--radius)',
     border: 'none',
     background: 'var(--teal)',
     color: '#fff',
-    fontWeight: 700,
-    fontSize: '15px',
+    fontWeight: 600,
     cursor: 'pointer',
-    display: 'flex',
-    justifyContent: 'space-between',
-    marginTop: '8px',
   },
-  piePagina: { display: 'flex', justifyContent: 'space-between', marginTop: '10px', fontSize: '13px', color: 'var(--text-secondary)' },
-  btnCancelar: { border: 'none', background: 'none', color: 'var(--teal-dark)', cursor: 'pointer' },
-  filaVentaHoy: { display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '6px 0', borderBottom: '1px solid var(--border)', gap: '6px' },
+  filaInferior: { display: 'flex', gap: '24px', marginTop: '24px', alignItems: 'flex-start' },
+  resumen: { width: '280px', flexShrink: 0, background: 'var(--bg)', borderRadius: 'var(--radius)', padding: '16px' },
+  filaResumen: { display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '14px' },
+  filaBotones: { display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '16px' },
+  btnSecundario: { padding: '10px 20px', borderRadius: '8px', border: '1px solid var(--border)', background: '#fff', cursor: 'pointer' },
+  btnPrimario: { padding: '10px 20px', borderRadius: '8px', border: 'none', background: 'var(--teal)', color: '#fff', cursor: 'pointer', fontWeight: 600 },
+  tableCard: { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '8px 16px' },
 };

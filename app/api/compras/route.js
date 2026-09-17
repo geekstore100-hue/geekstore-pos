@@ -13,6 +13,7 @@ export async function GET() {
         c.id,
         c.numero_factura,
         c.fecha_compra,
+        c.fecha_vencimiento,
         c.notas,
         c.total,
         c.creado_en,
@@ -32,7 +33,7 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { items, numero_factura, fecha_compra, notas, proveedor_id, proveedor_nuevo } = body;
+    const { items, numero_factura, fecha_compra, fecha_vencimiento, notas, proveedor_id, proveedor_nuevo } = body;
 
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ ok: false, error: 'Agrega al menos un producto' }, { status: 400 });
@@ -62,8 +63,8 @@ export async function POST(request) {
     const total = itemsConTotal.reduce((acc, i) => acc + i.subtotal, 0);
 
     const [compra] = await sql`
-      INSERT INTO compras (proveedor_id, numero_factura, fecha_compra, notas, total)
-      VALUES (${proveedorId}, ${numero_factura || null}, ${fecha_compra || null}, ${notas || null}, ${total})
+      INSERT INTO compras (proveedor_id, numero_factura, fecha_compra, fecha_vencimiento, notas, total)
+      VALUES (${proveedorId}, ${numero_factura || null}, ${fecha_compra || null}, ${fecha_vencimiento || null}, ${notas || null}, ${total})
       RETURNING id
     `;
 
@@ -90,8 +91,8 @@ export async function POST(request) {
         DO UPDATE SET cantidad = stock.cantidad + EXCLUDED.cantidad
       `;
       await sql`
-        INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, descuento_porcentaje, compra_id)
-        VALUES (${item.producto_id}, ${bodegaId}, 'entrada', ${item.cantidad}, ${item.precioNeto}, ${item.descuento_porcentaje || 0}, ${compra.id})
+        INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, descuento_porcentaje, compra_id, nota)
+        VALUES (${item.producto_id}, ${bodegaId}, 'entrada', ${item.cantidad}, ${item.precioNeto}, ${item.descuento_porcentaje || 0}, ${compra.id}, ${item.observaciones || null})
       `;
       // Actualiza el costo del producto al promedio ponderado móvil (no al último precio pagado)
       await sql`
