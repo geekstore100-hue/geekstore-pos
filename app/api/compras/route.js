@@ -33,7 +33,7 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { items, numero_factura, fecha_compra, fecha_vencimiento, notas, proveedor_id, proveedor_nuevo, bodega_id } = body;
+    const { items, numero_factura, fecha_compra, fecha_vencimiento, notas, proveedor_id, bodega_id } = body;
 
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ ok: false, error: 'Agrega al menos un producto' }, { status: 400 });
@@ -47,15 +47,10 @@ export async function POST(request) {
       return NextResponse.json({ ok: false, error: 'Selecciona una bodega' }, { status: 400 });
     }
 
-    // Resolver proveedor: uno existente, o crear uno nuevo al vuelo
-    let proveedorId = proveedor_id || null;
-    if (!proveedorId && proveedor_nuevo && proveedor_nuevo.nombre && proveedor_nuevo.nombre.trim()) {
-      const [nuevo] = await sql`
-        INSERT INTO proveedores (nombre, identificacion, telefono)
-        VALUES (${proveedor_nuevo.nombre.trim()}, ${proveedor_nuevo.identificacion || null}, ${proveedor_nuevo.telefono || null})
-        RETURNING id
-      `;
-      proveedorId = nuevo.id;
+    // El proveedor ya debe existir (se crea desde el panel de "+ Nuevo proveedor" antes de guardar la compra)
+    const proveedorId = proveedor_id || null;
+    if (!proveedorId) {
+      return NextResponse.json({ ok: false, error: 'Selecciona o crea un proveedor' }, { status: 400 });
     }
 
     const itemsConTotal = items.map((item) => {

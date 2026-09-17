@@ -23,6 +23,16 @@ function nuevaLinea() {
 
 const productoVacio = { nombre: '', referencia: '', categoria: '', precio_venta: '', precio_costo: '', descripcion: '' };
 
+const proveedorVacio = {
+  tipo_identificacion: 'CC',
+  identificacion: '',
+  nombre: '',
+  correo: '',
+  telefono: '',
+  direccion: '',
+  ciudad: '',
+};
+
 export default function EntradasPage() {
   const [productos, setProductos] = useState([]);
   const [proveedores, setProveedores] = useState([]);
@@ -38,10 +48,6 @@ export default function EntradasPage() {
   const [notas, setNotas] = useState('');
 
   const [proveedorId, setProveedorId] = useState('');
-  const [nuevoProveedor, setNuevoProveedor] = useState(false);
-  const [nombreProveedor, setNombreProveedor] = useState('');
-  const [identificacionProveedor, setIdentificacionProveedor] = useState('');
-  const [telefonoProveedor, setTelefonoProveedor] = useState('');
 
   const [error, setError] = useState('');
   const [mensaje, setMensaje] = useState('');
@@ -53,6 +59,12 @@ export default function EntradasPage() {
   const [formProducto, setFormProducto] = useState(productoVacio);
   const [errorModal, setErrorModal] = useState('');
   const [guardandoProducto, setGuardandoProducto] = useState(false);
+
+  // Panel de creación de proveedor
+  const [panelProveedorAbierto, setPanelProveedorAbierto] = useState(false);
+  const [formProveedor, setFormProveedor] = useState(proveedorVacio);
+  const [errorProveedor, setErrorProveedor] = useState('');
+  const [guardandoProveedor, setGuardandoProveedor] = useState(false);
 
   async function cargarTodo() {
     const [rProd, rProv, rBod, rCompras] = await Promise.all([
@@ -126,6 +138,62 @@ export default function EntradasPage() {
     setFilaModal(null);
     setFormProducto(productoVacio);
     setErrorModal('');
+  }
+
+  function abrirPanelNuevoProveedor() {
+    setFormProveedor(proveedorVacio);
+    setErrorProveedor('');
+    setPanelProveedorAbierto(true);
+  }
+
+  function cerrarPanelProveedor() {
+    setPanelProveedorAbierto(false);
+    setFormProveedor(proveedorVacio);
+    setErrorProveedor('');
+  }
+
+  async function crearProveedor() {
+    setErrorProveedor('');
+    if (!formProveedor.nombre.trim() || !formProveedor.identificacion.trim()) {
+      setErrorProveedor('Nombre e identificación son obligatorios');
+      return;
+    }
+
+    setGuardandoProveedor(true);
+    const res = await fetch('/api/proveedores', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tipo_identificacion: formProveedor.tipo_identificacion,
+        identificacion: formProveedor.identificacion.trim(),
+        nombre: formProveedor.nombre.trim(),
+        correo: formProveedor.correo,
+        telefono: formProveedor.telefono,
+        direccion: formProveedor.direccion,
+        ciudad: formProveedor.ciudad,
+      }),
+    });
+    const data = await res.json();
+    setGuardandoProveedor(false);
+
+    if (!data.ok) {
+      setErrorProveedor(data.error || 'No se pudo crear el proveedor');
+      return;
+    }
+
+    const rProv = await fetch('/api/proveedores');
+    const dProv = await rProv.json();
+    let nuevoId = data.proveedor?.id ?? null;
+    if (dProv.ok) {
+      setProveedores(dProv.proveedores);
+      if (!nuevoId) {
+        const encontrado = dProv.proveedores.find((p) => p.identificacion === formProveedor.identificacion.trim());
+        nuevoId = encontrado?.id ?? null;
+      }
+    }
+
+    if (nuevoId) setProveedorId(String(nuevoId));
+    cerrarPanelProveedor();
   }
 
   async function crearProducto() {
@@ -205,6 +273,8 @@ export default function EntradasPage() {
     return (Number(l.precio_unitario) || 0) * (Number(l.cantidad) || 0);
   }
 
+  const proveedorSeleccionado = proveedores.find((p) => String(p.id) === String(proveedorId));
+
   const lineasValidas = carrito.filter((l) => l.producto_id);
   const subtotal = lineasValidas.reduce((acc, l) => acc + lineaSubtotal(l), 0);
   const total = lineasValidas.reduce((acc, l) => acc + lineaTotal(l), 0);
@@ -218,7 +288,7 @@ export default function EntradasPage() {
       setError('Agrega al menos un producto');
       return;
     }
-    if (!proveedorId && !nombreProveedor.trim()) {
+    if (!proveedorId) {
       setError('Selecciona un proveedor o crea uno nuevo');
       return;
     }
@@ -232,10 +302,7 @@ export default function EntradasPage() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        proveedor_id: proveedorId ? Number(proveedorId) : null,
-        proveedor_nuevo: !proveedorId
-          ? { nombre: nombreProveedor, identificacion: identificacionProveedor, telefono: telefonoProveedor }
-          : null,
+        proveedor_id: Number(proveedorId),
         numero_factura: numeroFactura,
         fecha_compra: fechaCompra,
         fecha_vencimiento: fechaVencimiento,
@@ -257,10 +324,6 @@ export default function EntradasPage() {
       setMensaje('Compra registrada.');
       setCarrito([nuevaLinea()]);
       setProveedorId('');
-      setNuevoProveedor(false);
-      setNombreProveedor('');
-      setIdentificacionProveedor('');
-      setTelefonoProveedor('');
       setNumeroFactura('');
       setNotas('');
       setFechaCompra(hoyISO());
@@ -296,51 +359,22 @@ export default function EntradasPage() {
           <div>
             <label style={styles.labelCampo}>
               Proveedor *
-              {!nuevoProveedor ? (
-                <select value={proveedorId} onChange={(e) => setProveedorId(e.target.value)} style={styles.inputCampo}>
-                  <option value="">Seleccionar</option>
-                  {proveedores.map((p) => (
-                    <option key={p.id} value={p.id}>{p.nombre}</option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  value={nombreProveedor}
-                  onChange={(e) => setNombreProveedor(e.target.value)}
-                  placeholder="Nombre del proveedor"
-                  style={styles.inputCampo}
-                />
-              )}
+              <select value={proveedorId} onChange={(e) => setProveedorId(e.target.value)} style={styles.inputCampo}>
+                <option value="">Seleccionar</option>
+                {proveedores.map((p) => (
+                  <option key={p.id} value={p.id}>{p.nombre}</option>
+                ))}
+              </select>
             </label>
-            <button
-              type="button"
-              onClick={() => {
-                setNuevoProveedor(!nuevoProveedor);
-                setProveedorId('');
-                setNombreProveedor('');
-              }}
-              style={styles.linkBtn}
-            >
-              {nuevoProveedor ? 'Cancelar, elegir existente' : '+ Nuevo proveedor'}
-            </button>
+            <button type="button" onClick={abrirPanelNuevoProveedor} style={styles.linkBtn}>+ Nuevo proveedor</button>
           </div>
           <label style={styles.labelCampo}>
             Identificación
-            <input
-              value={identificacionProveedor}
-              onChange={(e) => setIdentificacionProveedor(e.target.value)}
-              style={styles.inputCampo}
-              disabled={!nuevoProveedor && !!proveedorId}
-            />
+            <input value={proveedorSeleccionado?.identificacion || ''} style={styles.inputCampo} disabled />
           </label>
           <label style={styles.labelCampo}>
             Teléfono
-            <input
-              value={telefonoProveedor}
-              onChange={(e) => setTelefonoProveedor(e.target.value)}
-              style={styles.inputCampo}
-              disabled={!nuevoProveedor && !!proveedorId}
-            />
+            <input value={proveedorSeleccionado?.telefono || ''} style={styles.inputCampo} disabled />
           </label>
         </div>
 
@@ -591,6 +625,95 @@ export default function EntradasPage() {
           </div>
         </div>
       )}
+
+      {panelProveedorAbierto && (
+        <div style={styles.overlay} onMouseDown={cerrarPanelProveedor}>
+          <div style={styles.panelLateral} onMouseDown={(e) => e.stopPropagation()}>
+            <div style={styles.panelHeader}>
+              <h3 style={{ margin: 0 }}>Nuevo proveedor</h3>
+              <button type="button" onClick={cerrarPanelProveedor} style={styles.btnCerrarPanel}>×</button>
+            </div>
+
+            <h4 style={styles.subtitulo}>Datos generales</h4>
+
+            <label style={styles.labelCampo}>
+              Tipo de identificación *
+              <select
+                value={formProveedor.tipo_identificacion}
+                onChange={(e) => setFormProveedor({ ...formProveedor, tipo_identificacion: e.target.value })}
+                style={styles.inputCampo}
+              >
+                <option value="CC">CC - Cédula de ciudadanía</option>
+                <option value="NIT">NIT - Número de identificación tributaria</option>
+              </select>
+            </label>
+
+            <label style={styles.labelCampo}>
+              Identificación *
+              <input
+                value={formProveedor.identificacion}
+                onChange={(e) => setFormProveedor({ ...formProveedor, identificacion: e.target.value })}
+                style={styles.inputCampo}
+              />
+            </label>
+
+            <label style={styles.labelCampo}>
+              {formProveedor.tipo_identificacion === 'NIT' ? 'Razón social *' : 'Nombre completo *'}
+              <input
+                value={formProveedor.nombre}
+                onChange={(e) => setFormProveedor({ ...formProveedor, nombre: e.target.value })}
+                style={styles.inputCampo}
+              />
+            </label>
+
+            <div style={styles.grid2}>
+              <label style={styles.labelCampo}>
+                Correo
+                <input
+                  value={formProveedor.correo}
+                  onChange={(e) => setFormProveedor({ ...formProveedor, correo: e.target.value })}
+                  style={styles.inputCampo}
+                />
+              </label>
+              <label style={styles.labelCampo}>
+                Teléfono
+                <input
+                  value={formProveedor.telefono}
+                  onChange={(e) => setFormProveedor({ ...formProveedor, telefono: e.target.value })}
+                  style={styles.inputCampo}
+                />
+              </label>
+            </div>
+
+            <label style={styles.labelCampo}>
+              Dirección
+              <input
+                value={formProveedor.direccion}
+                onChange={(e) => setFormProveedor({ ...formProveedor, direccion: e.target.value })}
+                style={styles.inputCampo}
+              />
+            </label>
+
+            <label style={styles.labelCampo}>
+              Ciudad / Departamento
+              <input
+                value={formProveedor.ciudad}
+                onChange={(e) => setFormProveedor({ ...formProveedor, ciudad: e.target.value })}
+                style={styles.inputCampo}
+              />
+            </label>
+
+            {errorProveedor && <p style={{ color: 'var(--danger)' }}>{errorProveedor}</p>}
+
+            <div style={styles.filaBotones}>
+              <button type="button" onClick={cerrarPanelProveedor} style={styles.btnSecundario}>Cancelar</button>
+              <button type="button" onClick={crearProveedor} disabled={guardandoProveedor} style={styles.btnPrimario}>
+                {guardandoProveedor ? 'Guardando...' : 'Guardar proveedor'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Shell>
   );
 }
@@ -669,4 +792,18 @@ const styles = {
     overflowY: 'auto',
     boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
   },
+  panelLateral: {
+    position: 'fixed',
+    top: 0,
+    right: 0,
+    height: '100vh',
+    width: '420px',
+    maxWidth: '92vw',
+    background: '#fff',
+    padding: '24px',
+    overflowY: 'auto',
+    boxShadow: '-8px 0 24px rgba(0,0,0,0.15)',
+  },
+  panelHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
+  btnCerrarPanel: { border: 'none', background: 'none', fontSize: '22px', cursor: 'pointer', color: 'var(--text-secondary)', lineHeight: 1 },
 };
