@@ -9,6 +9,9 @@ function hoyISO() {
 function primerDiaMesISO() {
   return hoyISO().slice(0, 8) + '01';
 }
+function esHoy(iso) {
+  return new Date(iso).toDateString() === new Date().toDateString();
+}
 
 export default function HistorialPage() {
   const [desde, setDesde] = useState(primerDiaMesISO());
@@ -19,6 +22,8 @@ export default function HistorialPage() {
   const [panelAbierto, setPanelAbierto] = useState(false);
   const [detalle, setDetalle] = useState(null);
   const [cargandoDetalle, setCargandoDetalle] = useState(false);
+  const [anulandoId, setAnulandoId] = useState(null);
+  const [errorAnular, setErrorAnular] = useState('');
 
   async function cargar() {
     setCargando(true);
@@ -46,6 +51,24 @@ export default function HistorialPage() {
   function cerrarPanel() {
     setPanelAbierto(false);
     setDetalle(null);
+  }
+
+  async function anularVenta(id) {
+    if (!window.confirm('¿Seguro que quieres anular esta venta? Esto devuelve el stock descontado.')) return;
+    setErrorAnular('');
+    setAnulandoId(id);
+    const res = await fetch(`/api/ventas/${id}`, { method: 'POST' });
+    const data = await res.json();
+    setAnulandoId(null);
+
+    if (data.ok) {
+      cargar();
+      if (detalle && detalle.venta.id === id) {
+        abrirDetalle(id);
+      }
+    } else {
+      setErrorAnular(data.error || 'No se pudo anular la venta');
+    }
   }
 
   function moneda(n) {
@@ -81,6 +104,8 @@ export default function HistorialPage() {
         <button onClick={cargar} style={styles.btnPrimario}>Consultar</button>
       </div>
 
+      {errorAnular && <p style={{ color: 'var(--danger)' }}>{errorAnular}</p>}
+
       <div style={styles.tableCard}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
@@ -90,21 +115,37 @@ export default function HistorialPage() {
               <th style={styles.th}>Vendedor</th>
               <th style={styles.th}>Ítems</th>
               <th style={styles.th}>Total</th>
+              <th style={styles.th}>Estado</th>
+              <th style={styles.th}></th>
             </tr>
           </thead>
           <tbody>
             {ventas.map((v) => (
-              <tr key={v.id} onClick={() => abrirDetalle(v.id)} style={styles.filaClickeable}>
-                <td style={styles.td}>{fechaHora(v.creado_en)}</td>
-                <td style={styles.td}>{v.medio_pago || '-'}</td>
-                <td style={styles.td}>{v.vendedor_nombre || '-'}</td>
-                <td style={styles.td}>{v.items}</td>
-                <td style={styles.td}>{moneda(v.total)}</td>
+              <tr key={v.id} style={{ ...styles.filaClickeable, ...(v.anulada ? styles.filaAnulada : {}) }}>
+                <td style={styles.td} onClick={() => abrirDetalle(v.id)}>{fechaHora(v.creado_en)}</td>
+                <td style={styles.td} onClick={() => abrirDetalle(v.id)}>{v.medio_pago || '-'}</td>
+                <td style={styles.td} onClick={() => abrirDetalle(v.id)}>{v.vendedor_nombre || '-'}</td>
+                <td style={styles.td} onClick={() => abrirDetalle(v.id)}>{v.items}</td>
+                <td style={styles.td} onClick={() => abrirDetalle(v.id)}>{moneda(v.total)}</td>
+                <td style={styles.td} onClick={() => abrirDetalle(v.id)}>
+                  {v.anulada ? <span style={styles.badgeAnulada}>Anulada</span> : <span style={styles.badgeActiva}>Activa</span>}
+                </td>
+                <td style={styles.td}>
+                  {!v.anulada && esHoy(v.creado_en) && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); anularVenta(v.id); }}
+                      disabled={anulandoId === v.id}
+                      style={styles.btnAnular}
+                    >
+                      {anulandoId === v.id ? 'Anulando...' : 'Anular'}
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
             {ventas.length === 0 && !cargando && (
               <tr>
-                <td style={styles.td} colSpan={5}>Sin ventas en ese rango.</td>
+                <td style={styles.td} colSpan={7}>Sin ventas en ese rango.</td>
               </tr>
             )}
           </tbody>
@@ -123,6 +164,9 @@ export default function HistorialPage() {
 
             {detalle && (
               <>
+                {detalle.venta.anulada && (
+                  <div style={styles.avisoAnulada}>Esta venta fue anulada{detalle.venta.anulada_en ? ` el ${fechaHora(detalle.venta.anulada_en)}` : ''}.</div>
+                )}
                 <div style={styles.filaResumen}><span>Fecha y hora</span><strong>{fechaHora(detalle.venta.creado_en)}</strong></div>
                 <div style={styles.filaResumen}><span>Medio de pago</span><strong>{detalle.venta.medio_pago || '-'}</strong></div>
                 <div style={styles.filaResumen}><span>Vendedor</span><strong>{detalle.venta.vendedor_nombre || '-'}</strong></div>
@@ -156,6 +200,16 @@ export default function HistorialPage() {
                 <div style={{ ...styles.filaResumen, borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '10px', fontWeight: 700 }}>
                   <span>Total</span><span>{moneda(detalle.venta.total)}</span>
                 </div>
+
+                {!detalle.venta.anulada && esHoy(detalle.venta.creado_en) && (
+                  <button
+                    onClick={() => anularVenta(detalle.venta.id)}
+                    disabled={anulandoId === detalle.venta.id}
+                    style={{ ...styles.btnAnular, width: '100%', marginTop: '16px', padding: '10px' }}
+                  >
+                    {anulandoId === detalle.venta.id ? 'Anulando...' : 'Anular esta venta'}
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -172,6 +226,27 @@ const styles = {
   btnPrimario: { padding: '9px 16px', borderRadius: '8px', border: 'none', background: 'var(--teal)', color: '#fff', cursor: 'pointer', fontWeight: 600, height: '38px' },
   tableCard: { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '8px 16px' },
   filaClickeable: { borderBottom: '1px solid var(--border)', cursor: 'pointer' },
+  filaAnulada: { opacity: 0.55, textDecoration: 'line-through' },
+  badgeActiva: { color: 'var(--teal-dark)', fontSize: '12px', fontWeight: 600 },
+  badgeAnulada: { color: 'var(--danger)', fontSize: '12px', fontWeight: 600 },
+  btnAnular: {
+    padding: '7px 12px',
+    borderRadius: '8px',
+    border: '1px solid var(--danger)',
+    background: '#fff',
+    color: 'var(--danger)',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: 600,
+  },
+  avisoAnulada: {
+    background: '#fdecea',
+    color: 'var(--danger)',
+    padding: '10px 12px',
+    borderRadius: '8px',
+    fontSize: '13px',
+    marginBottom: '12px',
+  },
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100 },
   panelLateral: {
     position: 'fixed',

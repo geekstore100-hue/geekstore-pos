@@ -11,6 +11,7 @@ export default function VentasPage() {
   const [editandoId, setEditandoId] = useState(null);
   const [medioPago, setMedioPago] = useState('');
   const [vendedorId, setVendedorId] = useState('');
+  const [lista, setLista] = useState('principal');
   const [error, setError] = useState('');
   const [mensaje, setMensaje] = useState('');
   const [guardando, setGuardando] = useState(false);
@@ -38,6 +39,25 @@ export default function VentasPage() {
     return p ? Number(p.stock_principal) || 0 : 0;
   }
 
+  function precioSegunLista(producto, listaElegida) {
+    if ((listaElegida || lista) === 'distribuidor') {
+      const precioDistribuidor = Number(producto.precio_distribuidor);
+      if (precioDistribuidor > 0) return precioDistribuidor;
+    }
+    return Number(producto.precio_venta) || 0;
+  }
+
+  function cambiarLista(nuevaLista) {
+    setLista(nuevaLista);
+    setCarrito((prev) =>
+      prev.map((item) => {
+        const producto = productos.find((p) => p.id === item.producto_id);
+        if (!producto) return item;
+        return { ...item, precio_unitario: precioSegunLista(producto, nuevaLista) };
+      })
+    );
+  }
+
   function agregarAlCarrito(producto) {
     const disponible = Number(producto.stock_principal) || 0;
     if (disponible <= 0) {
@@ -58,7 +78,7 @@ export default function VentasPage() {
           referencia: producto.referencia,
           nombre: producto.nombre,
           cantidad: 1,
-          precio_unitario: Number(producto.precio_venta) || 0,
+          precio_unitario: precioSegunLista(producto),
           descuento_porcentaje: 0,
         },
       ];
@@ -90,6 +110,80 @@ export default function VentasPage() {
 
   const total = carrito.reduce((acc, i) => acc + subtotalItem(i), 0);
 
+  function moneda(n) {
+    return `$${Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
+  }
+
+  function imprimirTicket(ventana, { ventaId, items, totalVenta, medioPagoUsado, vendedorNombre, listaUsada }) {
+    if (!ventana) return;
+
+    const fecha = new Date().toLocaleString('es-CO', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    const filasHtml = items
+      .map((i) => {
+        const desc = Number(i.descuento_porcentaje) || 0;
+        const sub = i.cantidad * Number(i.precio_unitario) * (1 - desc / 100);
+        return `
+          <tr><td colspan="2" style="padding-top:4px;">${escaparHtml(i.nombre)}</td></tr>
+          <tr>
+            <td>${i.cantidad} x ${moneda(i.precio_unitario)}${desc ? ` (-${desc}%)` : ''}</td>
+            <td style="text-align:right;">${moneda(sub)}</td>
+          </tr>`;
+      })
+      .join('');
+
+    const html = `<!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Ticket ${ventaId}</title>
+        <style>
+          @page { size: 80mm auto; margin: 0; }
+          * { box-sizing: border-box; }
+          body { width: 80mm; margin: 0; padding: 8px; font-family: 'Courier New', monospace; font-size: 12px; color: #000; }
+          h1 { font-size: 16px; text-align: center; margin: 0 0 2px; }
+          p { margin: 2px 0; }
+          .centro { text-align: center; }
+          table { width: 100%; border-collapse: collapse; }
+          hr { border: none; border-top: 1px dashed #000; margin: 6px 0; }
+          .total-fila td { font-size: 14px; font-weight: bold; padding-top: 4px; }
+        </style>
+      </head>
+      <body>
+        <h1>GEEK STORE</h1>
+        <p class="centro">Venta #${ventaId}</p>
+        <p class="centro">${fecha}</p>
+        <hr />
+        <table>${filasHtml}</table>
+        <hr />
+        <table>
+          <tr class="total-fila"><td>TOTAL</td><td style="text-align:right;">${moneda(totalVenta)}</td></tr>
+        </table>
+        <hr />
+        <p>Medio de pago: ${escaparHtml(medioPagoUsado)}</p>
+        ${vendedorNombre ? `<p>Vendedor: ${escaparHtml(vendedorNombre)}</p>` : ''}
+        <p>Lista de precios: ${listaUsada === 'distribuidor' ? 'Distribuidor' : 'Principal'}</p>
+        <hr />
+        <p class="centro">¡Gracias por su compra!</p>
+        <script>window.onload = function () { window.focus(); window.print(); };</script>
+      </body>
+      </html>`;
+
+    ventana.document.open();
+    ventana.document.write(html);
+    ventana.document.close();
+  }
+
+  function escaparHtml(texto) {
+    return String(texto || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
   async function confirmarVenta() {
     setError('');
     setMensaje('');
@@ -103,7 +197,14 @@ export default function VentasPage() {
       return;
     }
 
+    // La ventana se abre ANTES del fetch (mientras aún estamos "dentro" del
+    // clic del usuario) para que el navegador no la bloquee como pop-up.
+    const ventanaTicket = window.open('', '_blank', 'width=380,height=600');
+
     setGuardando(true);
+    const itemsVendidos = carrito;
+    const totalVendido = total;
+    const vendedorNombre = vendedores.find((v) => String(v.id) === String(vendedorId))?.nombre || '';
     const res = await fetch('/api/ventas', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -122,18 +223,23 @@ export default function VentasPage() {
     setGuardando(false);
 
     if (data.ok) {
+      imprimirTicket(ventanaTicket, {
+        ventaId: data.ventaId,
+        items: itemsVendidos,
+        totalVenta: totalVendido,
+        medioPagoUsado: medioPago,
+        vendedorNombre,
+        listaUsada: lista,
+      });
       setMensaje('Venta registrada.');
       setCarrito([]);
       setEditandoId(null);
       setMedioPago('');
       cargarTodo();
     } else {
+      if (ventanaTicket) ventanaTicket.close();
       setError(data.error || 'No se pudo registrar la venta');
     }
-  }
-
-  function moneda(n) {
-    return `$${Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
   }
 
   return (
@@ -178,7 +284,7 @@ export default function VentasPage() {
                   {agotado ? (
                     <div style={styles.agotado}>{stockDistribuidor > 0 ? 'Sin stock en Principal' : 'Agotado'}</div>
                   ) : (
-                    <div style={styles.precio}>{moneda(p.precio_venta)}</div>
+                    <div style={styles.precio}>{moneda(precioSegunLista(p))}</div>
                   )}
                 </div>
               );
@@ -188,6 +294,23 @@ export default function VentasPage() {
         </div>
 
         <div style={styles.columnaCarrito}>
+          <div style={styles.listaPrecios}>
+            <button
+              type="button"
+              onClick={() => cambiarLista('principal')}
+              style={{ ...styles.btnLista, ...(lista === 'principal' ? styles.btnListaActivo : {}) }}
+            >
+              Lista Principal
+            </button>
+            <button
+              type="button"
+              onClick={() => cambiarLista('distribuidor')}
+              style={{ ...styles.btnLista, ...(lista === 'distribuidor' ? styles.btnListaActivo : {}) }}
+            >
+              Lista Distribuidor
+            </button>
+          </div>
+
           <h3 style={{ marginTop: 0 }}>Factura de venta</h3>
 
           <div style={styles.listaCarrito}>
@@ -330,6 +453,19 @@ const styles = {
   nombre: { fontSize: '13px', fontWeight: 600, marginBottom: '4px', minHeight: '32px' },
   stockInfo: { fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' },
   precio: { fontSize: '13px', color: 'var(--text-secondary)' },
+  listaPrecios: { display: 'flex', gap: '8px', marginBottom: '12px' },
+  btnLista: {
+    flex: 1,
+    padding: '8px',
+    borderRadius: '8px',
+    border: '1px solid var(--border)',
+    background: '#fff',
+    cursor: 'pointer',
+    fontSize: '12px',
+    fontWeight: 600,
+    color: 'var(--text-secondary)',
+  },
+  btnListaActivo: { background: 'var(--teal)', color: '#fff', border: '1px solid var(--teal)' },
   agotado: { fontSize: '12px', color: 'var(--warning)' },
   columnaCarrito: {
     width: '340px',

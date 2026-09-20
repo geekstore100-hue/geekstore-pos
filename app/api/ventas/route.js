@@ -21,6 +21,8 @@ export async function GET(request) {
               v.medio_pago,
               ve.nombre AS vendedor_nombre,
               v.creado_en,
+              v.anulada,
+              v.anulada_en,
               (SELECT COUNT(*) FROM movimientos_stock m WHERE m.venta_id = v.id) AS items
             FROM ventas v
             LEFT JOIN vendedores ve ON ve.id = v.vendedor_id
@@ -34,6 +36,8 @@ export async function GET(request) {
               v.medio_pago,
               ve.nombre AS vendedor_nombre,
               v.creado_en,
+              v.anulada,
+              v.anulada_en,
               (SELECT COUNT(*) FROM movimientos_stock m WHERE m.venta_id = v.id) AS items
             FROM ventas v
             LEFT JOIN vendedores ve ON ve.id = v.vendedor_id
