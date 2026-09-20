@@ -16,7 +16,15 @@ const links = [
   },
   { href: '/ventas', label: 'Vender', icon: IconCart },
   { href: '/entradas', label: 'Compras', icon: IconInbox },
-  { href: '/historial', label: 'Historial', icon: IconHistorial },
+  {
+    href: '/historial',
+    label: 'Historial',
+    icon: IconHistorial,
+    children: [
+      { href: '/historial', label: 'Ventas', icon: IconHistorial },
+      { href: '/turnos', label: 'Turnos', icon: IconTurno },
+    ],
+  },
   { href: '/devoluciones', label: 'Devoluciones', icon: IconDevolucion },
   { href: '/reportes', label: 'Reportes', icon: IconChart },
   { href: '/configuraciones', label: 'Configuraciones', icon: IconSettings },
@@ -279,6 +287,15 @@ function IconAdjust() {
       <circle cx="16" cy="6" r="2" />
       <circle cx="10" cy="12" r="2" />
       <circle cx="19" cy="18" r="2" />
+    </svg>
+  );
+}
+function IconTurno() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="4" width="18" height="16" rx="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3 10h18" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M8 2v4M16 2v4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

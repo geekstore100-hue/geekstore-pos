@@ -11,14 +11,14 @@ export async function GET(request) {
     const devoluciones =
       desde && hasta
         ? await sql`
-            SELECT d.id, d.venta_id, d.cantidad, d.monto, d.motivo, d.creado_en, p.referencia, p.nombre
+            SELECT d.id, d.cantidad, d.monto, d.motivo, d.creado_en, p.referencia, p.nombre
             FROM devoluciones d
             JOIN productos p ON p.id = d.producto_id
             WHERE d.creado_en::date BETWEEN ${desde} AND ${hasta}
             ORDER BY d.creado_en DESC
           `
         : await sql`
-            SELECT d.id, d.venta_id, d.cantidad, d.monto, d.motivo, d.creado_en, p.referencia, p.nombre
+            SELECT d.id, d.cantidad, d.monto, d.motivo, d.creado_en, p.referencia, p.nombre
             FROM devoluciones d
             JOIN productos p ON p.id = d.producto_id
             WHERE d.creado_en >= CURRENT_DATE
@@ -31,20 +31,25 @@ export async function GET(request) {
   }
 }
 
-// Registra la devolución de (parte de) un producto de una venta ya
-// facturada, con devolución de dinero en efectivo. Se descuenta del
-// "dinero esperado en caja" del turno abierto en el momento de la
-// devolución (no necesariamente el mismo turno en el que se hizo la venta).
+// Registra una devolución de dinero en efectivo por un producto, sin
+// necesidad de indicar de qué venta viene. El valor a devolver lo escribe
+// libremente quien registra la devolución (no tiene que coincidir con el
+// precio de venta). Si el producto maneja inventario, se le repone el
+// stock en la bodega Principal. Se descuenta del "dinero esperado en caja"
+// del turno abierto en el momento de la devolución.
 export async function POST(request) {
   try {
     const body = await request.json();
-    const venta_id = Number(body.venta_id);
     const producto_id = Number(body.producto_id);
-    const cantidad = Number(body.cantidad);
+    const cantidad = Number(body.cantidad) || 0;
+    const monto = Number(body.monto);
     const motivo = body.motivo || null;
 
-    if (!venta_id || !producto_id || !cantidad || cantidad <= 0) {
-      return NextResponse.json({ ok: false, error: 'Faltan datos para procesar la devolución' }, { status: 400 });
+    if (!producto_id) {
+      return NextResponse.json({ ok: false, error: 'Selecciona un producto' }, { status: 400 });
+    }
+    if (!monto || monto <= 0) {
+      return NextResponse.json({ ok: false, error: 'Ingresa un valor a devolver mayor a 0' }, { status: 400 });
     }
 
     const [turnoAbierto] = await sql`SELECT id FROM turnos WHERE estado = 'abierto' LIMIT 1`;
@@ -52,56 +57,28 @@ export async function POST(request) {
       return NextResponse.json({ ok: false, error: 'Debes abrir un turno antes de procesar una devolución' }, { status: 409 });
     }
 
-    const [venta] = await sql`SELECT id, anulada FROM ventas WHERE id = ${venta_id}`;
-    if (!venta) {
-      return NextResponse.json({ ok: false, error: 'Venta no encontrada' }, { status: 404 });
-    }
-    if (venta.anulada) {
-      return NextResponse.json({ ok: false, error: 'Esta venta ya está anulada, no se puede hacer una devolución sobre ella' }, { status: 409 });
+    const [producto] = await sql`SELECT id, es_inventariable FROM productos WHERE id = ${producto_id}`;
+    if (!producto) {
+      return NextResponse.json({ ok: false, error: 'Producto no encontrado' }, { status: 404 });
     }
 
-    const [movimiento] = await sql`
-      SELECT producto_id, bodega_id, cantidad, precio_unitario, descuento_porcentaje
-      FROM movimientos_stock
-      WHERE venta_id = ${venta_id} AND producto_id = ${producto_id} AND tipo = 'venta'
-    `;
-    if (!movimiento) {
-      return NextResponse.json({ ok: false, error: 'Ese producto no está en esta venta' }, { status: 400 });
-    }
-
-    const [{ total_devuelto }] = await sql`
-      SELECT COALESCE(SUM(cantidad), 0) AS total_devuelto
-      FROM devoluciones
-      WHERE venta_id = ${venta_id} AND producto_id = ${producto_id}
-    `;
-
-    const disponible = Number(movimiento.cantidad) - Number(total_devuelto);
-    if (cantidad > disponible) {
-      return NextResponse.json(
-        { ok: false, error: `Solo puedes devolver hasta ${disponible} unidad(es) de este producto` },
-        { status: 409 }
-      );
-    }
-
-    const descuento = Number(movimiento.descuento_porcentaje) || 0;
-    const precioNeto = Number(movimiento.precio_unitario) * (1 - descuento / 100);
-    const monto = precioNeto * cantidad;
-
-    const [producto] = await sql`SELECT es_inventariable FROM productos WHERE id = ${producto_id}`;
-    if (producto?.es_inventariable !== false) {
-      await sql`
-        UPDATE stock SET cantidad = cantidad + ${cantidad}
-        WHERE producto_id = ${producto_id} AND bodega_id = ${movimiento.bodega_id}
-      `;
+    if (producto.es_inventariable !== false && cantidad > 0) {
+      const [principal] = await sql`SELECT id FROM bodegas WHERE nombre = 'Principal'`;
+      if (principal) {
+        await sql`
+          UPDATE stock SET cantidad = cantidad + ${cantidad}
+          WHERE producto_id = ${producto_id} AND bodega_id = ${principal.id}
+        `;
+      }
     }
 
     const [devolucion] = await sql`
       INSERT INTO devoluciones (venta_id, producto_id, cantidad, monto, motivo, turno_id)
-      VALUES (${venta_id}, ${producto_id}, ${cantidad}, ${monto}, ${motivo}, ${turnoAbierto.id})
+      VALUES (NULL, ${producto_id}, ${cantidad}, ${monto}, ${motivo}, ${turnoAbierto.id})
       RETURNING id
     `;
 
-    return NextResponse.json({ ok: true, devolucionId: devolucion.id, monto });
+    return NextResponse.json({ ok: true, devolucionId: devolucion.id });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }

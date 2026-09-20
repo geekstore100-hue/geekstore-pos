@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, Fragment } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Shell from '../../components/Shell';
 
 function hoyISO() {
@@ -11,14 +11,15 @@ function primerDiaMesISO() {
 }
 
 export default function DevolucionesPage() {
-  const [ventaIdBuscar, setVentaIdBuscar] = useState('');
-  const [cargandoVenta, setCargandoVenta] = useState(false);
-  const [errorBusqueda, setErrorBusqueda] = useState('');
-  const [venta, setVenta] = useState(null);
-  const [items, setItems] = useState([]);
+  const [productos, setProductos] = useState([]);
+  const [cargandoProductos, setCargandoProductos] = useState(true);
 
-  const [itemActivo, setItemActivo] = useState(null);
-  const [cantidadDevolver, setCantidadDevolver] = useState('');
+  const [busqueda, setBusqueda] = useState('');
+  const [mostrarLista, setMostrarLista] = useState(false);
+  const [productoElegido, setProductoElegido] = useState(null);
+
+  const [cantidad, setCantidad] = useState('1');
+  const [monto, setMonto] = useState('');
   const [motivo, setMotivo] = useState('');
   const [procesando, setProcesando] = useState(false);
   const [errorDevolucion, setErrorDevolucion] = useState('');
@@ -29,26 +30,12 @@ export default function DevolucionesPage() {
   const [devoluciones, setDevoluciones] = useState([]);
   const [cargandoLista, setCargandoLista] = useState(true);
 
-  async function buscarVenta(e) {
-    if (e) e.preventDefault();
-    setErrorBusqueda('');
-    setMensaje('');
-    setVenta(null);
-    setItems([]);
-    if (!ventaIdBuscar.trim()) {
-      setErrorBusqueda('Ingresa el número de venta');
-      return;
-    }
-    setCargandoVenta(true);
-    const res = await fetch(`/api/ventas/${ventaIdBuscar.trim()}`);
+  async function cargarProductos() {
+    setCargandoProductos(true);
+    const res = await fetch('/api/productos');
     const data = await res.json();
-    setCargandoVenta(false);
-    if (data.ok) {
-      setVenta(data.venta);
-      setItems(data.items);
-    } else {
-      setErrorBusqueda(data.error || 'No se encontró esa venta');
-    }
+    if (data.ok) setProductos(data.productos);
+    setCargandoProductos(false);
   }
 
   async function cargarDevoluciones() {
@@ -60,49 +47,77 @@ export default function DevolucionesPage() {
   }
 
   useEffect(() => {
+    cargarProductos();
     cargarDevoluciones();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function abrirDevolucion(item) {
-    setItemActivo(item.producto_id);
-    setCantidadDevolver('');
+  const resultados = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return [];
+    return productos
+      .filter(
+        (p) =>
+          p.nombre.toLowerCase().includes(q) ||
+          (p.referencia || '').toLowerCase().includes(q)
+      )
+      .slice(0, 20);
+  }, [busqueda, productos]);
+
+  function elegirProducto(p) {
+    setProductoElegido(p);
+    setBusqueda(`${p.referencia ? p.referencia + ' - ' : ''}${p.nombre}`);
+    setMostrarLista(false);
+    setCantidad(p.es_inventariable === false ? '' : '1');
+    const precioBase = Number(p.precio_venta || 0);
+    setMonto(precioBase ? String(precioBase) : '');
+    setErrorDevolucion('');
+    setMensaje('');
+  }
+
+  function limpiarFormulario() {
+    setProductoElegido(null);
+    setBusqueda('');
+    setCantidad('1');
+    setMonto('');
     setMotivo('');
     setErrorDevolucion('');
   }
 
-  async function confirmarDevolucion(item) {
-    const disponible = Number(item.cantidad) - Number(item.ya_devuelta);
-    const cant = Number(cantidadDevolver);
-    if (!cant || cant <= 0) {
-      setErrorDevolucion('Ingresa una cantidad válida');
-      return;
-    }
-    if (cant > disponible) {
-      setErrorDevolucion(`Solo puedes devolver hasta ${disponible} unidad(es)`);
-      return;
-    }
-    setProcesando(true);
+  async function registrarDevolucion(e) {
+    e.preventDefault();
     setErrorDevolucion('');
+    setMensaje('');
+
+    if (!productoElegido) {
+      setErrorDevolucion('Busca y selecciona el producto que devuelven');
+      return;
+    }
+    const montoNum = Number(monto);
+    if (!montoNum || montoNum <= 0) {
+      setErrorDevolucion('Ingresa un valor a devolver mayor a 0');
+      return;
+    }
+    const cantidadNum = Number(cantidad) || 0;
+
+    setProcesando(true);
     const res = await fetch('/api/devoluciones', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        venta_id: venta.id,
-        producto_id: item.producto_id,
-        cantidad: cant,
+        producto_id: productoElegido.id,
+        cantidad: cantidadNum,
+        monto: montoNum,
         motivo,
       }),
     });
     const data = await res.json();
     setProcesando(false);
     if (data.ok) {
-      setMensaje(`Devolución registrada: ${moneda(data.monto)} en efectivo.`);
-      setItemActivo(null);
-      const rVenta = await fetch(`/api/ventas/${venta.id}`);
-      const dVenta = await rVenta.json();
-      if (dVenta.ok) setItems(dVenta.items);
+      setMensaje(`Devolución registrada: ${moneda(montoNum)} en efectivo.`);
+      limpiarFormulario();
       cargarDevoluciones();
+      cargarProductos();
     } else {
       setErrorDevolucion(data.error || 'No se pudo procesar la devolución');
     }
@@ -125,102 +140,87 @@ export default function DevolucionesPage() {
   return (
     <Shell title="Devoluciones">
       <div style={styles.buscarCard}>
-        <h3 style={{ marginTop: 0 }}>Buscar venta para devolver</h3>
-        <form onSubmit={buscarVenta} style={{ display: 'flex', gap: '8px' }}>
-          <input
-            value={ventaIdBuscar}
-            onChange={(e) => setVentaIdBuscar(e.target.value)}
-            placeholder="Número de venta (ej: 128)"
-            style={styles.input}
-          />
-          <button type="submit" disabled={cargandoVenta} style={styles.btnPrimario}>
-            {cargandoVenta ? 'Buscando...' : 'Buscar'}
-          </button>
-        </form>
-        {errorBusqueda && <p style={{ color: 'var(--danger)' }}>{errorBusqueda}</p>}
-      </div>
+        <h3 style={{ marginTop: 0 }}>Registrar devolución</h3>
+        <form onSubmit={registrarDevolucion}>
+          <div style={{ position: 'relative', maxWidth: '420px', marginBottom: '14px' }}>
+            <label style={styles.labelCampo}>Producto</label>
+            <input
+              value={busqueda}
+              onChange={(e) => {
+                setBusqueda(e.target.value);
+                setMostrarLista(true);
+                setProductoElegido(null);
+              }}
+              onFocus={() => setMostrarLista(true)}
+              placeholder="Busca por nombre o referencia..."
+              style={styles.inputCampo}
+              autoComplete="off"
+            />
+            {mostrarLista && resultados.length > 0 && (
+              <div style={styles.dropdown}>
+                {resultados.map((p) => (
+                  <div key={p.id} style={styles.dropdownItem} onClick={() => elegirProducto(p)}>
+                    <strong>{p.nombre}</strong>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '12px', marginLeft: '8px' }}>
+                      {p.referencia}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {!cargandoProductos && mostrarLista && busqueda.trim() && resultados.length === 0 && (
+              <div style={styles.dropdown}>
+                <div style={{ padding: '10px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                  Sin resultados
+                </div>
+              </div>
+            )}
+          </div>
 
-      {venta && (
-        <div style={styles.tableCard}>
-          <div style={styles.filaResumen}><span>Venta #{venta.id}</span><span>{fechaHora(venta.creado_en)}</span></div>
-          <div style={styles.filaResumen}><span>Medio de pago</span><strong>{venta.medio_pago || '-'}</strong></div>
-
-          {venta.anulada && (
-            <p style={styles.avisoAnulada}>Esta venta está anulada; no se pueden hacer devoluciones sobre ella.</p>
+          {productoElegido && (
+            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '14px' }}>
+              {productoElegido.es_inventariable !== false && (
+                <label style={styles.labelCampo}>
+                  Cantidad a devolver al inventario
+                  <input
+                    type="number"
+                    min="0"
+                    value={cantidad}
+                    onChange={(e) => setCantidad(e.target.value)}
+                    style={styles.inputCampo}
+                  />
+                </label>
+              )}
+              <label style={styles.labelCampo}>
+                Valor a devolver
+                <input
+                  type="number"
+                  min="0"
+                  value={monto}
+                  onChange={(e) => setMonto(e.target.value)}
+                  style={styles.inputCampo}
+                />
+              </label>
+              <label style={{ ...styles.labelCampo, flex: 1, minWidth: '200px' }}>
+                Motivo (opcional)
+                <input
+                  value={motivo}
+                  onChange={(e) => setMotivo(e.target.value)}
+                  style={styles.inputCampo}
+                  placeholder="Ej: producto defectuoso"
+                />
+              </label>
+            </div>
           )}
+
+          {errorDevolucion && <p style={{ color: 'var(--danger)' }}>{errorDevolucion}</p>}
           {mensaje && <p style={{ color: 'var(--teal-dark)' }}>{mensaje}</p>}
 
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '12px' }}>
-            <thead>
-              <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
-                <th style={styles.th}>Producto</th>
-                <th style={styles.th}>Vendido</th>
-                <th style={styles.th}>Ya devuelto</th>
-                <th style={styles.th}>Disponible</th>
-                <th style={styles.th}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => {
-                const disponible = Number(item.cantidad) - Number(item.ya_devuelta);
-                return (
-                  <Fragment key={item.producto_id}>
-                    <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={styles.td}>{item.nombre}</td>
-                      <td style={styles.td}>{item.cantidad}</td>
-                      <td style={styles.td}>{item.ya_devuelta}</td>
-                      <td style={styles.td}>{disponible}</td>
-                      <td style={styles.td}>
-                        {!venta.anulada && disponible > 0 && (
-                          <button onClick={() => abrirDevolucion(item)} style={styles.btnSecundario}>Devolver</button>
-                        )}
-                      </td>
-                    </tr>
-                    {itemActivo === item.producto_id && (
-                      <tr>
-                        <td style={styles.td} colSpan={5}>
-                          <div style={styles.formDevolucion}>
-                            <label style={styles.labelCampo}>
-                              Cantidad a devolver (máx {disponible})
-                              <input
-                                type="number"
-                                min="1"
-                                max={disponible}
-                                value={cantidadDevolver}
-                                onChange={(e) => setCantidadDevolver(e.target.value)}
-                                style={styles.inputCampo}
-                              />
-                            </label>
-                            <label style={styles.labelCampo}>
-                              Motivo
-                              <input
-                                value={motivo}
-                                onChange={(e) => setMotivo(e.target.value)}
-                                style={styles.inputCampo}
-                                placeholder="Ej: producto defectuoso"
-                              />
-                            </label>
-                            {errorDevolucion && <p style={{ color: 'var(--danger)' }}>{errorDevolucion}</p>}
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                              <button onClick={() => confirmarDevolucion(item)} disabled={procesando} style={styles.btnPrimario}>
-                                {procesando ? 'Procesando...' : 'Confirmar devolución en efectivo'}
-                              </button>
-                              <button onClick={() => setItemActivo(null)} style={styles.btnSecundario}>Cancelar</button>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                );
-              })}
-              {items.length === 0 && (
-                <tr><td style={styles.td} colSpan={5}>Esta venta no tiene ítems.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
+          <button type="submit" disabled={procesando || !productoElegido} style={styles.btnPrimario}>
+            {procesando ? 'Procesando...' : 'Registrar devolución en efectivo'}
+          </button>
+        </form>
+      </div>
 
       <h3 style={{ marginTop: '32px' }}>Devoluciones recientes</h3>
       <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', marginBottom: '16px' }}>
@@ -240,7 +240,6 @@ export default function DevolucionesPage() {
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
               <th style={styles.th}>Fecha</th>
-              <th style={styles.th}>Venta</th>
               <th style={styles.th}>Producto</th>
               <th style={styles.th}>Cantidad</th>
               <th style={styles.th}>Monto</th>
@@ -251,7 +250,6 @@ export default function DevolucionesPage() {
             {devoluciones.map((d) => (
               <tr key={d.id} style={{ borderBottom: '1px solid var(--border)' }}>
                 <td style={styles.td}>{fechaHora(d.creado_en)}</td>
-                <td style={styles.td}>#{d.venta_id}</td>
                 <td style={styles.td}>{d.nombre}</td>
                 <td style={styles.td}>{d.cantidad}</td>
                 <td style={styles.td}>{moneda(d.monto)}</td>
@@ -259,7 +257,7 @@ export default function DevolucionesPage() {
               </tr>
             ))}
             {devoluciones.length === 0 && !cargandoLista && (
-              <tr><td style={styles.td} colSpan={6}>Sin devoluciones en ese rango.</td></tr>
+              <tr><td style={styles.td} colSpan={5}>Sin devoluciones en ese rango.</td></tr>
             )}
           </tbody>
         </table>
@@ -282,24 +280,6 @@ const styles = {
   tableCard: { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '16px', marginBottom: '20px' },
   th: { padding: '10px 8px', fontSize: '13px', color: 'var(--text-secondary)' },
   td: { padding: '10px 8px', fontSize: '14px' },
-  filaResumen: { display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '14px' },
-  avisoAnulada: {
-    background: '#fdecea',
-    color: 'var(--danger)',
-    padding: '10px 12px',
-    borderRadius: '8px',
-    fontSize: '13px',
-    marginTop: '10px',
-  },
-  formDevolucion: {
-    background: 'var(--bg)',
-    borderRadius: '8px',
-    padding: '14px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px',
-    maxWidth: '340px',
-  },
   labelCampo: { display: 'block', fontSize: '12px', color: 'var(--text-secondary)' },
   inputCampo: {
     display: 'block',
@@ -309,6 +289,26 @@ const styles = {
     borderRadius: '8px',
     border: '1px solid var(--border)',
     boxSizing: 'border-box',
+    fontSize: '13px',
+  },
+  dropdown: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    background: '#fff',
+    border: '1px solid var(--border)',
+    borderRadius: '8px',
+    marginTop: '4px',
+    maxHeight: '260px',
+    overflowY: 'auto',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+    zIndex: 50,
+  },
+  dropdownItem: {
+    padding: '10px 12px',
+    cursor: 'pointer',
+    borderBottom: '1px solid var(--border)',
     fontSize: '13px',
   },
 };

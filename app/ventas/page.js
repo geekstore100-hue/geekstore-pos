@@ -1,20 +1,35 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Shell from '../../components/Shell';
+
+function crearPestana(id, nombre) {
+  return {
+    id,
+    nombre,
+    carrito: [],
+    editandoId: null,
+    medioPago: '',
+    vendedorId: '',
+    lista: 'principal',
+  };
+}
 
 export default function VentasPage() {
   const [productos, setProductos] = useState([]);
   const [vendedores, setVendedores] = useState([]);
   const [busqueda, setBusqueda] = useState('');
-  const [carrito, setCarrito] = useState([]);
-  const [editandoId, setEditandoId] = useState(null);
-  const [medioPago, setMedioPago] = useState('');
-  const [vendedorId, setVendedorId] = useState('');
-  const [lista, setLista] = useState('principal');
   const [error, setError] = useState('');
   const [mensaje, setMensaje] = useState('');
   const [guardando, setGuardando] = useState(false);
+
+  // Ventas en paralelo: cada "pestaña" es una venta independiente en curso
+  // (su propio carrito, medio de pago, vendedor y lista de precios), para
+  // poder dejar una venta pendiente y atender otra sin perder la primera.
+  const idContador = useRef(2);
+  const [pestanas, setPestanas] = useState(() => [crearPestana(1, 'Venta principal')]);
+  const [pestanaActivaId, setPestanaActivaId] = useState(1);
+  const activa = pestanas.find((p) => p.id === pestanaActivaId) || pestanas[0];
 
   const [turno, setTurno] = useState(null);
   const [cargandoTurno, setCargandoTurno] = useState(true);
@@ -110,6 +125,29 @@ export default function VentasPage() {
     }
   }
 
+  function actualizarPestana(id, cambios) {
+    setPestanas((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, ...(typeof cambios === 'function' ? cambios(p) : cambios) } : p))
+    );
+  }
+
+  function agregarPestana() {
+    const id = idContador.current++;
+    setPestanas((prev) => [...prev, crearPestana(id, `Venta ${prev.length + 1}`)]);
+    setPestanaActivaId(id);
+    setError('');
+    setMensaje('');
+  }
+
+  function cerrarPestana(id) {
+    if (pestanas.length <= 1) return;
+    const restante = pestanas.filter((p) => p.id !== id);
+    setPestanas(restante);
+    if (id === pestanaActivaId) {
+      setPestanaActivaId(restante[restante.length - 1].id);
+    }
+  }
+
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
     if (!q) return productos;
@@ -122,7 +160,7 @@ export default function VentasPage() {
   }
 
   function precioSegunLista(producto, listaElegida) {
-    if ((listaElegida || lista) === 'distribuidor') {
+    if (listaElegida === 'distribuidor') {
       const precioDistribuidor = Number(producto.precio_distribuidor);
       if (precioDistribuidor > 0) return precioDistribuidor;
     }
@@ -130,14 +168,15 @@ export default function VentasPage() {
   }
 
   function cambiarLista(nuevaLista) {
-    setLista(nuevaLista);
-    setCarrito((prev) =>
-      prev.map((item) => {
-        const producto = productos.find((p) => p.id === item.producto_id);
+    actualizarPestana(activa.id, (p) => ({
+      ...p,
+      lista: nuevaLista,
+      carrito: p.carrito.map((item) => {
+        const producto = productos.find((x) => x.id === item.producto_id);
         if (!producto) return item;
         return { ...item, precio_unitario: precioSegunLista(producto, nuevaLista) };
-      })
-    );
+      }),
+    }));
   }
 
   function agregarAlCarrito(producto) {
@@ -152,23 +191,29 @@ export default function VentasPage() {
       return;
     }
     setError('');
-    setCarrito((prev) => {
-      const existente = prev.find((i) => i.producto_id === producto.id);
+    actualizarPestana(activa.id, (p) => {
+      const existente = p.carrito.find((i) => i.producto_id === producto.id);
       if (existente) {
-        if (inventariable && existente.cantidad + 1 > disponible) return prev;
-        return prev.map((i) => (i.producto_id === producto.id ? { ...i, cantidad: i.cantidad + 1 } : i));
+        if (inventariable && existente.cantidad + 1 > disponible) return p;
+        return {
+          ...p,
+          carrito: p.carrito.map((i) => (i.producto_id === producto.id ? { ...i, cantidad: i.cantidad + 1 } : i)),
+        };
       }
-      return [
-        ...prev,
-        {
-          producto_id: producto.id,
-          referencia: producto.referencia,
-          nombre: producto.nombre,
-          cantidad: 1,
-          precio_unitario: precioSegunLista(producto),
-          descuento_porcentaje: 0,
-        },
-      ];
+      return {
+        ...p,
+        carrito: [
+          ...p.carrito,
+          {
+            producto_id: producto.id,
+            referencia: producto.referencia,
+            nombre: producto.nombre,
+            cantidad: 1,
+            precio_unitario: precioSegunLista(producto, p.lista),
+            descuento_porcentaje: 0,
+          },
+        ],
+      };
     });
   }
 
@@ -176,20 +221,31 @@ export default function VentasPage() {
     const producto = productos.find((p) => p.id === producto_id);
     const inventariable = producto ? producto.es_inventariable !== false : true;
     const disponible = inventariable ? stockPrincipalDe(producto_id) : Infinity;
-    setCarrito((prev) =>
-      prev
+    actualizarPestana(activa.id, (p) => ({
+      ...p,
+      carrito: p.carrito
         .map((i) => (i.producto_id === producto_id ? { ...i, cantidad: Math.min(i.cantidad + delta, disponible) } : i))
-        .filter((i) => i.cantidad > 0)
-    );
+        .filter((i) => i.cantidad > 0),
+    }));
   }
 
   function quitarDelCarrito(producto_id) {
-    setCarrito((prev) => prev.filter((i) => i.producto_id !== producto_id));
-    setEditandoId(null);
+    actualizarPestana(activa.id, (p) => ({
+      ...p,
+      carrito: p.carrito.filter((i) => i.producto_id !== producto_id),
+      editandoId: p.editandoId === producto_id ? null : p.editandoId,
+    }));
+  }
+
+  function alternarEdicion(producto_id) {
+    actualizarPestana(activa.id, (p) => ({ ...p, editandoId: p.editandoId === producto_id ? null : producto_id }));
   }
 
   function actualizarItem(producto_id, campo, valor) {
-    setCarrito((prev) => prev.map((i) => (i.producto_id === producto_id ? { ...i, [campo]: valor } : i)));
+    actualizarPestana(activa.id, (p) => ({
+      ...p,
+      carrito: p.carrito.map((i) => (i.producto_id === producto_id ? { ...i, [campo]: valor } : i)),
+    }));
   }
 
   function subtotalItem(item) {
@@ -197,7 +253,7 @@ export default function VentasPage() {
     return item.cantidad * Number(item.precio_unitario) * (1 - descuento / 100);
   }
 
-  const total = carrito.reduce((acc, i) => acc + subtotalItem(i), 0);
+  const total = activa.carrito.reduce((acc, i) => acc + subtotalItem(i), 0);
 
   function moneda(n) {
     return `$${Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
@@ -281,11 +337,12 @@ export default function VentasPage() {
       setError('Debes abrir un turno para vender.');
       return;
     }
-    if (carrito.length === 0) {
+    const pestanaVenta = activa;
+    if (pestanaVenta.carrito.length === 0) {
       setError('Agrega al menos un producto');
       return;
     }
-    if (!medioPago) {
+    if (!pestanaVenta.medioPago) {
       setError('Selecciona el medio de pago');
       return;
     }
@@ -295,16 +352,16 @@ export default function VentasPage() {
     const ventanaTicket = window.open('', '_blank', 'width=380,height=600');
 
     setGuardando(true);
-    const itemsVendidos = carrito;
+    const itemsVendidos = pestanaVenta.carrito;
     const totalVendido = total;
-    const vendedorNombre = vendedores.find((v) => String(v.id) === String(vendedorId))?.nombre || '';
+    const vendedorNombre = vendedores.find((v) => String(v.id) === String(pestanaVenta.vendedorId))?.nombre || '';
     const res = await fetch('/api/ventas', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        medio_pago: medioPago,
-        vendedor_id: vendedorId ? Number(vendedorId) : null,
-        items: carrito.map((i) => ({
+        medio_pago: pestanaVenta.medioPago,
+        vendedor_id: pestanaVenta.vendedorId ? Number(pestanaVenta.vendedorId) : null,
+        items: pestanaVenta.carrito.map((i) => ({
           producto_id: i.producto_id,
           cantidad: i.cantidad,
           precio_unitario: i.precio_unitario,
@@ -320,14 +377,12 @@ export default function VentasPage() {
         ventaId: data.ventaId,
         items: itemsVendidos,
         totalVenta: totalVendido,
-        medioPagoUsado: medioPago,
+        medioPagoUsado: pestanaVenta.medioPago,
         vendedorNombre,
-        listaUsada: lista,
+        listaUsada: pestanaVenta.lista,
       });
       setMensaje('Venta registrada.');
-      setCarrito([]);
-      setEditandoId(null);
-      setMedioPago('');
+      actualizarPestana(pestanaVenta.id, (p) => ({ ...p, carrito: [], editandoId: null, medioPago: '' }));
       cargarTodo();
     } else {
       if (ventanaTicket) ventanaTicket.close();
@@ -367,7 +422,7 @@ export default function VentasPage() {
           </div>
           <div style={styles.grid}>
             {filtrados.map((p) => {
-              const enCarrito = carrito.find((i) => i.producto_id === p.id);
+              const enCarrito = activa.carrito.find((i) => i.producto_id === p.id);
               const inventariable = p.es_inventariable !== false;
               const stockPrincipal = Number(p.stock_principal) || 0;
               const stockDistribuidor = Number(p.stock_distribuidor) || 0;
@@ -405,7 +460,7 @@ export default function VentasPage() {
                   {agotado ? (
                     <div style={styles.agotado}>{stockDistribuidor > 0 ? 'Sin stock en Principal' : 'Agotado'}</div>
                   ) : (
-                    <div style={styles.precio}>{moneda(precioSegunLista(p))}</div>
+                    <div style={styles.precio}>{moneda(precioSegunLista(p, activa.lista))}</div>
                   )}
                 </div>
               );
@@ -419,14 +474,14 @@ export default function VentasPage() {
             <button
               type="button"
               onClick={() => cambiarLista('principal')}
-              style={{ ...styles.btnLista, ...(lista === 'principal' ? styles.btnListaActivo : {}) }}
+              style={{ ...styles.btnLista, ...(activa.lista === 'principal' ? styles.btnListaActivo : {}) }}
             >
               Lista Principal
             </button>
             <button
               type="button"
               onClick={() => cambiarLista('distribuidor')}
-              style={{ ...styles.btnLista, ...(lista === 'distribuidor' ? styles.btnListaActivo : {}) }}
+              style={{ ...styles.btnLista, ...(activa.lista === 'distribuidor' ? styles.btnListaActivo : {}) }}
             >
               Lista Distribuidor
             </button>
@@ -435,14 +490,11 @@ export default function VentasPage() {
           <h3 style={{ marginTop: 0 }}>Factura de venta</h3>
 
           <div style={styles.listaCarrito}>
-            {carrito.length === 0 && <p style={{ color: 'var(--text-secondary)' }}>Toca un producto para agregarlo.</p>}
-            {carrito.map((item) => (
+            {activa.carrito.length === 0 && <p style={{ color: 'var(--text-secondary)' }}>Toca un producto para agregarlo.</p>}
+            {activa.carrito.map((item) => (
               <div key={item.producto_id} style={styles.itemCarrito}>
                 <div style={styles.itemHeader}>
-                  <strong
-                    onClick={() => setEditandoId(editandoId === item.producto_id ? null : item.producto_id)}
-                    style={{ cursor: 'pointer' }}
-                  >
+                  <strong onClick={() => alternarEdicion(item.producto_id)} style={{ cursor: 'pointer' }}>
                     {item.nombre}
                   </strong>
                   <button onClick={() => quitarDelCarrito(item.producto_id)} style={styles.btnQuitar}>×</button>
@@ -457,7 +509,7 @@ export default function VentasPage() {
                   <span style={{ fontWeight: 600 }}>{moneda(subtotalItem(item))}</span>
                 </div>
 
-                {editandoId === item.producto_id && (
+                {activa.editandoId === item.producto_id && (
                   <div style={styles.edicion}>
                     <label style={styles.labelEdicion}>
                       Precio
@@ -491,7 +543,11 @@ export default function VentasPage() {
             <div style={styles.filaDosCampos}>
               <label style={styles.labelCampo}>
                 Medio de pago *
-                <select value={medioPago} onChange={(e) => setMedioPago(e.target.value)} style={styles.inputCampo}>
+                <select
+                  value={activa.medioPago}
+                  onChange={(e) => actualizarPestana(activa.id, { medioPago: e.target.value })}
+                  style={styles.inputCampo}
+                >
                   <option value="">Seleccionar</option>
                   <option value="Efectivo">Efectivo</option>
                   <option value="Tarjeta">Tarjeta</option>
@@ -501,7 +557,11 @@ export default function VentasPage() {
               </label>
               <label style={styles.labelCampo}>
                 Vendedor
-                <select value={vendedorId} onChange={(e) => setVendedorId(e.target.value)} style={styles.inputCampo}>
+                <select
+                  value={activa.vendedorId}
+                  onChange={(e) => actualizarPestana(activa.id, { vendedorId: e.target.value })}
+                  style={styles.inputCampo}
+                >
                   <option value="">Seleccionar</option>
                   {vendedores.map((v) => (
                     <option key={v.id} value={v.id}>{v.nombre}</option>
@@ -513,17 +573,42 @@ export default function VentasPage() {
             {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
             {mensaje && <p style={{ color: 'var(--teal-dark)' }}>{mensaje}</p>}
 
-            <button onClick={confirmarVenta} disabled={guardando || carrito.length === 0} style={styles.btnVender}>
+            <button onClick={confirmarVenta} disabled={guardando || activa.carrito.length === 0} style={styles.btnVender}>
               <span>{guardando ? 'Registrando...' : 'Vender'}</span>
               <span>{moneda(total)}</span>
             </button>
 
             <div style={styles.piePagina}>
-              <span>{carrito.length} producto(s)</span>
-              <button onClick={() => setCarrito([])} style={styles.btnCancelar}>Cancelar</button>
+              <span>{activa.carrito.length} producto(s)</span>
+              <button onClick={() => actualizarPestana(activa.id, (p) => ({ ...p, carrito: [] }))} style={styles.btnCancelar}>Cancelar</button>
             </div>
           </div>
         </div>
+      </div>
+
+      <div style={styles.pestanasBar}>
+        {pestanas.map((p) => (
+          <div
+            key={p.id}
+            style={{ ...styles.pestanaBtn, ...(p.id === activa.id ? styles.pestanaBtnActiva : {}) }}
+            onClick={() => setPestanaActivaId(p.id)}
+          >
+            <span>🛒 {p.nombre}</span>
+            {p.carrito.length > 0 && <span style={styles.pestanaBadge}>{p.carrito.length}</span>}
+            {pestanas.length > 1 && (
+              <span
+                style={styles.pestanaCerrar}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  cerrarPestana(p.id);
+                }}
+              >
+                ×
+              </span>
+            )}
+          </div>
+        ))}
+        <button type="button" onClick={agregarPestana} style={styles.pestanaAgregar} title="Nueva venta">+</button>
       </div>
 
       {mostrarAbrirTurno && (
@@ -641,7 +726,7 @@ export default function VentasPage() {
 }
 
 const styles = {
-  layout: { display: 'flex', gap: '20px', alignItems: 'flex-start' },
+  layout: { display: 'flex', gap: '20px', alignItems: 'flex-start', paddingBottom: '56px' },
   columnaProductos: { flex: 1, minWidth: 0 },
   barraSuperior: {
     position: 'sticky',
@@ -801,6 +886,60 @@ const styles = {
   },
   piePagina: { display: 'flex', justifyContent: 'space-between', marginTop: '10px', fontSize: '13px', color: 'var(--text-secondary)' },
   btnCancelar: { border: 'none', background: 'none', color: 'var(--teal-dark)', cursor: 'pointer' },
+  pestanasBar: {
+    position: 'fixed',
+    bottom: '14px',
+    left: '80px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    zIndex: 60,
+    flexWrap: 'wrap',
+    maxWidth: 'calc(100vw - 380px)',
+  },
+  pestanaBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 12px',
+    borderRadius: '999px',
+    background: '#fff',
+    border: '1px solid var(--border)',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+    fontSize: '13px',
+    cursor: 'pointer',
+    color: 'var(--text-secondary)',
+  },
+  pestanaBtnActiva: {
+    background: 'var(--teal)',
+    color: '#fff',
+    border: '1px solid var(--teal)',
+    fontWeight: 600,
+  },
+  pestanaBadge: {
+    background: 'rgba(0,0,0,0.15)',
+    borderRadius: '999px',
+    padding: '0 7px',
+    fontSize: '11px',
+  },
+  pestanaCerrar: {
+    marginLeft: '2px',
+    cursor: 'pointer',
+    fontSize: '14px',
+    lineHeight: 1,
+  },
+  pestanaAgregar: {
+    width: '34px',
+    height: '34px',
+    borderRadius: '50%',
+    border: 'none',
+    background: 'var(--teal)',
+    color: '#fff',
+    fontSize: '18px',
+    fontWeight: 700,
+    cursor: 'pointer',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+  },
   overlay: {
     position: 'fixed',
     inset: 0,

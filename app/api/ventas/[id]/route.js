@@ -24,16 +24,9 @@ export async function GET(request, { params }) {
         m.bodega_id,
         m.cantidad,
         m.precio_unitario,
-        m.descuento_porcentaje,
-        COALESCE(d.total_devuelto, 0) AS ya_devuelta
+        m.descuento_porcentaje
       FROM movimientos_stock m
       JOIN productos p ON p.id = m.producto_id
-      LEFT JOIN (
-        SELECT producto_id, SUM(cantidad) AS total_devuelto
-        FROM devoluciones
-        WHERE venta_id = ${id}
-        GROUP BY producto_id
-      ) d ON d.producto_id = m.producto_id
       WHERE m.venta_id = ${id}
       ORDER BY m.id ASC
     `;

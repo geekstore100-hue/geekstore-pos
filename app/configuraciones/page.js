@@ -3,7 +3,13 @@
 import { useEffect, useState } from 'react';
 import Shell from '../../components/Shell';
 
+const SECCIONES = [
+  { id: 'vendedores', label: 'Vendedores', descripcion: 'Quién vende' },
+  { id: 'categorias', label: 'Categorías y subcategorías', descripcion: 'Cómo se organiza el inventario' },
+];
+
 export default function ConfiguracionesPage() {
+  const [seccionActiva, setSeccionActiva] = useState('vendedores');
   const [vendedores, setVendedores] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [nombreNuevo, setNombreNuevo] = useState('');
@@ -156,179 +162,204 @@ export default function ConfiguracionesPage() {
 
   return (
     <Shell title="Configuraciones">
-      <h2 style={{ marginTop: 0 }}>Vendedores</h2>
-      <p style={{ color: 'var(--text-secondary)', marginTop: '-8px' }}>
-        Los nombres que aparecen para elegir en el campo "Vendedor" al registrar una venta.
-      </p>
-
-      <form onSubmit={crearVendedor} style={styles.formCard}>
-        <label style={{ display: 'block', marginBottom: '10px' }}>
-          Nuevo vendedor
-          <input
-            value={nombreNuevo}
-            onChange={(e) => setNombreNuevo(e.target.value)}
-            placeholder="Nombre del vendedor"
-            style={styles.input}
-          />
-        </label>
-        {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
-        <button type="submit" disabled={guardando} style={styles.btnPrimario}>
-          {guardando ? 'Guardando...' : '+ Agregar vendedor'}
-        </button>
-      </form>
-
-      <div style={styles.tableCard}>
-        {cargando ? (
-          <p>Cargando...</p>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
-                <th style={styles.th}>Nombre</th>
-                <th style={styles.th}>Estado</th>
-                <th style={styles.th}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {vendedores.map((v) => (
-                <tr key={v.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={styles.td}>
-                    {editandoId === v.id ? (
-                      <input
-                        value={nombreEdicion}
-                        onChange={(e) => setNombreEdicion(e.target.value)}
-                        style={styles.inputChico}
-                        autoFocus
-                      />
-                    ) : (
-                      v.nombre
-                    )}
-                  </td>
-                  <td style={styles.td}>{v.activo ? 'Activo' : 'Inactivo'}</td>
-                  <td style={styles.td}>
-                    {editandoId === v.id ? (
-                      <>
-                        <button onClick={() => guardarEdicion(v)} style={styles.btnSecundario}>Guardar</button>
-                        <button onClick={() => setEditandoId(null)} style={styles.btnSecundario}>Cancelar</button>
-                      </>
-                    ) : (
-                      <>
-                        <button onClick={() => empezarEdicion(v)} style={styles.btnSecundario}>Editar</button>
-                        <button onClick={() => alternarActivo(v)} style={styles.btnSecundario}>
-                          {v.activo ? 'Desactivar' : 'Activar'}
-                        </button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {vendedores.length === 0 && (
-                <tr>
-                  <td style={styles.td} colSpan={3}>No hay vendedores creados todavía.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      <h2 style={{ marginTop: '36px' }}>Categorías y subcategorías</h2>
-      <p style={{ color: 'var(--text-secondary)', marginTop: '-8px' }}>
-        Las opciones que aparecen en el campo "Categoría" de la ficha de un producto.
-      </p>
-
-      <div style={styles.grid2Cat}>
-        <div>
-          <form onSubmit={crearCategoria} style={styles.formCard}>
-            <label style={{ display: 'block', marginBottom: '10px' }}>
-              Nueva categoría
-              <input
-                value={nombreCategoriaNueva}
-                onChange={(e) => setNombreCategoriaNueva(e.target.value)}
-                placeholder="Ej: Computadores"
-                style={styles.input}
-              />
-            </label>
-            {errorCategoria && <p style={{ color: 'var(--danger)' }}>{errorCategoria}</p>}
-            <button type="submit" disabled={guardandoCategoria} style={styles.btnPrimario}>
-              {guardandoCategoria ? 'Guardando...' : '+ Agregar categoría'}
-            </button>
-          </form>
-
-          <div style={styles.tableCard}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
-                  <th style={styles.th}>Categoría</th>
-                </tr>
-              </thead>
-              <tbody>
-                {categorias.map((c) => (
-                  <tr
-                    key={c.id}
-                    onClick={() => setCategoriaSeleccionada(c)}
-                    style={{
-                      ...styles.filaClickeable,
-                      background: categoriaSeleccionada?.id === c.id ? 'var(--teal-bg, #e6faf7)' : 'transparent',
-                    }}
-                  >
-                    <td style={styles.td}>{c.nombre}</td>
-                  </tr>
-                ))}
-                {categorias.length === 0 && (
-                  <tr>
-                    <td style={styles.td}>No hay categorías creadas todavía.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+      <div style={styles.layout}>
+        <div style={styles.menu}>
+          {SECCIONES.map((s) => (
+            <div
+              key={s.id}
+              onClick={() => setSeccionActiva(s.id)}
+              style={{ ...styles.menuItem, ...(seccionActiva === s.id ? styles.menuItemActivo : {}) }}
+            >
+              <div style={{ fontWeight: 600 }}>{s.label}</div>
+              <div style={styles.menuItemDesc}>{s.descripcion}</div>
+            </div>
+          ))}
         </div>
 
-        <div>
-          <form onSubmit={crearSubcategoria} style={styles.formCard}>
-            <label style={{ display: 'block', marginBottom: '10px' }}>
-              Nueva subcategoría {categoriaSeleccionada ? `de "${categoriaSeleccionada.nombre}"` : ''}
-              <input
-                value={nombreSubcategoriaNueva}
-                onChange={(e) => setNombreSubcategoriaNueva(e.target.value)}
-                placeholder={categoriaSeleccionada ? 'Ej: Portátiles' : 'Selecciona una categoría primero'}
-                style={styles.input}
-                disabled={!categoriaSeleccionada}
-              />
-            </label>
-            {errorSubcategoria && <p style={{ color: 'var(--danger)' }}>{errorSubcategoria}</p>}
-            <button type="submit" disabled={guardandoSubcategoria || !categoriaSeleccionada} style={styles.btnPrimario}>
-              {guardandoSubcategoria ? 'Guardando...' : '+ Agregar subcategoría'}
-            </button>
-          </form>
+        <div style={styles.contenido}>
+          {seccionActiva === 'vendedores' && (
+            <>
+              <h2 style={{ marginTop: 0 }}>Vendedores</h2>
+              <p style={{ color: 'var(--text-secondary)', marginTop: '-8px' }}>
+                Los nombres que aparecen para elegir en el campo "Vendedor" al registrar una venta.
+              </p>
 
-          <div style={styles.tableCard}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
-                  <th style={styles.th}>Subcategoría</th>
-                </tr>
-              </thead>
-              <tbody>
-                {!categoriaSeleccionada && (
-                  <tr>
-                    <td style={styles.td}>Elige una categoría a la izquierda para ver sus subcategorías.</td>
-                  </tr>
+              <form onSubmit={crearVendedor} style={styles.formCard}>
+                <label style={{ display: 'block', marginBottom: '10px' }}>
+                  Nuevo vendedor
+                  <input
+                    value={nombreNuevo}
+                    onChange={(e) => setNombreNuevo(e.target.value)}
+                    placeholder="Nombre del vendedor"
+                    style={styles.input}
+                  />
+                </label>
+                {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
+                <button type="submit" disabled={guardando} style={styles.btnPrimario}>
+                  {guardando ? 'Guardando...' : '+ Agregar vendedor'}
+                </button>
+              </form>
+
+              <div style={styles.tableCard}>
+                {cargando ? (
+                  <p>Cargando...</p>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                        <th style={styles.th}>Nombre</th>
+                        <th style={styles.th}>Estado</th>
+                        <th style={styles.th}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {vendedores.map((v) => (
+                        <tr key={v.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={styles.td}>
+                            {editandoId === v.id ? (
+                              <input
+                                value={nombreEdicion}
+                                onChange={(e) => setNombreEdicion(e.target.value)}
+                                style={styles.inputChico}
+                                autoFocus
+                              />
+                            ) : (
+                              v.nombre
+                            )}
+                          </td>
+                          <td style={styles.td}>{v.activo ? 'Activo' : 'Inactivo'}</td>
+                          <td style={styles.td}>
+                            {editandoId === v.id ? (
+                              <>
+                                <button onClick={() => guardarEdicion(v)} style={styles.btnSecundario}>Guardar</button>
+                                <button onClick={() => setEditandoId(null)} style={styles.btnSecundario}>Cancelar</button>
+                              </>
+                            ) : (
+                              <>
+                                <button onClick={() => empezarEdicion(v)} style={styles.btnSecundario}>Editar</button>
+                                <button onClick={() => alternarActivo(v)} style={styles.btnSecundario}>
+                                  {v.activo ? 'Desactivar' : 'Activar'}
+                                </button>
+                              </>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                      {vendedores.length === 0 && (
+                        <tr>
+                          <td style={styles.td} colSpan={3}>No hay vendedores creados todavía.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
                 )}
-                {categoriaSeleccionada && subcategorias.map((s) => (
-                  <tr key={s.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={styles.td}>{s.nombre}</td>
-                  </tr>
-                ))}
-                {categoriaSeleccionada && subcategorias.length === 0 && (
-                  <tr>
-                    <td style={styles.td}>Esta categoría no tiene subcategorías todavía.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+              </div>
+            </>
+          )}
+
+          {seccionActiva === 'categorias' && (
+            <>
+              <h2 style={{ marginTop: 0 }}>Categorías y subcategorías</h2>
+              <p style={{ color: 'var(--text-secondary)', marginTop: '-8px' }}>
+                Las opciones que aparecen en el campo "Categoría" de la ficha de un producto.
+              </p>
+
+              <div style={styles.grid2Cat}>
+                <div>
+                  <form onSubmit={crearCategoria} style={styles.formCard}>
+                    <label style={{ display: 'block', marginBottom: '10px' }}>
+                      Nueva categoría
+                      <input
+                        value={nombreCategoriaNueva}
+                        onChange={(e) => setNombreCategoriaNueva(e.target.value)}
+                        placeholder="Ej: Computadores"
+                        style={styles.input}
+                      />
+                    </label>
+                    {errorCategoria && <p style={{ color: 'var(--danger)' }}>{errorCategoria}</p>}
+                    <button type="submit" disabled={guardandoCategoria} style={styles.btnPrimario}>
+                      {guardandoCategoria ? 'Guardando...' : '+ Agregar categoría'}
+                    </button>
+                  </form>
+
+                  <div style={styles.tableCard}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                          <th style={styles.th}>Categoría</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {categorias.map((c) => (
+                          <tr
+                            key={c.id}
+                            onClick={() => setCategoriaSeleccionada(c)}
+                            style={{
+                              ...styles.filaClickeable,
+                              background: categoriaSeleccionada?.id === c.id ? 'var(--teal-bg, #e6faf7)' : 'transparent',
+                            }}
+                          >
+                            <td style={styles.td}>{c.nombre}</td>
+                          </tr>
+                        ))}
+                        {categorias.length === 0 && (
+                          <tr>
+                            <td style={styles.td}>No hay categorías creadas todavía.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div>
+                  <form onSubmit={crearSubcategoria} style={styles.formCard}>
+                    <label style={{ display: 'block', marginBottom: '10px' }}>
+                      Nueva subcategoría {categoriaSeleccionada ? `de "${categoriaSeleccionada.nombre}"` : ''}
+                      <input
+                        value={nombreSubcategoriaNueva}
+                        onChange={(e) => setNombreSubcategoriaNueva(e.target.value)}
+                        placeholder={categoriaSeleccionada ? 'Ej: Portátiles' : 'Selecciona una categoría primero'}
+                        style={styles.input}
+                        disabled={!categoriaSeleccionada}
+                      />
+                    </label>
+                    {errorSubcategoria && <p style={{ color: 'var(--danger)' }}>{errorSubcategoria}</p>}
+                    <button type="submit" disabled={guardandoSubcategoria || !categoriaSeleccionada} style={styles.btnPrimario}>
+                      {guardandoSubcategoria ? 'Guardando...' : '+ Agregar subcategoría'}
+                    </button>
+                  </form>
+
+                  <div style={styles.tableCard}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                          <th style={styles.th}>Subcategoría</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {!categoriaSeleccionada && (
+                          <tr>
+                            <td style={styles.td}>Elige una categoría a la izquierda para ver sus subcategorías.</td>
+                          </tr>
+                        )}
+                        {categoriaSeleccionada && subcategorias.map((s) => (
+                          <tr key={s.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                            <td style={styles.td}>{s.nombre}</td>
+                          </tr>
+                        ))}
+                        {categoriaSeleccionada && subcategorias.length === 0 && (
+                          <tr>
+                            <td style={styles.td}>Esta categoría no tiene subcategorías todavía.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </Shell>
@@ -336,6 +367,30 @@ export default function ConfiguracionesPage() {
 }
 
 const styles = {
+  layout: { display: 'flex', gap: '24px', alignItems: 'flex-start' },
+  menu: {
+    width: '240px',
+    flexShrink: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    background: '#fff',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius)',
+    padding: '8px',
+  },
+  menuItem: {
+    padding: '10px 12px',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    color: 'var(--text-secondary)',
+  },
+  menuItemActivo: {
+    background: 'var(--teal-light)',
+    color: 'var(--teal-dark)',
+  },
+  menuItemDesc: { fontSize: '12px', marginTop: '2px' },
+  contenido: { flex: 1, minWidth: 0 },
   formCard: { background: '#fff', border: '1px solid var(--border)', padding: '20px', borderRadius: 'var(--radius)', marginBottom: '24px', maxWidth: '400px' },
   tableCard: { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '8px 16px' },
   input: { display: 'block', width: '100%', padding: '9px', marginTop: '4px', borderRadius: '8px', border: '1px solid var(--border)', boxSizing: 'border-box' },
