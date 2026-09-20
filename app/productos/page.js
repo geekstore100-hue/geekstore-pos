@@ -162,10 +162,12 @@ export default function ProductosPage() {
               Precio de venta
               <input type="number" step="0.01" value={form.precio_venta} onChange={(e) => setForm({ ...form, precio_venta: e.target.value })} style={styles.input} />
             </label>
-            <label>
-              Precio de costo
-              <input type="number" step="0.01" value={form.precio_costo} onChange={(e) => setForm({ ...form, precio_costo: e.target.value })} style={styles.input} />
-            </label>
+            {form.es_inventariable && (
+              <label>
+                Precio de costo
+                <input type="number" step="0.01" value={form.precio_costo} onChange={(e) => setForm({ ...form, precio_costo: e.target.value })} style={styles.input} />
+              </label>
+            )}
             <label>
               Precio de distribuidor
               <input type="number" step="0.01" value={form.precio_distribuidor} onChange={(e) => setForm({ ...form, precio_distribuidor: e.target.value })} style={styles.input} />
@@ -177,15 +179,22 @@ export default function ProductosPage() {
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '20px' }}>
               <input
                 type="checkbox"
-                checked={form.es_inventariable}
-                onChange={(e) => setForm({ ...form, es_inventariable: e.target.checked })}
+                checked={!form.es_inventariable}
+                onChange={(e) => {
+                  const esServicio = e.target.checked;
+                  setForm({
+                    ...form,
+                    es_inventariable: !esServicio,
+                    precio_costo: esServicio ? '' : form.precio_costo,
+                  });
+                }}
               />
-              Es un producto de inventario (maneja stock)
+              Es un servicio (sin stock ni precio de compra)
             </label>
           </div>
           {!form.es_inventariable && (
             <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-              Al desmarcarlo, este producto se trata como un servicio: no maneja stock ni bloquea la venta por falta de existencias (por ejemplo servicio técnico o servicio de envío).
+              Este producto se trata como un servicio: no maneja stock, no tiene precio de compra, y nunca bloquea la venta por falta de existencias (por ejemplo servicio técnico o servicio de envío).
             </p>
           )}
           <label style={{ display: 'block', marginTop: '10px' }}>

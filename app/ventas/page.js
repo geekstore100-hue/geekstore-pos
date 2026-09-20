@@ -78,7 +78,12 @@ export default function VentasPage() {
     setObservacionesCierre('');
     const res = await fetch(`/api/turnos/${turno.id}`);
     const data = await res.json();
-    if (data.ok) setResumenTurno(data.resumen);
+    if (data.ok) {
+      setResumenTurno(data.resumen);
+      // Se deja precargado el dinero esperado: si al contar la caja coincide,
+      // el usuario no tiene que escribir nada más; si no coincide, lo ajusta.
+      setDineroReal(String(data.resumen.dineroEsperado));
+    }
     setCargandoResumen(false);
   }
 
@@ -332,33 +337,34 @@ export default function VentasPage() {
 
   return (
     <Shell title="Vender">
-      <div style={styles.bannerTurno}>
-        {cargandoTurno ? (
-          <span style={{ color: 'var(--text-secondary)' }}>Cargando turno...</span>
-        ) : turno ? (
-          <>
-            <span>
-              Turno abierto · Base inicial {moneda(turno.base_inicial)} · Desde{' '}
-              {new Date(turno.abierto_en).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
-            </span>
-            <button onClick={abrirModalCerrarTurno} style={styles.btnCerrarTurno}>Cerrar turno</button>
-          </>
-        ) : (
-          <>
-            <span style={{ color: 'var(--text-secondary)' }}>Turno cerrado</span>
-            <button onClick={() => setMostrarAbrirTurno(true)} style={styles.btnAbrirTurno}>Abrir turno</button>
-          </>
-        )}
-      </div>
-
       <div style={styles.layout}>
         <div style={styles.columnaProductos}>
-          <input
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-            placeholder="Buscar productos por referencia o nombre..."
-            style={styles.buscador}
-          />
+          <div style={styles.barraSuperior}>
+            <div style={styles.bannerTurno}>
+              {cargandoTurno ? (
+                <span>Cargando turno...</span>
+              ) : turno ? (
+                <>
+                  <span>
+                    Turno abierto desde{' '}
+                    {new Date(turno.abierto_en).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  <button onClick={abrirModalCerrarTurno} style={styles.linkTurno}>Cerrar turno</button>
+                </>
+              ) : (
+                <>
+                  <span>Turno cerrado</span>
+                  <button onClick={() => setMostrarAbrirTurno(true)} style={styles.linkTurno}>Abrir turno</button>
+                </>
+              )}
+            </div>
+            <input
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Buscar productos por referencia o nombre..."
+              style={styles.buscador}
+            />
+          </div>
           <div style={styles.grid}>
             {filtrados.map((p) => {
               const enCarrito = carrito.find((i) => i.producto_id === p.id);
@@ -599,6 +605,17 @@ export default function VentasPage() {
                 style={styles.inputCampo}
               />
             </label>
+            {resumenTurno && dineroReal !== '' && (
+              (() => {
+                const diferencia = Number(dineroReal) - resumenTurno.dineroEsperado;
+                const coincide = Math.abs(diferencia) < 1;
+                return (
+                  <p style={{ fontSize: '13px', color: coincide ? 'var(--teal-dark)' : 'var(--danger)', margin: '0 0 8px' }}>
+                    {coincide ? 'Coincide con el dinero esperado.' : `Diferencia: ${diferencia > 0 ? '+' : ''}${moneda(diferencia)}`}
+                  </p>
+                );
+              })()
+            )}
             <label style={styles.labelCampo}>
               Observaciones
               <textarea
@@ -626,22 +643,42 @@ export default function VentasPage() {
 const styles = {
   layout: { display: 'flex', gap: '20px', alignItems: 'flex-start' },
   columnaProductos: { flex: 1, minWidth: 0 },
+  barraSuperior: {
+    position: 'sticky',
+    top: 0,
+    zIndex: 5,
+    background: 'var(--bg)',
+    paddingBottom: '10px',
+  },
+  bannerTurno: {
+    display: 'flex',
+    gap: '8px',
+    alignItems: 'center',
+    fontSize: '12px',
+    color: 'var(--text-secondary)',
+    marginBottom: '6px',
+  },
+  linkTurno: {
+    border: 'none',
+    background: 'none',
+    color: 'var(--teal-dark)',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontSize: '12px',
+    padding: 0,
+  },
   buscador: {
     width: '100%',
     padding: '10px 14px',
     borderRadius: 'var(--radius)',
     border: '1px solid var(--border)',
-    marginBottom: '16px',
     boxSizing: 'border-box',
-    position: 'sticky',
-    top: 0,
-    zIndex: 5,
     background: '#fff',
   },
   grid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-    gap: '12px',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+    gap: '14px',
   },
   tarjeta: {
     background: '#fff',
@@ -667,8 +704,18 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
   },
-  icono: { fontSize: '28px', margin: '8px 0' },
-  fotoTarjeta: { width: '56px', height: '56px', objectFit: 'cover', borderRadius: '8px', margin: '8px auto', display: 'block' },
+  icono: {
+    width: '150px',
+    height: '150px',
+    margin: '8px auto',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '52px',
+    background: 'var(--bg)',
+    borderRadius: '10px',
+  },
+  fotoTarjeta: { width: '150px', height: '150px', objectFit: 'cover', borderRadius: '10px', margin: '8px auto', display: 'block' },
   nombre: { fontSize: '13px', fontWeight: 600, marginBottom: '4px', minHeight: '32px' },
   stockInfo: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', marginBottom: '6px' },
   badgeStock: {
@@ -754,37 +801,6 @@ const styles = {
   },
   piePagina: { display: 'flex', justifyContent: 'space-between', marginTop: '10px', fontSize: '13px', color: 'var(--text-secondary)' },
   btnCancelar: { border: 'none', background: 'none', color: 'var(--teal-dark)', cursor: 'pointer' },
-  bannerTurno: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    background: '#fff',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius)',
-    padding: '10px 16px',
-    marginBottom: '16px',
-    fontSize: '13px',
-  },
-  btnAbrirTurno: {
-    padding: '7px 14px',
-    borderRadius: '8px',
-    border: 'none',
-    background: 'var(--teal)',
-    color: '#fff',
-    cursor: 'pointer',
-    fontSize: '13px',
-    fontWeight: 600,
-  },
-  btnCerrarTurno: {
-    padding: '7px 14px',
-    borderRadius: '8px',
-    border: '1px solid var(--danger)',
-    background: '#fff',
-    color: 'var(--danger)',
-    cursor: 'pointer',
-    fontSize: '13px',
-    fontWeight: 600,
-  },
   overlay: {
     position: 'fixed',
     inset: 0,

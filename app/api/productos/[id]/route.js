@@ -25,6 +25,11 @@ export async function PUT(request, { params }) {
       return NextResponse.json({ ok: false, error: 'El nombre es obligatorio' }, { status: 400 });
     }
 
+    const inventariable = es_inventariable === undefined ? true : Boolean(es_inventariable);
+    // Un servicio (es_inventariable = false) no tiene precio de compra: se
+    // guarda siempre en null, sin importar lo que venga del formulario.
+    const precioCostoFinal = inventariable ? (precio_costo || null) : null;
+
     const [producto] = await sql`
       UPDATE productos SET
         referencia = ${referencia.trim()},
@@ -33,10 +38,10 @@ export async function PUT(request, { params }) {
         categoria_id = ${categoria_id || null},
         subcategoria_id = ${subcategoria_id || null},
         precio_venta = ${precio_venta || null},
-        precio_costo = ${precio_costo || null},
+        precio_costo = ${precioCostoFinal},
         precio_distribuidor = ${precio_distribuidor || null},
         activo = ${activo === undefined ? true : activo},
-        es_inventariable = ${es_inventariable === undefined ? true : Boolean(es_inventariable)},
+        es_inventariable = ${inventariable},
         actualizado_en = now()
       WHERE id = ${id}
       RETURNING id
@@ -44,6 +49,13 @@ export async function PUT(request, { params }) {
 
     if (!producto) {
       return NextResponse.json({ ok: false, error: 'Producto no encontrado' }, { status: 404 });
+    }
+
+    // Si quedó como servicio, no debe quedar cargando existencias: se borran
+    // las filas de stock que tuviera (la venta ya no las va a mirar, pero
+    // así tampoco quedan datos viejos e inconsistentes).
+    if (!inventariable) {
+      await sql`DELETE FROM stock WHERE producto_id = ${id}`;
     }
 
     return NextResponse.json({ ok: true, producto });

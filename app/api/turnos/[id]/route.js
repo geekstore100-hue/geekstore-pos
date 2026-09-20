@@ -3,10 +3,11 @@ import sql from '../../../../lib/db';
 
 // Solo cuentan las ventas de ESE turno que no hayan sido anuladas. El
 // "dinero esperado en caja" solo suma el efectivo (base inicial + ventas en
-// efectivo): las ventas por tarjeta o transferencia no meten billetes a la
-// caja física, así que no se cuentan ahí. Todavía no existe un registro de
-// movimientos manuales de caja (retiros/ingresos aparte de una venta), así
-// que "Devolución de dinero" queda siempre en $0 por ahora.
+// efectivo - devoluciones de dinero): las ventas por tarjeta o transferencia
+// no meten billetes a la caja física, así que no se cuentan ahí. Las
+// devoluciones son siempre en efectivo (así se maneja el módulo de
+// devoluciones) y se cuentan por fecha de la devolución, sin importar en
+// qué turno se hizo la venta original.
 async function calcularResumen(turno) {
   const ventas = await sql`
     SELECT medio_pago, total FROM ventas
@@ -21,7 +22,12 @@ async function calcularResumen(turno) {
   const ventasTransferencia = sumaPor('Transferencia');
   const ventasOtro = sumaPor('Otro');
   const totalVentas = ventas.reduce((acc, v) => acc + Number(v.total), 0);
-  const devolucionDinero = 0;
+
+  const [{ total_devuelto }] = await sql`
+    SELECT COALESCE(SUM(monto), 0) AS total_devuelto FROM devoluciones WHERE turno_id = ${turno.id}
+  `;
+  const devolucionDinero = Number(total_devuelto);
+
   const baseInicial = Number(turno.base_inicial);
   const dineroEsperado = baseInicial + ventasEfectivo - devolucionDinero;
 

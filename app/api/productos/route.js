@@ -61,6 +61,8 @@ export async function POST(request) {
     }
 
     const inventariable = es_inventariable === undefined ? true : Boolean(es_inventariable);
+    // Un servicio no tiene precio de compra.
+    const precioCostoFinal = inventariable ? (precio_costo || null) : null;
 
     const [producto] = await sql`
       INSERT INTO productos (
@@ -70,7 +72,7 @@ export async function POST(request) {
       VALUES (
         ${referencia.trim()}, ${nombre.trim()}, ${descripcion || null},
         ${categoria_id || null}, ${subcategoria_id || null},
-        ${precio_venta || null}, ${precio_costo || null}, ${precio_distribuidor || null},
+        ${precio_venta || null}, ${precioCostoFinal}, ${precio_distribuidor || null},
         ${activo === undefined ? true : activo}, ${inventariable}
       )
       RETURNING id
