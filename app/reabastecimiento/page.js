@@ -26,6 +26,10 @@ export default function ReabastecimientoPage() {
   const [mensaje, setMensaje] = useState('');
   const [pagandoId, setPagandoId] = useState(null);
 
+  // Controla el panel flotante del traspaso, para no tener que bajar hasta el
+  // final de la página cada vez que se agrega o se revisa un producto.
+  const [carritoAbierto, setCarritoAbierto] = useState(false);
+
   const bodegaPrincipal = useMemo(() => bodegas.find((b) => b.nombre === 'Principal'), [bodegas]);
   const bodegaDistribuidor = useMemo(() => bodegas.find((b) => b.nombre === 'Bodega Distribuidor'), [bodegas]);
 
@@ -462,6 +466,59 @@ export default function ReabastecimientoPage() {
           </tbody>
         </table>
       </div>
+
+      {carrito.length > 0 && (
+        <div style={styles.flotanteContenedor}>
+          {carritoAbierto && (
+            <div style={styles.flotantePanel}>
+              <div style={styles.flotanteHeader}>
+                <strong>Traspaso en curso</strong>
+                <button onClick={() => setCarritoAbierto(false)} style={styles.btnCerrarFlotante}>✕</button>
+              </div>
+
+              <div style={styles.flotanteItems}>
+                {carrito.map((it) => (
+                  <div key={it.producto_id} style={styles.flotanteFila}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {it.nombre}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>${moneda0(it.precio_costo)} c/u</div>
+                    </div>
+                    <input
+                      type="number"
+                      min="1"
+                      value={it.cantidad}
+                      onChange={(e) => actualizarCantidad(it.producto_id, e.target.value)}
+                      style={styles.inputCantidadChico}
+                    />
+                    <button onClick={() => quitarDelCarrito(it.producto_id)} style={styles.btnQuitarChico}>✕</button>
+                  </div>
+                ))}
+              </div>
+
+              <div style={styles.flotanteTotal}>
+                Total: <strong>${moneda0(valorCarrito)}</strong>
+              </div>
+
+              {errorCarrito && <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>{errorCarrito}</p>}
+              {mensaje && <p style={{ color: 'var(--teal-dark)', fontSize: '12px', margin: '6px 0 0' }}>{mensaje}</p>}
+
+              <button onClick={crearTraspaso} disabled={creando} style={styles.btnPrimarioAncho}>
+                {creando ? 'Creando...' : 'Crear traspaso e imprimir'}
+              </button>
+              <p style={{ fontSize: '11px', color: 'var(--text-secondary)', textAlign: 'center', margin: '6px 0 0' }}>
+                Para cambiar la bodega de origen/destino u observaciones, baja a "Traspaso en curso".
+              </p>
+            </div>
+          )}
+
+          <button onClick={() => setCarritoAbierto((v) => !v)} style={styles.botonFlotante}>
+            {carrito.length} producto{carrito.length === 1 ? '' : 's'} · ${moneda0(valorCarrito)}
+            {carritoAbierto ? ' ▾' : ' ▴'}
+          </button>
+        </div>
+      )}
     </Shell>
   );
 }
@@ -534,4 +591,59 @@ const styles = {
     borderTop: '1px solid var(--border)',
   },
   linkVer: { color: 'var(--teal-dark)', fontSize: '13px', textDecoration: 'none', fontWeight: 600 },
+
+  // Panel flotante del traspaso: se queda fijo en la esquina mientras se
+  // recorre la lista de alertas, para no tener que bajar hasta el final de
+  // la página para agregar, revisar o crear el traspaso.
+  flotanteContenedor: {
+    position: 'fixed',
+    right: '20px',
+    bottom: '20px',
+    zIndex: 100,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    gap: '10px',
+  },
+  botonFlotante: {
+    padding: '13px 20px',
+    borderRadius: '999px',
+    border: 'none',
+    background: 'var(--teal)',
+    color: '#fff',
+    cursor: 'pointer',
+    fontWeight: 700,
+    fontSize: '14px',
+    boxShadow: '0 6px 20px rgba(0,0,0,0.18)',
+  },
+  flotantePanel: {
+    width: '320px',
+    maxHeight: '70vh',
+    display: 'flex',
+    flexDirection: 'column',
+    background: '#fff',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius)',
+    boxShadow: '0 10px 30px rgba(0,0,0,0.18)',
+    padding: '14px',
+  },
+  flotanteHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' },
+  btnCerrarFlotante: { border: 'none', background: 'none', cursor: 'pointer', fontSize: '14px', color: 'var(--text-secondary)' },
+  flotanteItems: { overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '2px' },
+  flotanteFila: { display: 'flex', alignItems: 'center', gap: '6px', borderBottom: '1px solid var(--border)', paddingBottom: '8px' },
+  inputCantidadChico: { width: '48px', padding: '5px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '13px' },
+  btnQuitarChico: { border: 'none', background: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: '13px' },
+  flotanteTotal: { marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border)', fontSize: '14px' },
+  btnPrimarioAncho: {
+    marginTop: '10px',
+    width: '100%',
+    padding: '11px 14px',
+    borderRadius: '8px',
+    border: 'none',
+    background: 'var(--teal)',
+    color: '#fff',
+    cursor: 'pointer',
+    fontWeight: 600,
+    fontSize: '13px',
+  },
 };
