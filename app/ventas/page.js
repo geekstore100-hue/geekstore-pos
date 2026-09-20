@@ -149,7 +149,11 @@ export default function VentasPage() {
                     <span style={styles.referencia}>{p.referencia}</span>
                     {enCarrito && <span style={styles.badgeCantidad}>{enCarrito.cantidad}</span>}
                   </div>
-                  <div style={styles.icono}>📦</div>
+                  {p.imagen_key ? (
+                    <img src={`/api/imagenes/${p.imagen_key}`} alt="" style={styles.fotoTarjeta} />
+                  ) : (
+                    <div style={styles.icono}>📦</div>
+                  )}
                   <div style={styles.nombre}>{p.nombre}</div>
                   {agotado ? <div style={styles.agotado}>Agotado</div> : <div style={styles.precio}>{moneda(p.precio_venta)}</div>}
                 </div>
@@ -298,6 +302,7 @@ const styles = {
     justifyContent: 'center',
   },
   icono: { fontSize: '28px', margin: '8px 0' },
+  fotoTarjeta: { width: '56px', height: '56px', objectFit: 'cover', borderRadius: '8px', margin: '8px auto', display: 'block' },
   nombre: { fontSize: '13px', fontWeight: 600, marginBottom: '4px', minHeight: '32px' },
   precio: { fontSize: '13px', color: 'var(--text-secondary)' },
   agotado: { fontSize: '12px', color: 'var(--warning)' },
