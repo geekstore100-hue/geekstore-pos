@@ -27,6 +27,13 @@ export default function ProductosPage() {
   const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
 
+  const [imagenes, setImagenes] = useState([]);
+  const [cargandoImagenes, setCargandoImagenes] = useState(false);
+  const [subiendoImagen, setSubiendoImagen] = useState(false);
+  const [errorImagen, setErrorImagen] = useState('');
+  const [procesandoImagenId, setProcesandoImagenId] = useState(null);
+  const [portadaActual, setPortadaActual] = useState(null);
+
   async function cargarProductos() {
     setCargando(true);
     const res = await fetch('/api/productos');
@@ -56,11 +63,29 @@ export default function ProductosPage() {
     cargarCategorias();
   }, []);
 
+  useEffect(() => {
+    if (form.id) {
+      const p = productos.find((x) => x.id === form.id);
+      if (p) setPortadaActual(p.imagen_key || null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productos, form.id]);
+
   function nuevoProducto() {
     setForm(vacio);
     setSubcategorias([]);
+    setImagenes([]);
+    setErrorImagen('');
     setError('');
     setMostrarForm(true);
+  }
+
+  async function cargarImagenes(productoId) {
+    setCargandoImagenes(true);
+    const res = await fetch(`/api/productos/${productoId}/imagenes`);
+    const data = await res.json();
+    if (data.ok) setImagenes(data.imagenes);
+    setCargandoImagenes(false);
   }
 
   function editarProducto(p) {
@@ -78,8 +103,57 @@ export default function ProductosPage() {
       es_inventariable: p.es_inventariable === undefined || p.es_inventariable === null ? true : p.es_inventariable,
     });
     setError('');
+    setErrorImagen('');
+    setPortadaActual(p.imagen_key || null);
     setMostrarForm(true);
     cargarSubcategorias(p.categoria_id || '');
+    cargarImagenes(p.id);
+  }
+
+  async function subirImagen(e) {
+    const archivo = e.target.files?.[0];
+    e.target.value = '';
+    if (!archivo || !form.id) return;
+    setErrorImagen('');
+    setSubiendoImagen(true);
+    const cuerpo = new FormData();
+    cuerpo.append('imagen', archivo);
+    const res = await fetch(`/api/productos/${form.id}/imagenes`, { method: 'POST', body: cuerpo });
+    const data = await res.json();
+    setSubiendoImagen(false);
+    if (data.ok) {
+      cargarImagenes(form.id);
+      cargarProductos();
+    } else {
+      setErrorImagen(data.error || 'No se pudo subir la imagen');
+    }
+  }
+
+  async function eliminarImagen(imgId) {
+    if (!window.confirm('¿Eliminar esta foto?')) return;
+    setProcesandoImagenId(imgId);
+    const res = await fetch(`/api/productos/${form.id}/imagenes/${imgId}`, { method: 'DELETE' });
+    const data = await res.json();
+    setProcesandoImagenId(null);
+    if (data.ok) {
+      cargarImagenes(form.id);
+      cargarProductos();
+    } else {
+      setErrorImagen(data.error || 'No se pudo eliminar la imagen');
+    }
+  }
+
+  async function hacerPortada(imgId) {
+    setProcesandoImagenId(imgId);
+    const res = await fetch(`/api/productos/${form.id}/imagenes/${imgId}`, { method: 'PATCH' });
+    const data = await res.json();
+    setProcesandoImagenId(null);
+    if (data.ok) {
+      cargarImagenes(form.id);
+      cargarProductos();
+    } else {
+      setErrorImagen(data.error || 'No se pudo cambiar la portada');
+    }
   }
 
   function cambiarCategoria(categoriaId) {
@@ -202,6 +276,63 @@ export default function ProductosPage() {
             <textarea value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} style={{ ...styles.input, width: '100%', minHeight: '60px' }} />
           </label>
 
+          <div style={{ marginTop: '16px' }}>
+            <label style={{ display: 'block', marginBottom: '8px' }}>Fotos</label>
+            {!form.id ? (
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                Guarda el producto primero para poder agregarle fotos.
+              </p>
+            ) : (
+              <>
+                {cargandoImagenes ? (
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Cargando fotos...</p>
+                ) : (
+                  <div style={styles.galeria}>
+                    {imagenes.map((img) => {
+                      const esPortada = img.imagen_key === portadaActual;
+                      const procesando = procesandoImagenId === img.id;
+                      return (
+                        <div key={img.id} style={styles.fotoItem}>
+                          <img src={`/api/imagenes/${img.imagen_key}`} alt="" style={styles.fotoMiniatura} />
+                          {esPortada && <span style={styles.badgePortada}>Portada</span>}
+                          <div style={styles.fotoAcciones}>
+                            {!esPortada && (
+                              <button
+                                type="button"
+                                onClick={() => hacerPortada(img.id)}
+                                disabled={procesando}
+                                style={styles.btnFotoAccion}
+                              >
+                                Hacer portada
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => eliminarImagen(img.id)}
+                              disabled={procesando}
+                              style={{ ...styles.btnFotoAccion, color: 'var(--danger)' }}
+                            >
+                              Eliminar
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {imagenes.length === 0 && (
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Este producto no tiene fotos todavía.</p>
+                    )}
+                  </div>
+                )}
+
+                <label style={styles.btnSubirFoto}>
+                  {subiendoImagen ? 'Subiendo...' : '+ Agregar foto'}
+                  <input type="file" accept="image/*" onChange={subirImagen} disabled={subiendoImagen} style={{ display: 'none' }} />
+                </label>
+                {errorImagen && <p style={{ color: 'var(--danger)', fontSize: '13px' }}>{errorImagen}</p>}
+              </>
+            )}
+          </div>
+
           {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
 
           <div style={{ marginTop: '12px' }}>
@@ -287,5 +418,62 @@ const styles = {
     background: 'var(--teal-light)',
     borderRadius: '999px',
     padding: '2px 8px',
+  },
+  galeria: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '12px',
+    marginBottom: '10px',
+  },
+  fotoItem: {
+    position: 'relative',
+    width: '120px',
+    border: '1px solid var(--border)',
+    borderRadius: '8px',
+    padding: '6px',
+    textAlign: 'center',
+    background: 'var(--bg)',
+  },
+  fotoMiniatura: {
+    width: '100%',
+    height: '90px',
+    objectFit: 'contain',
+    background: '#fff',
+    borderRadius: '6px',
+  },
+  badgePortada: {
+    display: 'inline-block',
+    marginTop: '4px',
+    fontSize: '11px',
+    fontWeight: 600,
+    color: 'var(--teal-dark)',
+    background: 'var(--teal-light)',
+    borderRadius: '999px',
+    padding: '1px 8px',
+  },
+  fotoAcciones: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    marginTop: '6px',
+  },
+  btnFotoAccion: {
+    border: 'none',
+    background: 'none',
+    color: 'var(--teal-dark)',
+    cursor: 'pointer',
+    fontSize: '12px',
+    padding: '2px 0',
+  },
+  btnSubirFoto: {
+    display: 'inline-block',
+    padding: '9px 16px',
+    borderRadius: '8px',
+    border: '1px solid var(--border)',
+    background: '#fff',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: 600,
+    color: 'var(--teal-dark)',
   },
 };

@@ -29,7 +29,7 @@ export async function GET() {
       LEFT JOIN stock s ON s.producto_id = p.id
       LEFT JOIN bodegas b ON b.id = s.bodega_id
       GROUP BY p.id, c.nombre, sc.nombre
-      ORDER BY p.nombre ASC
+      ORDER BY p.referencia DESC
     `;
     return NextResponse.json({ ok: true, productos });
   } catch (error) {

@@ -800,7 +800,7 @@ const styles = {
     background: 'var(--bg)',
     borderRadius: '10px',
   },
-  fotoTarjeta: { width: '150px', height: '150px', objectFit: 'cover', borderRadius: '10px', margin: '8px auto', display: 'block' },
+  fotoTarjeta: { width: '150px', height: '150px', objectFit: 'contain', background: 'var(--bg)', borderRadius: '10px', margin: '8px auto', display: 'block' },
   nombre: { fontSize: '13px', fontWeight: 600, marginBottom: '4px', minHeight: '32px' },
   stockInfo: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', marginBottom: '6px' },
   badgeStock: {
@@ -819,7 +819,7 @@ const styles = {
     padding: '1px 9px',
     display: 'inline-block',
   },
-  precio: { fontSize: '13px', color: 'var(--text-secondary)' },
+  precio: { fontSize: '17px', fontWeight: 700, color: 'var(--text)' },
   listaPrecios: { display: 'flex', gap: '8px', marginBottom: '12px' },
   btnLista: {
     flex: 1,

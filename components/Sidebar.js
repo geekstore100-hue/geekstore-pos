@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 
 const links = [
+  { href: '/ventas', label: 'Vender', icon: IconCart },
   {
     href: '/productos',
     label: 'Inventario',
@@ -14,7 +15,6 @@ const links = [
       { href: '/ajustes-inventario', label: 'Ajustes de inventario', icon: IconAdjust },
     ],
   },
-  { href: '/ventas', label: 'Vender', icon: IconCart },
   { href: '/entradas', label: 'Compras', icon: IconInbox },
   {
     href: '/historial',
