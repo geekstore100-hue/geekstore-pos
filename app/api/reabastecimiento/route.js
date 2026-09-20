@@ -41,6 +41,7 @@ export async function GET() {
         p.referencia,
         p.nombre,
         p.imagen_key,
+        p.precio_costo,
         COALESCE(sp.stock_principal, 0) AS stock_principal,
         COALESCE(sp.stock_distribuidor, 0) AS stock_distribuidor,
         COALESCE(vp.unidades, 0) AS unidades_vendidas
@@ -88,6 +89,7 @@ export async function GET() {
           referencia: p.referencia,
           nombre: p.nombre,
           imagen_key: p.imagen_key,
+          precio_costo: Number(p.precio_costo) || 0,
           stock_principal: stockPrincipal,
           stock_distribuidor: stockDistribuidor,
           venta_diaria_promedio: ventaDiariaPromedio,
