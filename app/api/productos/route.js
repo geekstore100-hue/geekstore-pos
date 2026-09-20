@@ -17,6 +17,7 @@ export async function GET() {
         p.precio_venta,
         p.precio_costo,
         p.precio_distribuidor,
+        p.imagen_key,
         p.activo,
         COALESCE(SUM(s.cantidad), 0) AS stock
       FROM productos p

@@ -194,6 +194,7 @@ export default function ProductosPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                <th style={styles.th}></th>
                 <th style={styles.th}>Referencia</th>
                 <th style={styles.th}>Nombre</th>
                 <th style={styles.th}>Categoría</th>
@@ -207,6 +208,13 @@ export default function ProductosPage() {
             <tbody>
               {productos.map((p) => (
                 <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={styles.td}>
+                    {p.imagen_key ? (
+                      <img src={`/api/imagenes/${p.imagen_key}`} alt="" style={styles.miniatura} />
+                    ) : (
+                      <div style={styles.miniaturaVacia} />
+                    )}
+                  </td>
                   <td style={styles.td}>{p.referencia}</td>
                   <td style={styles.td}>{p.nombre}</td>
                   <td style={styles.td}>{p.categoria_nombre || '-'}</td>
@@ -221,7 +229,7 @@ export default function ProductosPage() {
               ))}
               {productos.length === 0 && (
                 <tr>
-                  <td style={styles.td} colSpan={8}>No hay productos todavía.</td>
+                  <td style={styles.td} colSpan={9}>No hay productos todavía.</td>
                 </tr>
               )}
             </tbody>
@@ -242,4 +250,6 @@ const styles = {
   td: { padding: '10px 8px', fontSize: '14px' },
   btnPrimario: { padding: '9px 16px', borderRadius: '8px', border: 'none', background: 'var(--teal)', color: '#fff', cursor: 'pointer', fontWeight: 600 },
   btnSecundario: { padding: '9px 16px', borderRadius: '8px', border: '1px solid var(--border)', background: '#fff', marginLeft: '8px', cursor: 'pointer' },
+  miniatura: { width: '36px', height: '36px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border)' },
+  miniaturaVacia: { width: '36px', height: '36px', borderRadius: '6px', background: 'var(--bg)', border: '1px solid var(--border)' },
 };
