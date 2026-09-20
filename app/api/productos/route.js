@@ -19,6 +19,7 @@ export async function GET() {
         p.precio_distribuidor,
         p.imagen_key,
         p.activo,
+        p.es_inventariable,
         COALESCE(SUM(s.cantidad), 0) AS stock,
         COALESCE(SUM(s.cantidad) FILTER (WHERE b.nombre = 'Principal'), 0) AS stock_principal,
         COALESCE(SUM(s.cantidad) FILTER (WHERE b.nombre = 'Bodega Distribuidor'), 0) AS stock_distribuidor
@@ -49,6 +50,7 @@ export async function POST(request) {
       precio_costo,
       precio_distribuidor,
       activo,
+      es_inventariable,
     } = body;
 
     if (!referencia || !referencia.trim()) {
@@ -58,29 +60,35 @@ export async function POST(request) {
       return NextResponse.json({ ok: false, error: 'El nombre es obligatorio' }, { status: 400 });
     }
 
+    const inventariable = es_inventariable === undefined ? true : Boolean(es_inventariable);
+
     const [producto] = await sql`
       INSERT INTO productos (
         referencia, nombre, descripcion, categoria_id, subcategoria_id,
-        precio_venta, precio_costo, precio_distribuidor, activo
+        precio_venta, precio_costo, precio_distribuidor, activo, es_inventariable
       )
       VALUES (
         ${referencia.trim()}, ${nombre.trim()}, ${descripcion || null},
         ${categoria_id || null}, ${subcategoria_id || null},
         ${precio_venta || null}, ${precio_costo || null}, ${precio_distribuidor || null},
-        ${activo === undefined ? true : activo}
+        ${activo === undefined ? true : activo}, ${inventariable}
       )
       RETURNING id
     `;
 
     // Deja el producto con stock 0 en todas las bodegas existentes, para que
     // aparezca de una vez en compras/ventas sin importar la bodega elegida.
-    const bodegas = await sql`SELECT id FROM bodegas`;
-    for (const bodega of bodegas) {
-      await sql`
-        INSERT INTO stock (producto_id, bodega_id, cantidad)
-        VALUES (${producto.id}, ${bodega.id}, 0)
-        ON CONFLICT (producto_id, bodega_id) DO NOTHING
-      `;
+    // Los servicios (es_inventariable = false) no manejan stock, así que no
+    // se les crean filas en la tabla stock.
+    if (inventariable) {
+      const bodegas = await sql`SELECT id FROM bodegas`;
+      for (const bodega of bodegas) {
+        await sql`
+          INSERT INTO stock (producto_id, bodega_id, cantidad)
+          VALUES (${producto.id}, ${bodega.id}, 0)
+          ON CONFLICT (producto_id, bodega_id) DO NOTHING
+        `;
+      }
     }
 
     return NextResponse.json({ ok: true, producto });

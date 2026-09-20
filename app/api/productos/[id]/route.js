@@ -15,6 +15,7 @@ export async function PUT(request, { params }) {
       precio_costo,
       precio_distribuidor,
       activo,
+      es_inventariable,
     } = body;
 
     if (!referencia || !referencia.trim()) {
@@ -35,6 +36,7 @@ export async function PUT(request, { params }) {
         precio_costo = ${precio_costo || null},
         precio_distribuidor = ${precio_distribuidor || null},
         activo = ${activo === undefined ? true : activo},
+        es_inventariable = ${es_inventariable === undefined ? true : Boolean(es_inventariable)},
         actualizado_en = now()
       WHERE id = ${id}
       RETURNING id

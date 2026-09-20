@@ -16,6 +16,19 @@ export default function VentasPage() {
   const [mensaje, setMensaje] = useState('');
   const [guardando, setGuardando] = useState(false);
 
+  const [turno, setTurno] = useState(null);
+  const [cargandoTurno, setCargandoTurno] = useState(true);
+  const [mostrarAbrirTurno, setMostrarAbrirTurno] = useState(false);
+  const [baseInicial, setBaseInicial] = useState('');
+  const [guardandoTurno, setGuardandoTurno] = useState(false);
+  const [errorTurno, setErrorTurno] = useState('');
+  const [mostrarCerrarTurno, setMostrarCerrarTurno] = useState(false);
+  const [resumenTurno, setResumenTurno] = useState(null);
+  const [cargandoResumen, setCargandoResumen] = useState(false);
+  const [dineroReal, setDineroReal] = useState('');
+  const [observacionesCierre, setObservacionesCierre] = useState('');
+  const [cerrandoTurno, setCerrandoTurno] = useState(false);
+
   async function cargarTodo() {
     const [rProd, rVend] = await Promise.all([fetch('/api/productos'), fetch('/api/vendedores')]);
     const dProd = await rProd.json();
@@ -24,9 +37,73 @@ export default function VentasPage() {
     if (dVend.ok) setVendedores(dVend.vendedores.filter((v) => v.activo));
   }
 
+  async function cargarTurno() {
+    setCargandoTurno(true);
+    const res = await fetch('/api/turnos');
+    const data = await res.json();
+    if (data.ok) setTurno(data.turno);
+    setCargandoTurno(false);
+  }
+
   useEffect(() => {
     cargarTodo();
+    cargarTurno();
   }, []);
+
+  async function abrirTurno() {
+    setErrorTurno('');
+    setGuardandoTurno(true);
+    const res = await fetch('/api/turnos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base_inicial: baseInicial }),
+    });
+    const data = await res.json();
+    setGuardandoTurno(false);
+    if (data.ok) {
+      setTurno(data.turno);
+      setMostrarAbrirTurno(false);
+      setBaseInicial('');
+    } else {
+      setErrorTurno(data.error || 'No se pudo abrir el turno');
+    }
+  }
+
+  async function abrirModalCerrarTurno() {
+    if (!turno) return;
+    setErrorTurno('');
+    setMostrarCerrarTurno(true);
+    setCargandoResumen(true);
+    setDineroReal('');
+    setObservacionesCierre('');
+    const res = await fetch(`/api/turnos/${turno.id}`);
+    const data = await res.json();
+    if (data.ok) setResumenTurno(data.resumen);
+    setCargandoResumen(false);
+  }
+
+  async function confirmarCierreTurno() {
+    if (dineroReal === '') {
+      setErrorTurno('Ingresa el dinero real en caja.');
+      return;
+    }
+    setErrorTurno('');
+    setCerrandoTurno(true);
+    const res = await fetch(`/api/turnos/${turno.id}/cerrar`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dinero_real_caja: dineroReal, observaciones: observacionesCierre }),
+    });
+    const data = await res.json();
+    setCerrandoTurno(false);
+    if (data.ok) {
+      setMostrarCerrarTurno(false);
+      setResumenTurno(null);
+      setTurno(null);
+    } else {
+      setErrorTurno(data.error || 'No se pudo cerrar el turno');
+    }
+  }
 
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -59,8 +136,13 @@ export default function VentasPage() {
   }
 
   function agregarAlCarrito(producto) {
+    if (!turno) {
+      setError('Debes abrir un turno para vender.');
+      return;
+    }
+    const inventariable = producto.es_inventariable !== false;
     const disponible = Number(producto.stock_principal) || 0;
-    if (disponible <= 0) {
+    if (inventariable && disponible <= 0) {
       setError('No hay existencias en la bodega Principal para este producto.');
       return;
     }
@@ -68,7 +150,7 @@ export default function VentasPage() {
     setCarrito((prev) => {
       const existente = prev.find((i) => i.producto_id === producto.id);
       if (existente) {
-        if (existente.cantidad + 1 > disponible) return prev;
+        if (inventariable && existente.cantidad + 1 > disponible) return prev;
         return prev.map((i) => (i.producto_id === producto.id ? { ...i, cantidad: i.cantidad + 1 } : i));
       }
       return [
@@ -86,7 +168,9 @@ export default function VentasPage() {
   }
 
   function cambiarCantidad(producto_id, delta) {
-    const disponible = stockPrincipalDe(producto_id);
+    const producto = productos.find((p) => p.id === producto_id);
+    const inventariable = producto ? producto.es_inventariable !== false : true;
+    const disponible = inventariable ? stockPrincipalDe(producto_id) : Infinity;
     setCarrito((prev) =>
       prev
         .map((i) => (i.producto_id === producto_id ? { ...i, cantidad: Math.min(i.cantidad + delta, disponible) } : i))
@@ -188,6 +272,10 @@ export default function VentasPage() {
     setError('');
     setMensaje('');
 
+    if (!turno) {
+      setError('Debes abrir un turno para vender.');
+      return;
+    }
     if (carrito.length === 0) {
       setError('Agrega al menos un producto');
       return;
@@ -244,6 +332,25 @@ export default function VentasPage() {
 
   return (
     <Shell title="Vender">
+      <div style={styles.bannerTurno}>
+        {cargandoTurno ? (
+          <span style={{ color: 'var(--text-secondary)' }}>Cargando turno...</span>
+        ) : turno ? (
+          <>
+            <span>
+              Turno abierto · Base inicial {moneda(turno.base_inicial)} · Desde{' '}
+              {new Date(turno.abierto_en).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+            <button onClick={abrirModalCerrarTurno} style={styles.btnCerrarTurno}>Cerrar turno</button>
+          </>
+        ) : (
+          <>
+            <span style={{ color: 'var(--text-secondary)' }}>Turno cerrado</span>
+            <button onClick={() => setMostrarAbrirTurno(true)} style={styles.btnAbrirTurno}>Abrir turno</button>
+          </>
+        )}
+      </div>
+
       <div style={styles.layout}>
         <div style={styles.columnaProductos}>
           <input
@@ -255,9 +362,10 @@ export default function VentasPage() {
           <div style={styles.grid}>
             {filtrados.map((p) => {
               const enCarrito = carrito.find((i) => i.producto_id === p.id);
+              const inventariable = p.es_inventariable !== false;
               const stockPrincipal = Number(p.stock_principal) || 0;
               const stockDistribuidor = Number(p.stock_distribuidor) || 0;
-              const agotado = stockPrincipal <= 0;
+              const agotado = inventariable && stockPrincipal <= 0;
               return (
                 <div
                   key={p.id}
@@ -278,9 +386,16 @@ export default function VentasPage() {
                     <div style={styles.icono}>📦</div>
                   )}
                   <div style={styles.nombre}>{p.nombre}</div>
-                  <div style={styles.stockInfo}>
-                    Principal: {stockPrincipal} · Distribuidor: {stockDistribuidor}
-                  </div>
+                  {inventariable ? (
+                    <div style={styles.stockInfo}>
+                      <span style={styles.badgeStock}>Principal: {stockPrincipal}</span>
+                      <span style={styles.badgeStock}>Distribuidor: {stockDistribuidor}</span>
+                    </div>
+                  ) : (
+                    <div style={styles.stockInfo}>
+                      <span style={styles.badgeServicio}>Servicio</span>
+                    </div>
+                  )}
                   {agotado ? (
                     <div style={styles.agotado}>{stockDistribuidor > 0 ? 'Sin stock en Principal' : 'Agotado'}</div>
                   ) : (
@@ -404,6 +519,106 @@ export default function VentasPage() {
           </div>
         </div>
       </div>
+
+      {mostrarAbrirTurno && (
+        <div style={styles.overlay} onMouseDown={() => setMostrarAbrirTurno(false)}>
+          <div style={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Abrir turno</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+              Indica el dinero en efectivo con el que inicias el turno.
+            </p>
+            <label style={styles.labelCampo}>
+              Base inicial
+              <input
+                type="number"
+                step="0.01"
+                value={baseInicial}
+                onChange={(e) => setBaseInicial(e.target.value)}
+                style={styles.inputCampo}
+                autoFocus
+              />
+            </label>
+
+            {errorTurno && <p style={{ color: 'var(--danger)' }}>{errorTurno}</p>}
+
+            <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+              <button onClick={abrirTurno} disabled={guardandoTurno} style={styles.btnPrimario}>
+                {guardandoTurno ? 'Abriendo...' : 'Guardar'}
+              </button>
+              <button onClick={() => setMostrarAbrirTurno(false)} style={styles.btnSecundarioModal}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {mostrarCerrarTurno && (
+        <div style={styles.overlay} onMouseDown={() => setMostrarCerrarTurno(false)}>
+          <div style={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Cerrar turno</h3>
+            {turno && (
+              <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+                Fecha de inicio{' '}
+                {new Date(turno.abierto_en).toLocaleString('es-CO', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </p>
+            )}
+
+            {cargandoResumen ? (
+              <p>Cargando resumen...</p>
+            ) : (
+              resumenTurno && (
+                <>
+                  <div style={styles.filaResumenTurno}><span>Base inicial</span><strong>{moneda(resumenTurno.baseInicial)}</strong></div>
+                  <div style={styles.filaResumenTurno}><span>Ventas en efectivo</span><strong>{moneda(resumenTurno.ventasEfectivo)}</strong></div>
+                  <div style={styles.filaResumenTurno}><span>Ventas por tarjeta</span><strong>{moneda(resumenTurno.ventasTarjeta)}</strong></div>
+                  <div style={styles.filaResumenTurno}><span>Ventas por transferencia</span><strong>{moneda(resumenTurno.ventasTransferencia)}</strong></div>
+                  <div style={styles.filaResumenTurno}><span>Otros medios de pago</span><strong>{moneda(resumenTurno.ventasOtro)}</strong></div>
+                  <div style={styles.filaResumenTurno}><span>Devolución de dinero</span><strong>{moneda(resumenTurno.devolucionDinero)}</strong></div>
+                  <div style={{ ...styles.filaResumenTurno, borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '4px', fontWeight: 700 }}>
+                    <span>Total de ventas</span><span>{moneda(resumenTurno.totalVentas)}</span>
+                  </div>
+                  <div style={styles.dineroEsperado}>
+                    <span>Dinero esperado en caja</span><strong>{moneda(resumenTurno.dineroEsperado)}</strong>
+                  </div>
+                </>
+              )
+            )}
+
+            <label style={{ ...styles.labelCampo, marginTop: '16px' }}>
+              Dinero real en caja *
+              <input
+                type="number"
+                step="0.01"
+                value={dineroReal}
+                onChange={(e) => setDineroReal(e.target.value)}
+                style={styles.inputCampo}
+              />
+            </label>
+            <label style={styles.labelCampo}>
+              Observaciones
+              <textarea
+                value={observacionesCierre}
+                onChange={(e) => setObservacionesCierre(e.target.value)}
+                style={{ ...styles.inputCampo, minHeight: '50px' }}
+              />
+            </label>
+
+            {errorTurno && <p style={{ color: 'var(--danger)' }}>{errorTurno}</p>}
+
+            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+              <button onClick={confirmarCierreTurno} disabled={cerrandoTurno} style={styles.btnPrimario}>
+                {cerrandoTurno ? 'Cerrando...' : 'Guardar'}
+              </button>
+              <button onClick={() => setMostrarCerrarTurno(false)} style={styles.btnSecundarioModal}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </Shell>
   );
 }
@@ -418,6 +633,10 @@ const styles = {
     border: '1px solid var(--border)',
     marginBottom: '16px',
     boxSizing: 'border-box',
+    position: 'sticky',
+    top: 0,
+    zIndex: 5,
+    background: '#fff',
   },
   grid: {
     display: 'grid',
@@ -451,7 +670,23 @@ const styles = {
   icono: { fontSize: '28px', margin: '8px 0' },
   fotoTarjeta: { width: '56px', height: '56px', objectFit: 'cover', borderRadius: '8px', margin: '8px auto', display: 'block' },
   nombre: { fontSize: '13px', fontWeight: 600, marginBottom: '4px', minHeight: '32px' },
-  stockInfo: { fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' },
+  stockInfo: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', marginBottom: '6px' },
+  badgeStock: {
+    fontSize: '11px',
+    color: 'var(--teal-dark)',
+    background: 'var(--teal-light)',
+    borderRadius: '999px',
+    padding: '1px 9px',
+    display: 'inline-block',
+  },
+  badgeServicio: {
+    fontSize: '11px',
+    color: '#6b7280',
+    background: '#f3f4f6',
+    borderRadius: '999px',
+    padding: '1px 9px',
+    display: 'inline-block',
+  },
   precio: { fontSize: '13px', color: 'var(--text-secondary)' },
   listaPrecios: { display: 'flex', gap: '8px', marginBottom: '12px' },
   btnLista: {
@@ -519,4 +754,80 @@ const styles = {
   },
   piePagina: { display: 'flex', justifyContent: 'space-between', marginTop: '10px', fontSize: '13px', color: 'var(--text-secondary)' },
   btnCancelar: { border: 'none', background: 'none', color: 'var(--teal-dark)', cursor: 'pointer' },
+  bannerTurno: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    background: '#fff',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius)',
+    padding: '10px 16px',
+    marginBottom: '16px',
+    fontSize: '13px',
+  },
+  btnAbrirTurno: {
+    padding: '7px 14px',
+    borderRadius: '8px',
+    border: 'none',
+    background: 'var(--teal)',
+    color: '#fff',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: 600,
+  },
+  btnCerrarTurno: {
+    padding: '7px 14px',
+    borderRadius: '8px',
+    border: '1px solid var(--danger)',
+    background: '#fff',
+    color: 'var(--danger)',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: 600,
+  },
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.4)',
+    zIndex: 100,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modal: {
+    background: '#fff',
+    borderRadius: 'var(--radius)',
+    padding: '24px',
+    width: '380px',
+    maxWidth: '92vw',
+    maxHeight: '88vh',
+    overflowY: 'auto',
+    boxShadow: '0 12px 40px rgba(0,0,0,0.2)',
+  },
+  btnSecundarioModal: {
+    padding: '9px 16px',
+    borderRadius: '8px',
+    border: '1px solid var(--border)',
+    background: '#fff',
+    cursor: 'pointer',
+  },
+  btnPrimario: {
+    padding: '9px 16px',
+    borderRadius: '8px',
+    border: 'none',
+    background: 'var(--teal)',
+    color: '#fff',
+    cursor: 'pointer',
+    fontWeight: 600,
+  },
+  filaResumenTurno: { display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: '13px' },
+  dineroEsperado: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    background: 'var(--bg)',
+    padding: '10px 12px',
+    borderRadius: '8px',
+    marginTop: '10px',
+    fontSize: '14px',
+  },
 };

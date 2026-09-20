@@ -14,6 +14,7 @@ const vacio = {
   precio_costo: '',
   precio_distribuidor: '',
   activo: true,
+  es_inventariable: true,
 };
 
 export default function ProductosPage() {
@@ -74,6 +75,7 @@ export default function ProductosPage() {
       precio_costo: p.precio_costo || '',
       precio_distribuidor: p.precio_distribuidor || '',
       activo: p.activo,
+      es_inventariable: p.es_inventariable === undefined || p.es_inventariable === null ? true : p.es_inventariable,
     });
     setError('');
     setMostrarForm(true);
@@ -172,7 +174,20 @@ export default function ProductosPage() {
               <input type="checkbox" checked={form.activo} onChange={(e) => setForm({ ...form, activo: e.target.checked })} />
               Activo
             </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '20px' }}>
+              <input
+                type="checkbox"
+                checked={form.es_inventariable}
+                onChange={(e) => setForm({ ...form, es_inventariable: e.target.checked })}
+              />
+              Es un producto de inventario (maneja stock)
+            </label>
           </div>
+          {!form.es_inventariable && (
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              Al desmarcarlo, este producto se trata como un servicio: no maneja stock ni bloquea la venta por falta de existencias (por ejemplo servicio técnico o servicio de envío).
+            </p>
+          )}
           <label style={{ display: 'block', marginTop: '10px' }}>
             Descripción
             <textarea value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} style={{ ...styles.input, width: '100%', minHeight: '60px' }} />
@@ -216,11 +231,14 @@ export default function ProductosPage() {
                     )}
                   </td>
                   <td style={styles.td}>{p.referencia}</td>
-                  <td style={styles.td}>{p.nombre}</td>
+                  <td style={styles.td}>
+                    {p.nombre}
+                    {p.es_inventariable === false && <span style={styles.tagServicio}>Servicio</span>}
+                  </td>
                   <td style={styles.td}>{p.categoria_nombre || '-'}</td>
                   <td style={styles.td}>{moneda(p.precio_venta)}</td>
                   <td style={styles.td}>{moneda(p.precio_distribuidor)}</td>
-                  <td style={styles.td}>{p.stock}</td>
+                  <td style={styles.td}>{p.es_inventariable === false ? '—' : p.stock}</td>
                   <td style={styles.td}>{p.activo ? 'Sí' : 'No'}</td>
                   <td style={styles.td}>
                     <button onClick={() => editarProducto(p)} style={styles.btnSecundario}>Editar</button>
@@ -252,4 +270,13 @@ const styles = {
   btnSecundario: { padding: '9px 16px', borderRadius: '8px', border: '1px solid var(--border)', background: '#fff', marginLeft: '8px', cursor: 'pointer' },
   miniatura: { width: '36px', height: '36px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border)' },
   miniaturaVacia: { width: '36px', height: '36px', borderRadius: '6px', background: 'var(--bg)', border: '1px solid var(--border)' },
+  tagServicio: {
+    marginLeft: '8px',
+    fontSize: '11px',
+    fontWeight: 600,
+    color: 'var(--teal-dark)',
+    background: 'var(--teal-light)',
+    borderRadius: '999px',
+    padding: '2px 8px',
+  },
 };

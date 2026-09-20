@@ -61,13 +61,29 @@ export async function POST(request) {
       return NextResponse.json({ ok: false, error: 'Selecciona el medio de pago' }, { status: 400 });
     }
 
+    // No se puede vender sin un turno de caja abierto. El turno se determina
+    // del lado del servidor (no se confía en lo que mande el navegador).
+    const [turnoAbierto] = await sql`SELECT id FROM turnos WHERE estado = 'abierto' LIMIT 1`;
+    if (!turnoAbierto) {
+      return NextResponse.json({ ok: false, error: 'Debes abrir un turno antes de vender' }, { status: 409 });
+    }
+
     const bodegaId = await bodegaPrincipalId();
     if (!bodegaId) {
       return NextResponse.json({ ok: false, error: 'No existe la bodega Principal' }, { status: 500 });
     }
 
-    // Fase 1: validar que haya stock suficiente para cada ítem antes de escribir nada
+    // Fase 1: validar que haya stock suficiente para cada ítem antes de escribir nada.
+    // Los servicios (es_inventariable = false, ej. servicio técnico o de envío) no
+    // manejan stock, así que no se validan ni se descuentan.
     for (const item of items) {
+      const [producto] = await sql`SELECT es_inventariable FROM productos WHERE id = ${item.producto_id}`;
+      if (!producto) {
+        return NextResponse.json({ ok: false, error: 'Uno de los productos ya no existe' }, { status: 400 });
+      }
+      item._inventariable = producto.es_inventariable !== false;
+      if (!item._inventariable) continue;
+
       const [row] = await sql`
         SELECT cantidad FROM stock WHERE producto_id = ${item.producto_id} AND bodega_id = ${bodegaId}
       `;
@@ -88,16 +104,21 @@ export async function POST(request) {
     const total = itemsConTotal.reduce((acc, i) => acc + i.subtotal, 0);
 
     const [venta] = await sql`
-      INSERT INTO ventas (total, medio_pago, vendedor_id)
-      VALUES (${total}, ${medio_pago}, ${vendedor_id || null})
+      INSERT INTO ventas (total, medio_pago, vendedor_id, turno_id)
+      VALUES (${total}, ${medio_pago}, ${vendedor_id || null}, ${turnoAbierto.id})
       RETURNING id
     `;
 
     for (const item of itemsConTotal) {
-      await sql`
-        UPDATE stock SET cantidad = cantidad - ${item.cantidad}
-        WHERE producto_id = ${item.producto_id} AND bodega_id = ${bodegaId}
-      `;
+      if (item._inventariable) {
+        await sql`
+          UPDATE stock SET cantidad = cantidad - ${item.cantidad}
+          WHERE producto_id = ${item.producto_id} AND bodega_id = ${bodegaId}
+        `;
+      }
+      // Se registra el movimiento igual para los servicios, para que el
+      // ítem quede en el detalle de la venta y en el ticket, aunque no
+      // toque la tabla stock.
       await sql`
         INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, descuento_porcentaje, venta_id)
         VALUES (${item.producto_id}, ${bodegaId}, 'venta', ${item.cantidad}, ${item.precioNeto}, ${item.descuento_porcentaje || 0}, ${venta.id})
