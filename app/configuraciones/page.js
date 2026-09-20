@@ -6,6 +6,7 @@ import Shell from '../../components/Shell';
 const SECCIONES = [
   { id: 'vendedores', label: 'Vendedores', descripcion: 'Quién vende' },
   { id: 'categorias', label: 'Categorías y subcategorías', descripcion: 'Cómo se organiza el inventario' },
+  { id: 'seguridad', label: 'Seguridad', descripcion: 'Clave de administrador' },
 ];
 
 export default function ConfiguracionesPage() {
@@ -29,6 +30,15 @@ export default function ConfiguracionesPage() {
   const [guardandoCategoria, setGuardandoCategoria] = useState(false);
   const [guardandoSubcategoria, setGuardandoSubcategoria] = useState(false);
 
+  // Seguridad: clave de administrador
+  const [claveConfigurada, setClaveConfigurada] = useState(null);
+  const [claveActualInput, setClaveActualInput] = useState('');
+  const [claveNuevaInput, setClaveNuevaInput] = useState('');
+  const [claveConfirmarInput, setClaveConfirmarInput] = useState('');
+  const [errorClave, setErrorClave] = useState('');
+  const [mensajeClave, setMensajeClave] = useState('');
+  const [guardandoClave, setGuardandoClave] = useState(false);
+
   async function cargar() {
     setCargando(true);
     const res = await fetch('/api/vendedores');
@@ -49,9 +59,16 @@ export default function ConfiguracionesPage() {
     if (data.ok) setSubcategorias(data.subcategorias);
   }
 
+  async function cargarClaveConfigurada() {
+    const res = await fetch('/api/configuracion/clave-admin');
+    const data = await res.json();
+    if (data.ok) setClaveConfigurada(data.configurada);
+  }
+
   useEffect(() => {
     cargar();
     cargarCategorias();
+    cargarClaveConfigurada();
   }, []);
 
   useEffect(() => {
@@ -158,6 +175,40 @@ export default function ConfiguracionesPage() {
       body: JSON.stringify({ nombre: v.nombre, activo: !v.activo }),
     });
     cargar();
+  }
+
+  async function guardarClaveAdmin(e) {
+    e.preventDefault();
+    setErrorClave('');
+    setMensajeClave('');
+
+    if (!claveNuevaInput || claveNuevaInput.trim().length < 4) {
+      setErrorClave('La clave nueva debe tener al menos 4 caracteres');
+      return;
+    }
+    if (claveNuevaInput !== claveConfirmarInput) {
+      setErrorClave('La confirmación no coincide con la clave nueva');
+      return;
+    }
+
+    setGuardandoClave(true);
+    const res = await fetch('/api/configuracion/clave-admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clave_actual: claveActualInput, clave_nueva: claveNuevaInput }),
+    });
+    const data = await res.json();
+    setGuardandoClave(false);
+
+    if (data.ok) {
+      setMensajeClave(claveConfigurada ? 'Clave de administrador actualizada.' : 'Clave de administrador creada.');
+      setClaveConfigurada(true);
+      setClaveActualInput('');
+      setClaveNuevaInput('');
+      setClaveConfirmarInput('');
+    } else {
+      setErrorClave(data.error || 'No se pudo guardar la clave');
+    }
   }
 
   return (
@@ -358,6 +409,60 @@ export default function ConfiguracionesPage() {
                   </div>
                 </div>
               </div>
+            </>
+          )}
+
+          {seccionActiva === 'seguridad' && (
+            <>
+              <h2 style={{ marginTop: 0 }}>Seguridad</h2>
+              <p style={{ color: 'var(--text-secondary)', marginTop: '-8px' }}>
+                Define una clave de administrador para restringir pantallas sensibles, como Ajustes de inventario,
+                para que solo quien tenga la clave pueda entrar a hacerlos.
+              </p>
+
+              <form onSubmit={guardarClaveAdmin} style={styles.formCard}>
+                {claveConfigurada && (
+                  <label style={{ display: 'block', marginBottom: '10px' }}>
+                    Clave actual
+                    <input
+                      type="password"
+                      value={claveActualInput}
+                      onChange={(e) => setClaveActualInput(e.target.value)}
+                      style={styles.input}
+                    />
+                  </label>
+                )}
+                <label style={{ display: 'block', marginBottom: '10px' }}>
+                  {claveConfigurada ? 'Clave nueva' : 'Clave de administrador'}
+                  <input
+                    type="password"
+                    value={claveNuevaInput}
+                    onChange={(e) => setClaveNuevaInput(e.target.value)}
+                    style={styles.input}
+                  />
+                </label>
+                <label style={{ display: 'block', marginBottom: '10px' }}>
+                  Confirmar clave
+                  <input
+                    type="password"
+                    value={claveConfirmarInput}
+                    onChange={(e) => setClaveConfirmarInput(e.target.value)}
+                    style={styles.input}
+                  />
+                </label>
+                {errorClave && <p style={{ color: 'var(--danger)' }}>{errorClave}</p>}
+                {mensajeClave && <p style={{ color: 'var(--teal-dark)' }}>{mensajeClave}</p>}
+                <button type="submit" disabled={guardandoClave} style={styles.btnPrimario}>
+                  {guardandoClave ? 'Guardando...' : claveConfigurada ? 'Cambiar clave' : '+ Crear clave'}
+                </button>
+              </form>
+
+              {claveConfigurada === false && (
+                <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                  Todavía no has creado una clave de administrador: por ahora, cualquiera puede entrar a Ajustes de
+                  inventario. En cuanto la crees, esa pantalla pedirá la clave antes de dejar entrar.
+                </p>
+              )}
             </>
           )}
         </div>

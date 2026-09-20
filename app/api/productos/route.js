@@ -29,7 +29,7 @@ export async function GET() {
       LEFT JOIN stock s ON s.producto_id = p.id
       LEFT JOIN bodegas b ON b.id = s.bodega_id
       GROUP BY p.id, c.nombre, sc.nombre
-      ORDER BY p.referencia DESC
+      ORDER BY (p.imagen_key IS NULL) ASC, p.creado_en DESC, p.id DESC
     `;
     return NextResponse.json({ ok: true, productos });
   } catch (error) {
@@ -61,8 +61,16 @@ export async function POST(request) {
     }
 
     const inventariable = es_inventariable === undefined ? true : Boolean(es_inventariable);
-    // Un servicio no tiene precio de compra.
-    const precioCostoFinal = inventariable ? (precio_costo || null) : null;
+    // El precio de costo es obligatorio para productos inventariables (para
+    // poder calcular margen y valorizar el inventario); un servicio nunca
+    // tiene precio de compra.
+    if (inventariable && !(Number(precio_costo) > 0)) {
+      return NextResponse.json(
+        { ok: false, error: 'El precio de costo es obligatorio para un producto inventariable' },
+        { status: 400 }
+      );
+    }
+    const precioCostoFinal = inventariable ? Number(precio_costo) : null;
 
     const [producto] = await sql`
       INSERT INTO productos (

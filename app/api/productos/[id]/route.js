@@ -26,9 +26,17 @@ export async function PUT(request, { params }) {
     }
 
     const inventariable = es_inventariable === undefined ? true : Boolean(es_inventariable);
-    // Un servicio (es_inventariable = false) no tiene precio de compra: se
-    // guarda siempre en null, sin importar lo que venga del formulario.
-    const precioCostoFinal = inventariable ? (precio_costo || null) : null;
+    // El precio de costo es obligatorio para productos inventariables (mismo
+    // criterio que al crear uno, para que no se pueda vaciar después de
+    // creado). Un servicio (es_inventariable = false) nunca tiene precio de
+    // compra: se guarda siempre en null, sin importar lo que venga del formulario.
+    if (inventariable && !(Number(precio_costo) > 0)) {
+      return NextResponse.json(
+        { ok: false, error: 'El precio de costo es obligatorio para un producto inventariable' },
+        { status: 400 }
+      );
+    }
+    const precioCostoFinal = inventariable ? Number(precio_costo) : null;
 
     const [producto] = await sql`
       UPDATE productos SET

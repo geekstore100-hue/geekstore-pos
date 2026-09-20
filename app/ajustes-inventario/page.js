@@ -29,6 +29,47 @@ export default function AjustesInventarioPage() {
   const [mensaje, setMensaje] = useState('');
   const [guardando, setGuardando] = useState(false);
 
+  // Acceso restringido con la clave de administrador (Configuraciones >
+  // Seguridad). Si todavía no se ha creado ninguna clave, no se bloquea nada.
+  const [verificandoAcceso, setVerificandoAcceso] = useState(true);
+  const [accesoPermitido, setAccesoPermitido] = useState(false);
+  const [claveIngresada, setClaveIngresada] = useState('');
+  const [errorClave, setErrorClave] = useState('');
+  const [verificandoClave, setVerificandoClave] = useState(false);
+
+  async function verificarAcceso(e) {
+    if (e) e.preventDefault();
+    setErrorClave('');
+    setVerificandoClave(true);
+    const res = await fetch('/api/configuracion/clave-admin/verificar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clave: claveIngresada }),
+    });
+    const data = await res.json();
+    setVerificandoClave(false);
+    if (data.ok && data.valida) {
+      setAccesoPermitido(true);
+    } else {
+      setErrorClave('Clave incorrecta');
+    }
+  }
+
+  useEffect(() => {
+    (async () => {
+      const res = await fetch('/api/configuracion/clave-admin/verificar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clave: '' }),
+      });
+      const data = await res.json();
+      // Si no hay clave configurada, la verificación con clave vacía ya viene
+      // como válida (no hay nada que bloquear todavía).
+      if (data.ok && data.valida) setAccesoPermitido(true);
+      setVerificandoAcceso(false);
+    })();
+  }, []);
+
   async function cargarTodo() {
     const [rProd, rBod, rAjustes] = await Promise.all([
       fetch('/api/productos'),
@@ -183,6 +224,43 @@ export default function AjustesInventarioPage() {
     setObservaciones('');
     setError('');
     setMensaje('');
+  }
+
+  if (verificandoAcceso) {
+    return (
+      <Shell title="Ajustes de inventario">
+        <p style={{ color: 'var(--text-secondary)' }}>Cargando...</p>
+      </Shell>
+    );
+  }
+
+  if (!accesoPermitido) {
+    return (
+      <Shell title="Ajustes de inventario">
+        <div style={styles.candadoCard}>
+          <h2 style={{ marginTop: 0 }}>Acceso restringido</h2>
+          <p style={{ color: 'var(--text-secondary)' }}>
+            Esta pantalla está protegida con la clave de administrador. Pídesela a quien la tenga para poder entrar.
+          </p>
+          <form onSubmit={verificarAcceso}>
+            <label style={styles.labelCampo}>
+              Clave de administrador
+              <input
+                type="password"
+                value={claveIngresada}
+                onChange={(e) => setClaveIngresada(e.target.value)}
+                style={styles.inputCampo}
+                autoFocus
+              />
+            </label>
+            {errorClave && <p style={{ color: 'var(--danger)' }}>{errorClave}</p>}
+            <button type="submit" disabled={verificandoClave} style={styles.btnPrimario}>
+              {verificandoClave ? 'Verificando...' : 'Entrar'}
+            </button>
+          </form>
+        </div>
+      </Shell>
+    );
   }
 
   return (
@@ -351,6 +429,13 @@ export default function AjustesInventarioPage() {
 
 const styles = {
   card: { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '24px', marginBottom: '28px' },
+  candadoCard: {
+    background: '#fff',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius)',
+    padding: '24px',
+    maxWidth: '380px',
+  },
   subtitulo: { marginBottom: '10px' },
   grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '4px', maxWidth: '600px' },
   labelCampo: { display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' },

@@ -164,6 +164,12 @@ export default function ProductosPage() {
   async function guardar(e) {
     e.preventDefault();
     setError('');
+
+    if (form.es_inventariable && !(Number(form.precio_costo) > 0)) {
+      setError('El precio de costo es obligatorio para un producto inventariable');
+      return;
+    }
+
     setGuardando(true);
 
     const url = form.id ? `/api/productos/${form.id}` : '/api/productos';
@@ -200,6 +206,30 @@ export default function ProductosPage() {
       {mostrarForm && (
         <form onSubmit={guardar} style={styles.formCard}>
           <h3 style={{ marginTop: 0 }}>{form.id ? 'Editar producto' : 'Nuevo producto'}</h3>
+
+          <label style={{ display: 'block', marginBottom: '8px' }}>Tipo de producto</label>
+          <div style={styles.tipoSelector}>
+            <button
+              type="button"
+              onClick={() => setForm({ ...form, es_inventariable: true })}
+              style={{ ...styles.btnTipo, ...(form.es_inventariable ? styles.btnTipoActivo : {}) }}
+            >
+              Producto inventariable
+            </button>
+            <button
+              type="button"
+              onClick={() => setForm({ ...form, es_inventariable: false, precio_costo: '' })}
+              style={{ ...styles.btnTipo, ...(!form.es_inventariable ? styles.btnTipoActivo : {}) }}
+            >
+              Servicio
+            </button>
+          </div>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px', marginBottom: '16px' }}>
+            {form.es_inventariable
+              ? 'Maneja stock y precio de compra, y no se puede vender si no hay existencias en Principal.'
+              : 'No maneja stock ni precio de compra, y nunca bloquea la venta por falta de existencias (por ejemplo servicio técnico o servicio de envío).'}
+          </p>
+
           <div style={styles.grid2}>
             <label>
               Referencia
@@ -238,8 +268,16 @@ export default function ProductosPage() {
             </label>
             {form.es_inventariable && (
               <label>
-                Precio de costo
-                <input type="number" step="0.01" value={form.precio_costo} onChange={(e) => setForm({ ...form, precio_costo: e.target.value })} style={styles.input} />
+                Precio de costo *
+                <input
+                  required
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={form.precio_costo}
+                  onChange={(e) => setForm({ ...form, precio_costo: e.target.value })}
+                  style={styles.input}
+                />
               </label>
             )}
             <label>
@@ -250,27 +288,7 @@ export default function ProductosPage() {
               <input type="checkbox" checked={form.activo} onChange={(e) => setForm({ ...form, activo: e.target.checked })} />
               Activo
             </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '20px' }}>
-              <input
-                type="checkbox"
-                checked={!form.es_inventariable}
-                onChange={(e) => {
-                  const esServicio = e.target.checked;
-                  setForm({
-                    ...form,
-                    es_inventariable: !esServicio,
-                    precio_costo: esServicio ? '' : form.precio_costo,
-                  });
-                }}
-              />
-              Es un servicio (sin stock ni precio de compra)
-            </label>
           </div>
-          {!form.es_inventariable && (
-            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-              Este producto se trata como un servicio: no maneja stock, no tiene precio de compra, y nunca bloquea la venta por falta de existencias (por ejemplo servicio técnico o servicio de envío).
-            </p>
-          )}
           <label style={{ display: 'block', marginTop: '10px' }}>
             Descripción
             <textarea value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} style={{ ...styles.input, width: '100%', minHeight: '60px' }} />
@@ -404,6 +422,19 @@ const styles = {
   tableCard: { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '8px 16px' },
   input: { display: 'block', width: '100%', padding: '9px', marginTop: '4px', borderRadius: '8px', border: '1px solid var(--border)', boxSizing: 'border-box' },
   grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },
+  tipoSelector: { display: 'flex', gap: '10px', marginBottom: '4px' },
+  btnTipo: {
+    flex: 1,
+    padding: '12px',
+    borderRadius: '8px',
+    border: '1px solid var(--border)',
+    background: '#fff',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: 600,
+    color: 'var(--text-secondary)',
+  },
+  btnTipoActivo: { background: 'var(--teal)', color: '#fff', border: '1px solid var(--teal)' },
   th: { padding: '10px 8px', fontSize: '13px', color: 'var(--text-secondary)' },
   td: { padding: '10px 8px', fontSize: '14px' },
   btnPrimario: { padding: '9px 16px', borderRadius: '8px', border: 'none', background: 'var(--teal)', color: '#fff', cursor: 'pointer', fontWeight: 600 },
