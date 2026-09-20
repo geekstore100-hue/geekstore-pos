@@ -16,6 +16,7 @@ const links = [
     ],
   },
   { href: '/entradas', label: 'Compras', icon: IconInbox },
+  { href: '/reabastecimiento', label: 'Reabastecimiento', icon: IconReabastecer },
   {
     href: '/historial',
     label: 'Historial',
@@ -296,6 +297,15 @@ function IconTurno() {
       <rect x="3" y="4" width="18" height="16" rx="2" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M3 10h18" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M8 2v4M16 2v4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconReabastecer() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M21 12a9 9 0 10-2.6 6.36" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M21 4v6h-6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 8v4l2.5 1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
