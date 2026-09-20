@@ -19,11 +19,14 @@ export async function GET() {
         p.precio_distribuidor,
         p.imagen_key,
         p.activo,
-        COALESCE(SUM(s.cantidad), 0) AS stock
+        COALESCE(SUM(s.cantidad), 0) AS stock,
+        COALESCE(SUM(s.cantidad) FILTER (WHERE b.nombre = 'Principal'), 0) AS stock_principal,
+        COALESCE(SUM(s.cantidad) FILTER (WHERE b.nombre = 'Bodega Distribuidor'), 0) AS stock_distribuidor
       FROM productos p
       LEFT JOIN categorias c ON c.id = p.categoria_id
       LEFT JOIN subcategorias sc ON sc.id = p.subcategoria_id
       LEFT JOIN stock s ON s.producto_id = p.id
+      LEFT JOIN bodegas b ON b.id = s.bodega_id
       GROUP BY p.id, c.nombre, sc.nombre
       ORDER BY p.nombre ASC
     `;

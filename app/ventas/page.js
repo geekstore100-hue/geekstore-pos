@@ -33,10 +33,22 @@ export default function VentasPage() {
     return productos.filter((p) => p.referencia.toLowerCase().includes(q) || p.nombre.toLowerCase().includes(q));
   }, [busqueda, productos]);
 
+  function stockPrincipalDe(producto_id) {
+    const p = productos.find((x) => x.id === producto_id);
+    return p ? Number(p.stock_principal) || 0 : 0;
+  }
+
   function agregarAlCarrito(producto) {
+    const disponible = Number(producto.stock_principal) || 0;
+    if (disponible <= 0) {
+      setError('No hay existencias en la bodega Principal para este producto.');
+      return;
+    }
+    setError('');
     setCarrito((prev) => {
       const existente = prev.find((i) => i.producto_id === producto.id);
       if (existente) {
+        if (existente.cantidad + 1 > disponible) return prev;
         return prev.map((i) => (i.producto_id === producto.id ? { ...i, cantidad: i.cantidad + 1 } : i));
       }
       return [
@@ -54,8 +66,11 @@ export default function VentasPage() {
   }
 
   function cambiarCantidad(producto_id, delta) {
+    const disponible = stockPrincipalDe(producto_id);
     setCarrito((prev) =>
-      prev.map((i) => (i.producto_id === producto_id ? { ...i, cantidad: i.cantidad + delta } : i)).filter((i) => i.cantidad > 0)
+      prev
+        .map((i) => (i.producto_id === producto_id ? { ...i, cantidad: Math.min(i.cantidad + delta, disponible) } : i))
+        .filter((i) => i.cantidad > 0)
     );
   }
 
@@ -134,7 +149,9 @@ export default function VentasPage() {
           <div style={styles.grid}>
             {filtrados.map((p) => {
               const enCarrito = carrito.find((i) => i.producto_id === p.id);
-              const agotado = Number(p.stock) <= 0;
+              const stockPrincipal = Number(p.stock_principal) || 0;
+              const stockDistribuidor = Number(p.stock_distribuidor) || 0;
+              const agotado = stockPrincipal <= 0;
               return (
                 <div
                   key={p.id}
@@ -155,7 +172,14 @@ export default function VentasPage() {
                     <div style={styles.icono}>📦</div>
                   )}
                   <div style={styles.nombre}>{p.nombre}</div>
-                  {agotado ? <div style={styles.agotado}>Agotado</div> : <div style={styles.precio}>{moneda(p.precio_venta)}</div>}
+                  <div style={styles.stockInfo}>
+                    Principal: {stockPrincipal} · Distribuidor: {stockDistribuidor}
+                  </div>
+                  {agotado ? (
+                    <div style={styles.agotado}>{stockDistribuidor > 0 ? 'Sin stock en Principal' : 'Agotado'}</div>
+                  ) : (
+                    <div style={styles.precio}>{moneda(p.precio_venta)}</div>
+                  )}
                 </div>
               );
             })}
@@ -304,6 +328,7 @@ const styles = {
   icono: { fontSize: '28px', margin: '8px 0' },
   fotoTarjeta: { width: '56px', height: '56px', objectFit: 'cover', borderRadius: '8px', margin: '8px auto', display: 'block' },
   nombre: { fontSize: '13px', fontWeight: 600, marginBottom: '4px', minHeight: '32px' },
+  stockInfo: { fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' },
   precio: { fontSize: '13px', color: 'var(--text-secondary)' },
   agotado: { fontSize: '12px', color: 'var(--warning)' },
   columnaCarrito: {
