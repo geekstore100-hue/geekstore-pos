@@ -453,9 +453,16 @@ export default function ReabastecimientoPage() {
                   )}
                 </td>
                 <td style={styles.td}>
-                  <a href={`/traspasos/${t.id}/imprimir`} target="_blank" rel="noreferrer" style={styles.linkVer}>
-                    Ver / imprimir
-                  </a>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <a href={`/traspasos/${t.id}/imprimir`} target="_blank" rel="noreferrer" style={styles.linkVer}>
+                      Ver / imprimir
+                    </a>
+                    {t.estado_pago === 'pendiente' && (
+                      <a href={`/traspasos/${t.id}/editar`} style={styles.linkVer}>
+                        Editar
+                      </a>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}

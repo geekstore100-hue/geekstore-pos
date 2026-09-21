@@ -13,6 +13,7 @@ export async function GET() {
         b.nombre AS bodega_nombre,
         (SELECT COUNT(*) FROM movimientos_stock m WHERE m.ajuste_id = a.id) AS items,
         t.id AS traspaso_id,
+        t.estado_pago AS traspaso_estado_pago,
         bo.nombre AS traspaso_origen_nombre
       FROM ajustes_inventario a
       LEFT JOIN bodegas b ON b.id = a.bodega_id

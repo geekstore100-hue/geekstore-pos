@@ -496,9 +496,16 @@ export default function AjustesInventarioPage() {
                 <td style={styles.td}>{moneda(a.total)}</td>
                 <td style={styles.td}>
                   {a.traspaso_id && (
-                    <a href={`/traspasos/${a.traspaso_id}/imprimir`} target="_blank" rel="noreferrer" style={{ color: 'var(--teal-dark)', fontSize: '13px', fontWeight: 600, textDecoration: 'none' }}>
-                      Ver / imprimir
-                    </a>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <a href={`/traspasos/${a.traspaso_id}/imprimir`} target="_blank" rel="noreferrer" style={{ color: 'var(--teal-dark)', fontSize: '13px', fontWeight: 600, textDecoration: 'none' }}>
+                        Ver / imprimir
+                      </a>
+                      {a.traspaso_estado_pago === 'pendiente' && (
+                        <a href={`/traspasos/${a.traspaso_id}/editar`} style={{ color: 'var(--teal-dark)', fontSize: '13px', fontWeight: 600, textDecoration: 'none' }}>
+                          Editar
+                        </a>
+                      )}
+                    </div>
                   )}
                 </td>
               </tr>
