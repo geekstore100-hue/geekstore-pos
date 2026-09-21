@@ -7,10 +7,13 @@ import sql from '../../../lib/db';
 //   de venta promedio de cada producto.
 // - UMBRAL_DIAS_COBERTURA: si al ritmo de venta actual el stock de Principal
 //   alcanza para menos de estos días, se marca como "por agotarse pronto".
+//   Nelson pidió que el sistema se anticipe 15 días, así que el umbral y el
+//   objetivo de cobertura quedan iguales: se marca en cuanto la cobertura
+//   proyectada baja a 15 días, y al sugerir traslado se repone hasta ahí.
 // - OBJETIVO_DIAS_COBERTURA: cuando se sugiere trasladar desde Distribuidor,
 //   se sugiere una cantidad que alcance a cubrir este número de días.
 const VENTANA_DIAS = 30;
-const UMBRAL_DIAS_COBERTURA = 7;
+const UMBRAL_DIAS_COBERTURA = 15;
 const OBJETIVO_DIAS_COBERTURA = 15;
 
 export async function GET() {
@@ -58,6 +61,11 @@ export async function GET() {
         const unidadesVendidas = Number(p.unidades_vendidas);
         const ventaDiariaPromedio = unidadesVendidas / VENTANA_DIAS;
         const diasCobertura = ventaDiariaPromedio > 0 ? stockPrincipal / ventaDiariaPromedio : null;
+
+        // Si no hay ni una unidad en Principal ni en Distribuidor, aquí no
+        // hay nada que trasladar: no se muestra (eso es un problema de
+        // compra, no de traspaso entre bodegas).
+        if (stockPrincipal <= 0 && stockDistribuidor <= 0) return null;
 
         let prioridad = null;
         if (stockPrincipal <= 0) {

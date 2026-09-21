@@ -29,6 +29,42 @@ export default function AjustesInventarioPage() {
   const [mensaje, setMensaje] = useState('');
   const [guardando, setGuardando] = useState(false);
 
+  // Cuando se llega aquí desde "Confirmar" en Reabastecimiento, este ajuste
+  // en realidad es la mitad de un traspaso: la mercancía sale de esta otra
+  // bodega y llega a la que se seleccione abajo. Se guarda para mandarlo al
+  // servidor al guardar, y para mostrar el aviso en pantalla.
+  const [traspasoOrigen, setTraspasoOrigen] = useState(null); // {id, nombre}
+
+  useEffect(() => {
+    try {
+      const crudo = sessionStorage.getItem('geekstore_traspaso_pendiente');
+      if (!crudo) return;
+      sessionStorage.removeItem('geekstore_traspaso_pendiente');
+      const datos = JSON.parse(crudo);
+      if (!datos || !Array.isArray(datos.items) || datos.items.length === 0) return;
+
+      setBodegaId(String(datos.bodega_destino_id));
+      setObservaciones(datos.observaciones || '');
+      setTraspasoOrigen({ id: datos.bodega_origen_id, nombre: datos.bodega_origen_nombre });
+      setFilas(
+        datos.items.map((it) => {
+          contadorKey += 1;
+          return {
+            _key: contadorKey,
+            producto_id: String(it.producto_id),
+            busquedaProducto: `${it.referencia} - ${it.nombre}`,
+            costo: Number(it.costo) || 0,
+            objetivo: 'incrementar',
+            cantidad: String(it.cantidad),
+          };
+        })
+      );
+    } catch {
+      // Si el contenido guardado está corrupto, simplemente se ignora y la
+      // pantalla arranca vacía como siempre.
+    }
+  }, []);
+
   // Acceso restringido con la clave de administrador (Configuraciones >
   // Seguridad). Si todavía no se ha creado ninguna clave, no se bloquea nada.
   const [verificandoAcceso, setVerificandoAcceso] = useState(true);
@@ -176,17 +212,27 @@ export default function AjustesInventarioPage() {
 
   const totalGeneral = filas.reduce((acc, f) => acc + totalAjustadoDe(f), 0);
 
-  async function guardar() {
+  // Si este ajuste viene de un traspaso, la ventana para imprimir el
+  // documento se abre ANTES del await (dentro del clic) para que el
+  // navegador no la bloquee como popup; por eso se recibe ya abierta acá.
+  async function guardar(ventanaImpresion) {
     setError('');
     setMensaje('');
 
     if (!bodegaId) {
       setError('Selecciona la bodega');
+      if (ventanaImpresion) ventanaImpresion.close();
+      return;
+    }
+    if (traspasoOrigen && String(traspasoOrigen.id) === String(bodegaId)) {
+      setError('La bodega de destino no puede ser igual a la bodega de origen del traspaso');
+      if (ventanaImpresion) ventanaImpresion.close();
       return;
     }
     const lineasValidas = filas.filter((f) => f.producto_id && Number(f.cantidad) > 0);
     if (lineasValidas.length === 0) {
       setError('Agrega al menos un producto con una cantidad mayor a 0');
+      if (ventanaImpresion) ventanaImpresion.close();
       return;
     }
 
@@ -197,6 +243,7 @@ export default function AjustesInventarioPage() {
       body: JSON.stringify({
         bodega_id: bodegaId,
         observaciones,
+        bodega_origen_id: traspasoOrigen ? traspasoOrigen.id : undefined,
         items: lineasValidas.map((f) => ({
           producto_id: f.producto_id,
           objetivo: f.objetivo,
@@ -209,19 +256,39 @@ export default function AjustesInventarioPage() {
 
     if (!data.ok) {
       setError(data.error || 'No se pudo guardar el ajuste');
+      if (ventanaImpresion) ventanaImpresion.close();
       return;
     }
 
-    setMensaje('Ajuste guardado correctamente');
+    if (ventanaImpresion && data.traspasoId) {
+      ventanaImpresion.location = `/traspasos/${data.traspasoId}/imprimir`;
+    } else if (ventanaImpresion) {
+      ventanaImpresion.close();
+    }
+
+    setMensaje(
+      data.traspasoId
+        ? 'Ajuste guardado. Se abrió el documento del traspaso para imprimir y entregar al vendedor.'
+        : 'Ajuste guardado correctamente'
+    );
     setFilas([nuevaLinea()]);
     setObservaciones('');
+    setTraspasoOrigen(null);
     cargarTodo();
     cargarStock(bodegaId);
+  }
+
+  function onClickGuardar() {
+    // La ventana se abre de forma síncrona dentro del clic (antes del
+    // fetch), que es la única manera de que el navegador no la bloquee.
+    const ventanaImpresion = traspasoOrigen ? window.open('', '_blank') : null;
+    guardar(ventanaImpresion);
   }
 
   function cancelar() {
     setFilas([nuevaLinea()]);
     setObservaciones('');
+    setTraspasoOrigen(null);
     setError('');
     setMensaje('');
   }
@@ -270,6 +337,14 @@ export default function AjustesInventarioPage() {
         <p style={{ color: 'var(--text-secondary)', marginTop: '-8px' }}>
           Modifica las cantidades de los productos que tienes en la bodega seleccionada.
         </p>
+
+        {traspasoOrigen && (
+          <div style={styles.avisoTraspaso}>
+            Este ajuste viene de un traspaso desde <strong>{traspasoOrigen.nombre}</strong>. Verifica las cantidades
+            que realmente llegaron (columna "Cantidad actual" muestra lo que ya hay) antes de guardar — al guardar se
+            descuenta el stock de esa bodega y se abre el documento para imprimir.
+          </div>
+        )}
 
         <div style={styles.grid2}>
           <label style={styles.labelCampo}>
@@ -387,8 +462,8 @@ export default function AjustesInventarioPage() {
 
         <div style={styles.filaBotones}>
           <button type="button" onClick={cancelar} style={styles.btnSecundario}>Cancelar</button>
-          <button type="button" onClick={guardar} disabled={guardando} style={styles.btnPrimario}>
-            {guardando ? 'Guardando...' : 'Guardar cambios'}
+          <button type="button" onClick={onClickGuardar} disabled={guardando} style={styles.btnPrimario}>
+            {guardando ? 'Guardando...' : traspasoOrigen ? 'Guardar e imprimir' : 'Guardar cambios'}
           </button>
         </div>
       </div>
@@ -403,21 +478,34 @@ export default function AjustesInventarioPage() {
               <th style={styles.th}>Observaciones</th>
               <th style={styles.th}>Ítems</th>
               <th style={styles.th}>Total</th>
+              <th style={styles.th}></th>
             </tr>
           </thead>
           <tbody>
             {ajustesRecientes.map((a) => (
               <tr key={a.id} style={{ borderBottom: '1px solid var(--border)' }}>
                 <td style={styles.td}>{new Date(a.creado_en).toLocaleString('es-CO')}</td>
-                <td style={styles.td}>{a.bodega_nombre || '-'}</td>
+                <td style={styles.td}>
+                  {a.bodega_nombre || '-'}
+                  {a.traspaso_origen_nombre && (
+                    <div style={{ fontSize: '11px', color: 'var(--teal-dark)' }}>Traspaso desde {a.traspaso_origen_nombre}</div>
+                  )}
+                </td>
                 <td style={styles.td}>{a.observaciones || '-'}</td>
                 <td style={styles.td}>{a.items}</td>
                 <td style={styles.td}>{moneda(a.total)}</td>
+                <td style={styles.td}>
+                  {a.traspaso_id && (
+                    <a href={`/traspasos/${a.traspaso_id}/imprimir`} target="_blank" rel="noreferrer" style={{ color: 'var(--teal-dark)', fontSize: '13px', fontWeight: 600, textDecoration: 'none' }}>
+                      Ver / imprimir
+                    </a>
+                  )}
+                </td>
               </tr>
             ))}
             {ajustesRecientes.length === 0 && (
               <tr>
-                <td style={styles.td} colSpan={5}>Sin ajustes registrados.</td>
+                <td style={styles.td} colSpan={6}>Sin ajustes registrados.</td>
               </tr>
             )}
           </tbody>
@@ -437,6 +525,14 @@ const styles = {
     maxWidth: '380px',
   },
   subtitulo: { marginBottom: '10px' },
+  avisoTraspaso: {
+    background: 'var(--teal-light)',
+    color: 'var(--teal-dark)',
+    borderRadius: 'var(--radius)',
+    padding: '10px 14px',
+    fontSize: '13px',
+    marginBottom: '16px',
+  },
   grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '4px', maxWidth: '600px' },
   labelCampo: { display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' },
   inputCampo: {

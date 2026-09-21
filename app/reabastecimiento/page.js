@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Shell from '../../components/Shell';
 
 export default function ReabastecimientoPage() {
+  const router = useRouter();
   const [alertas, setAlertas] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
@@ -21,7 +23,6 @@ export default function ReabastecimientoPage() {
   const [productosTodos, setProductosTodos] = useState([]);
   const [buscarTexto, setBuscarTexto] = useState('');
 
-  const [creando, setCreando] = useState(false);
   const [errorCarrito, setErrorCarrito] = useState('');
   const [mensaje, setMensaje] = useState('');
   const [pagandoId, setPagandoId] = useState(null);
@@ -116,7 +117,11 @@ export default function ReabastecimientoPage() {
     [carrito]
   );
 
-  async function crearTraspaso() {
+  // No crea el traspaso todavía: lleva los productos y cantidades a la
+  // pantalla de Ajustes de Inventario para que ahí se terminen de verificar
+  // (comparando con lo que ya hay en la bodega destino) y se guarde e
+  // imprima desde allá.
+  function confirmarYContinuar() {
     setErrorCarrito('');
     setMensaje('');
 
@@ -138,38 +143,32 @@ export default function ReabastecimientoPage() {
       return;
     }
 
-    // La ventana se abre ANTES del await para que el navegador no la
-    // bloquee como popup (solo funciona si se abre de forma síncrona
-    // dentro del clic).
-    const ventanaImpresion = window.open('', '_blank');
+    const bodegaOrigenNombre = bodegas.find((b) => String(b.id) === String(bodegaOrigenId))?.nombre || '';
 
-    setCreando(true);
-    const res = await fetch('/api/traspasos', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        bodega_origen_id: Number(bodegaOrigenId),
-        bodega_destino_id: Number(bodegaDestinoId),
-        observaciones: observaciones || null,
-        items: carrito.map((it) => ({ producto_id: it.producto_id, cantidad: Number(it.cantidad) })),
-      }),
-    });
-    const data = await res.json();
-    setCreando(false);
-
-    if (data.ok) {
-      if (ventanaImpresion) {
-        ventanaImpresion.location = `/traspasos/${data.traspasoId}/imprimir`;
-      }
-      setMensaje('Traspaso creado. Se abrió el documento para imprimir y entregar al vendedor.');
-      setCarrito([]);
-      setObservaciones('');
-      cargarAlertas();
-      cargarTraspasos();
-    } else {
-      if (ventanaImpresion) ventanaImpresion.close();
-      setErrorCarrito(data.error || 'No se pudo crear el traspaso');
+    try {
+      sessionStorage.setItem(
+        'geekstore_traspaso_pendiente',
+        JSON.stringify({
+          bodega_origen_id: Number(bodegaOrigenId),
+          bodega_origen_nombre: bodegaOrigenNombre,
+          bodega_destino_id: Number(bodegaDestinoId),
+          observaciones: observaciones || '',
+          items: carrito.map((it) => ({
+            producto_id: it.producto_id,
+            referencia: it.referencia,
+            nombre: it.nombre,
+            cantidad: Number(it.cantidad),
+            costo: it.precio_costo,
+          })),
+        })
+      );
+    } catch {
+      setErrorCarrito('No se pudo preparar el traspaso. Intenta de nuevo.');
+      return;
     }
+
+    setCarrito([]);
+    router.push('/ajustes-inventario');
   }
 
   async function marcarPagado(traspasoId) {
@@ -412,8 +411,8 @@ export default function ReabastecimientoPage() {
         {carrito.length > 0 && (
           <div style={styles.resumenCarrito}>
             <div>Valor total del traspaso: <strong>${moneda0(valorCarrito)}</strong></div>
-            <button onClick={crearTraspaso} disabled={creando} style={styles.btnPrimario}>
-              {creando ? 'Creando...' : 'Crear traspaso e imprimir'}
+            <button onClick={confirmarYContinuar} style={styles.btnPrimario}>
+              Confirmar e ir a Ajustes de Inventario
             </button>
           </div>
         )}
@@ -504,8 +503,8 @@ export default function ReabastecimientoPage() {
               {errorCarrito && <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>{errorCarrito}</p>}
               {mensaje && <p style={{ color: 'var(--teal-dark)', fontSize: '12px', margin: '6px 0 0' }}>{mensaje}</p>}
 
-              <button onClick={crearTraspaso} disabled={creando} style={styles.btnPrimarioAncho}>
-                {creando ? 'Creando...' : 'Crear traspaso e imprimir'}
+              <button onClick={confirmarYContinuar} style={styles.btnPrimarioAncho}>
+                Confirmar e ir a Ajustes de Inventario
               </button>
               <p style={{ fontSize: '11px', color: 'var(--text-secondary)', textAlign: 'center', margin: '6px 0 0' }}>
                 Para cambiar la bodega de origen/destino u observaciones, baja a "Traspaso en curso".

@@ -19,6 +19,7 @@ export async function GET(request, { params }) {
         t.valor_total,
         t.estado_pago,
         t.pagado_en,
+        t.bodega_destino_id,
         bo.nombre AS bodega_origen_nombre,
         bd.nombre AS bodega_destino_nombre
       FROM traspasos_inventario t
@@ -30,6 +31,10 @@ export async function GET(request, { params }) {
       return NextResponse.json({ ok: false, error: 'Traspaso no encontrado' }, { status: 404 });
     }
 
+    // Las líneas que llegaron a la bodega destino pueden venir de dos formas:
+    // 'traspaso_entrada' (traspaso creado directamente) o 'ajuste_incremento'
+    // (traspaso confirmado a través de la pantalla de Ajustes de Inventario).
+    // Filtrar por la bodega destino en vez del tipo cubre ambos casos.
     const items = await sql`
       SELECT
         p.referencia,
@@ -39,7 +44,9 @@ export async function GET(request, { params }) {
         me.stock_antes
       FROM movimientos_stock me
       JOIN productos p ON p.id = me.producto_id
-      WHERE me.traspaso_id = ${id} AND me.tipo = 'traspaso_entrada'
+      WHERE me.traspaso_id = ${id}
+        AND me.bodega_id = ${traspaso.bodega_destino_id}
+        AND me.tipo IN ('traspaso_entrada', 'ajuste_incremento')
       ORDER BY p.nombre ASC
     `;
 
