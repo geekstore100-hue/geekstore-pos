@@ -23,6 +23,11 @@ export default function ReabastecimientoPage() {
   const [productosTodos, setProductosTodos] = useState([]);
   const [buscarTexto, setBuscarTexto] = useState('');
 
+  // Cuánto hay ahora mismo de cada producto en la bodega de origen elegida,
+  // para saber cuántas unidades como máximo se pueden mover (sin esto no
+  // hay forma de saberlo al escribir la cantidad).
+  const [stockOrigenPorProducto, setStockOrigenPorProducto] = useState({});
+
   const [errorCarrito, setErrorCarrito] = useState('');
   const [mensaje, setMensaje] = useState('');
   const [pagandoId, setPagandoId] = useState(null);
@@ -64,6 +69,22 @@ export default function ReabastecimientoPage() {
     if (data.ok) setProductosTodos(data.productos || []);
   }
 
+  async function cargarStockOrigen(bId) {
+    if (!bId) {
+      setStockOrigenPorProducto({});
+      return;
+    }
+    const res = await fetch(`/api/stock?bodega_id=${bId}`);
+    const data = await res.json();
+    if (data.ok) {
+      const mapa = {};
+      data.stock.forEach((s) => {
+        mapa[s.producto_id] = Number(s.cantidad);
+      });
+      setStockOrigenPorProducto(mapa);
+    }
+  }
+
   useEffect(() => {
     cargarAlertas();
     cargarBodegas();
@@ -77,6 +98,10 @@ export default function ReabastecimientoPage() {
     if (bodegaDistribuidor && !bodegaOrigenId) setBodegaOrigenId(String(bodegaDistribuidor.id));
     if (bodegaPrincipal && !bodegaDestinoId) setBodegaDestinoId(String(bodegaPrincipal.id));
   }, [bodegaDistribuidor, bodegaPrincipal]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    cargarStockOrigen(bodegaOrigenId);
+  }, [bodegaOrigenId]);
 
   function agregarAlCarrito(producto) {
     setMensaje('');
@@ -375,6 +400,7 @@ export default function ReabastecimientoPage() {
             <thead>
               <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
                 <th style={styles.th}>Producto</th>
+                <th style={styles.th}>Disponible en origen</th>
                 <th style={styles.th}>Cantidad</th>
                 <th style={styles.th}>Costo unitario</th>
                 <th style={styles.th}>Subtotal</th>
@@ -382,28 +408,36 @@ export default function ReabastecimientoPage() {
               </tr>
             </thead>
             <tbody>
-              {carrito.map((it) => (
-                <tr key={it.producto_id} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={styles.td}>
-                    <div style={{ fontWeight: 600 }}>{it.nombre}</div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{it.referencia}</div>
-                  </td>
-                  <td style={styles.td}>
-                    <input
-                      type="number"
-                      min="1"
-                      value={it.cantidad}
-                      onChange={(e) => actualizarCantidad(it.producto_id, e.target.value)}
-                      style={styles.inputCantidad}
-                    />
-                  </td>
-                  <td style={styles.td}>${moneda0(it.precio_costo)}</td>
-                  <td style={styles.td}>${moneda0(it.precio_costo * it.cantidad)}</td>
-                  <td style={styles.td}>
-                    <button onClick={() => quitarDelCarrito(it.producto_id)} style={styles.btnQuitar}>Quitar</button>
-                  </td>
-                </tr>
-              ))}
+              {carrito.map((it) => {
+                const disponible = stockOrigenPorProducto[it.producto_id] ?? 0;
+                const excede = Number(it.cantidad) > disponible;
+                return (
+                  <tr key={it.producto_id} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={styles.td}>
+                      <div style={{ fontWeight: 600 }}>{it.nombre}</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{it.referencia}</div>
+                    </td>
+                    <td style={{ ...styles.td, color: excede ? 'var(--danger)' : 'var(--text-secondary)' }}>
+                      {disponible}
+                    </td>
+                    <td style={styles.td}>
+                      <input
+                        type="number"
+                        min="1"
+                        max={disponible || undefined}
+                        value={it.cantidad}
+                        onChange={(e) => actualizarCantidad(it.producto_id, e.target.value)}
+                        style={{ ...styles.inputCantidad, borderColor: excede ? 'var(--danger)' : undefined }}
+                      />
+                    </td>
+                    <td style={styles.td}>${moneda0(it.precio_costo)}</td>
+                    <td style={styles.td}>${moneda0(it.precio_costo * it.cantidad)}</td>
+                    <td style={styles.td}>
+                      <button onClick={() => quitarDelCarrito(it.producto_id)} style={styles.btnQuitar}>Quitar</button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -483,24 +517,32 @@ export default function ReabastecimientoPage() {
               </div>
 
               <div style={styles.flotanteItems}>
-                {carrito.map((it) => (
-                  <div key={it.producto_id} style={styles.flotanteFila}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {it.nombre}
+                {carrito.map((it) => {
+                  const disponible = stockOrigenPorProducto[it.producto_id] ?? 0;
+                  const excede = Number(it.cantidad) > disponible;
+                  return (
+                    <div key={it.producto_id} style={styles.flotanteFila}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {it.nombre}
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>${moneda0(it.precio_costo)} c/u</div>
+                        <div style={{ fontSize: '11px', color: excede ? 'var(--danger)' : 'var(--text-secondary)' }}>
+                          Disponible en origen: {disponible}
+                        </div>
                       </div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>${moneda0(it.precio_costo)} c/u</div>
+                      <input
+                        type="number"
+                        min="1"
+                        max={disponible || undefined}
+                        value={it.cantidad}
+                        onChange={(e) => actualizarCantidad(it.producto_id, e.target.value)}
+                        style={{ ...styles.inputCantidadChico, borderColor: excede ? 'var(--danger)' : undefined }}
+                      />
+                      <button onClick={() => quitarDelCarrito(it.producto_id)} style={styles.btnQuitarChico}>✕</button>
                     </div>
-                    <input
-                      type="number"
-                      min="1"
-                      value={it.cantidad}
-                      onChange={(e) => actualizarCantidad(it.producto_id, e.target.value)}
-                      style={styles.inputCantidadChico}
-                    />
-                    <button onClick={() => quitarDelCarrito(it.producto_id)} style={styles.btnQuitarChico}>✕</button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <div style={styles.flotanteTotal}>
