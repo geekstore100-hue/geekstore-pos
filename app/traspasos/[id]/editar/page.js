@@ -21,6 +21,13 @@ export default function EditarTraspasoPage() {
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
 
+  // Cuánto hay AHORA MISMO en la bodega de origen de cada producto. Como este
+  // traspaso ya se guardó antes, lo que ya está en cada línea YA SE LE
+  // DESCONTÓ al origen, así que lo máximo que se puede poner en una línea que
+  // ya existía es este stock actual MÁS lo que esa línea ya tenía comprometido
+  // (por eso se guarda también cantidadOriginal por línea).
+  const [stockOrigenPorProducto, setStockOrigenPorProducto] = useState({});
+
   async function cargar() {
     setCargando(true);
     setErrorCarga('');
@@ -35,13 +42,29 @@ export default function EditarTraspasoPage() {
           referencia: it.referencia,
           nombre: it.nombre,
           cantidad: Number(it.cantidad),
+          cantidadOriginal: Number(it.cantidad),
           precio_unitario: Number(it.precio_unitario) || 0,
         }))
       );
+      if (data.traspaso.bodega_origen_id) {
+        cargarStockOrigen(data.traspaso.bodega_origen_id);
+      }
     } else {
       setErrorCarga(data.error || 'No se pudo cargar el traspaso');
     }
     setCargando(false);
+  }
+
+  async function cargarStockOrigen(bId) {
+    const res = await fetch(`/api/stock?bodega_id=${bId}`);
+    const data = await res.json();
+    if (data.ok) {
+      const mapa = {};
+      data.stock.forEach((s) => {
+        mapa[s.producto_id] = Number(s.cantidad);
+      });
+      setStockOrigenPorProducto(mapa);
+    }
   }
 
   async function cargarProductos() {
@@ -74,6 +97,7 @@ export default function EditarTraspasoPage() {
           referencia: producto.referencia,
           nombre: producto.nombre,
           cantidad: 1,
+          cantidadOriginal: 0,
           precio_unitario: Number(producto.precio_costo) || 0,
         },
       ];
@@ -217,6 +241,7 @@ export default function EditarTraspasoPage() {
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
               <th style={styles.th}>Producto</th>
+              <th style={styles.th}>Disponible en origen</th>
               <th style={styles.th}>Cantidad</th>
               <th style={styles.th}>Costo unitario</th>
               <th style={styles.th}>Subtotal</th>
@@ -224,33 +249,48 @@ export default function EditarTraspasoPage() {
             </tr>
           </thead>
           <tbody>
-            {lineas.map((l) => (
-              <tr key={l.producto_id} style={{ borderBottom: '1px solid var(--border)' }}>
-                <td style={styles.td}>
-                  <div style={{ fontWeight: 600 }}>{l.nombre}</div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{l.referencia}</div>
-                </td>
-                <td style={styles.td}>
-                  <input
-                    type="number"
-                    min="1"
-                    value={l.cantidad}
-                    onChange={(e) => actualizarCantidad(l.producto_id, e.target.value)}
-                    style={styles.inputCelda}
-                  />
-                </td>
-                <td style={styles.td}>${moneda0(l.precio_unitario)}</td>
-                <td style={styles.td}>${moneda0(l.precio_unitario * l.cantidad)}</td>
-                <td style={styles.td}>
-                  <button onClick={() => quitarLinea(l.producto_id)} style={styles.btnQuitar}>Quitar</button>
-                </td>
-              </tr>
-            ))}
+            {lineas.map((l) => {
+              // Lo que ya tenía esta línea guardado ya se le descontó al origen,
+              // así que el tope real es el stock de hoy MÁS eso.
+              const disponible = (stockOrigenPorProducto[l.producto_id] ?? 0) + (l.cantidadOriginal || 0);
+              const excede = Number(l.cantidad) > disponible;
+              return (
+                <tr key={l.producto_id} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={styles.td}>
+                    <div style={{ fontWeight: 600 }}>{l.nombre}</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{l.referencia}</div>
+                  </td>
+                  <td style={{ ...styles.td, color: excede ? 'var(--danger)' : 'var(--text-secondary)' }}>
+                    {disponible}
+                  </td>
+                  <td style={styles.td}>
+                    <input
+                      type="number"
+                      min="1"
+                      max={disponible || undefined}
+                      value={l.cantidad}
+                      onChange={(e) => actualizarCantidad(l.producto_id, e.target.value)}
+                      style={{ ...styles.inputCelda, borderColor: excede ? 'var(--danger)' : undefined }}
+                    />
+                  </td>
+                  <td style={styles.td}>${moneda0(l.precio_unitario)}</td>
+                  <td style={styles.td}>${moneda0(l.precio_unitario * l.cantidad)}</td>
+                  <td style={styles.td}>
+                    <button onClick={() => quitarLinea(l.producto_id)} style={styles.btnQuitar}>Quitar</button>
+                  </td>
+                </tr>
+              );
+            })}
             {lineas.length === 0 && (
-              <tr><td style={styles.td} colSpan={5}>Sin productos. Agrega al menos uno arriba.</td></tr>
+              <tr><td style={styles.td} colSpan={6}>Sin productos. Agrega al menos uno arriba.</td></tr>
             )}
           </tbody>
         </table>
+        {lineas.some((l) => Number(l.cantidad) > (stockOrigenPorProducto[l.producto_id] ?? 0) + (l.cantidadOriginal || 0)) && (
+          <p style={{ color: 'var(--danger)', fontSize: '13px', marginTop: '8px' }}>
+            Hay una o más cantidades por encima de lo disponible en la bodega de origen. Al guardar, esas líneas serán rechazadas.
+          </p>
+        )}
 
         <div style={styles.resumen}>
           <div>Nuevo valor total: <strong>${moneda0(totalCalculado)}</strong></div>
