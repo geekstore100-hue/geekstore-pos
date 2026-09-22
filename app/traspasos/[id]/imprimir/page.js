@@ -89,30 +89,50 @@ export default function ImprimirTraspasoPage() {
 
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
         <thead>
+          <tr style={{ textAlign: 'left' }}>
+            <th style={{ ...styles.th, ...styles.thNeutro }} rowSpan={2}>Referencia</th>
+            <th style={{ ...styles.th, ...styles.thNeutro }} rowSpan={2}>Producto</th>
+            <th style={{ ...styles.th, ...styles.thDestino, textAlign: 'center' }} colSpan={3}>
+              Bodega {traspaso.bodega_destino_nombre} (recibe)
+            </th>
+            <th style={{ ...styles.th, ...styles.thOrigen, textAlign: 'center' }}>
+              Bodega {traspaso.bodega_origen_nombre} (entrega)
+            </th>
+          </tr>
           <tr style={{ borderBottom: '2px solid #333', textAlign: 'left' }}>
-            <th style={styles.th}>Referencia</th>
-            <th style={styles.th}>Producto</th>
-            <th style={{ ...styles.th, textAlign: 'right' }}>Ya había en {traspaso.bodega_destino_nombre}</th>
-            <th style={{ ...styles.th, textAlign: 'right' }}>Llegan ahora</th>
-            <th style={{ ...styles.th, textAlign: 'right' }}>Total esperado</th>
-            <th style={{ ...styles.th, textAlign: 'right' }}>Cantidad verificada</th>
+            <th style={{ ...styles.th, ...styles.thDestino, textAlign: 'right' }}>Ya había en {traspaso.bodega_destino_nombre}</th>
+            <th style={{ ...styles.th, ...styles.thDestino, textAlign: 'right' }}>Llegan ahora</th>
+            <th style={{ ...styles.th, ...styles.thDestino, textAlign: 'right' }}>Total esperado</th>
+            <th style={{ ...styles.th, ...styles.thOrigen, textAlign: 'right' }}>Queda disponible</th>
           </tr>
         </thead>
         <tbody>
-          {items.map((it, i) => (
-            <tr key={i} style={{ borderBottom: '1px solid #ccc' }}>
-              <td style={styles.td}>{it.referencia}</td>
-              <td style={styles.td}>{it.nombre}</td>
-              <td style={{ ...styles.td, textAlign: 'right' }}>{numero(it.stock_antes)}</td>
-              <td style={{ ...styles.td, textAlign: 'right' }}>{numero(it.cantidad)}</td>
-              <td style={{ ...styles.td, textAlign: 'right', fontWeight: 700 }}>
-                {numero(Number(it.stock_antes || 0) + Number(it.cantidad))}
-              </td>
-              <td style={{ ...styles.td, textAlign: 'right', color: '#999' }}>______</td>
-            </tr>
-          ))}
+          {items.map((it, i) => {
+            const quedaOrigen =
+              it.stock_antes_origen === null || it.stock_antes_origen === undefined
+                ? null
+                : Number(it.stock_antes_origen) - Number(it.cantidad);
+            return (
+              <tr key={i} style={{ borderBottom: '1px solid #ccc' }}>
+                <td style={styles.td}>{it.referencia}</td>
+                <td style={styles.td}>{it.nombre}</td>
+                <td style={{ ...styles.td, ...styles.tdDestino, textAlign: 'right' }}>{numero(it.stock_antes)}</td>
+                <td style={{ ...styles.td, ...styles.tdDestino, textAlign: 'right' }}>{numero(it.cantidad)}</td>
+                <td style={{ ...styles.td, ...styles.tdDestino, textAlign: 'right', fontWeight: 700 }}>
+                  {numero(Number(it.stock_antes || 0) + Number(it.cantidad))}
+                </td>
+                <td style={{ ...styles.td, ...styles.tdOrigen, textAlign: 'right', fontWeight: 700 }}>
+                  {quedaOrigen === null ? '-' : numero(quedaOrigen)}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
+      <p style={{ fontSize: '11px', color: '#777', marginTop: '4px' }}>
+        "Queda disponible" es lo que le queda a {traspaso.bodega_origen_nombre} después de enviar esta mercancía —
+        sirve para verificar ahí mismo cuánto sigue disponible en esa bodega.
+      </p>
 
       <div style={{ textAlign: 'right', marginTop: '18px', fontSize: '16px' }}>
         <strong>Valor total del traspaso: {moneda(traspaso.valor_total)}</strong>
@@ -138,6 +158,13 @@ const styles = {
   etiqueta: { fontWeight: 700, padding: '4px 6px 4px 0' },
   th: { padding: '6px 4px' },
   td: { padding: '6px 4px' },
+  // Para diferenciar a simple vista las columnas de la bodega que RECIBE
+  // (destino) de la columna de la bodega que ENTREGA (origen).
+  thNeutro: { borderBottom: '2px solid #333' },
+  thDestino: { background: '#eef6f6', borderBottom: '2px solid #333' },
+  thOrigen: { background: '#fbf3e6', borderBottom: '2px solid #333' },
+  tdDestino: { background: '#f6fbfb' },
+  tdOrigen: { background: '#fdf8ef' },
   btnImprimir: {
     float: 'right',
     padding: '8px 14px',

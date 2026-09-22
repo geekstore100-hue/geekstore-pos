@@ -36,6 +36,10 @@ export async function GET(request, { params }) {
     // 'traspaso_entrada' (traspaso creado directamente) o 'ajuste_incremento'
     // (traspaso confirmado a través de la pantalla de Ajustes de Inventario).
     // Filtrar por la bodega destino en vez del tipo cubre ambos casos.
+    // También se trae, del movimiento de salida en la bodega de ORIGEN (mismo
+    // traspaso, mismo producto), cuánto había ahí antes de sacar la
+    // mercancía, para poder mostrar en el documento cuánto queda disponible
+    // en la bodega de origen después de este traspaso.
     const items = await sql`
       SELECT
         me.producto_id,
@@ -43,9 +47,15 @@ export async function GET(request, { params }) {
         p.nombre,
         me.cantidad,
         me.precio_unitario,
-        me.stock_antes
+        me.stock_antes,
+        mo.stock_antes AS stock_antes_origen
       FROM movimientos_stock me
       JOIN productos p ON p.id = me.producto_id
+      LEFT JOIN movimientos_stock mo
+        ON mo.traspaso_id = me.traspaso_id
+        AND mo.producto_id = me.producto_id
+        AND mo.bodega_id = ${traspaso.bodega_origen_id}
+        AND mo.tipo = 'traspaso_salida'
       WHERE me.traspaso_id = ${id}
         AND me.bodega_id = ${traspaso.bodega_destino_id}
         AND me.tipo IN ('traspaso_entrada', 'ajuste_incremento')

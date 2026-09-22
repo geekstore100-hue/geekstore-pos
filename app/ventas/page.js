@@ -31,6 +31,10 @@ export default function VentasPage() {
   const [pestanaActivaId, setPestanaActivaId] = useState(1);
   const activa = pestanas.find((p) => p.id === pestanaActivaId) || pestanas[0];
 
+  // Guarda los datos de la última factura impresa (de cualquier pestaña) para
+  // poder reimprimirla con un botón, sin tener que buscarla en Historial.
+  const [ultimaVenta, setUltimaVenta] = useState(null);
+
   const [turno, setTurno] = useState(null);
   const [cargandoTurno, setCargandoTurno] = useState(true);
   const [mostrarAbrirTurno, setMostrarAbrirTurno] = useState(false);
@@ -259,17 +263,16 @@ export default function VentasPage() {
     return `$${Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
   }
 
-  function imprimirTicket(ventana, { ventaId, items, totalVenta, medioPagoUsado, vendedorNombre, listaUsada }) {
-    if (!ventana) return;
-
-    const fecha = new Date().toLocaleString('es-CO', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-
+  // Antes esto abría una ventana nueva del navegador (window.open) para
+  // armar el ticket e imprimirlo ahí. El problema: si esa ventana se quedaba
+  // abierta (por olvido, o porque el diálogo de impresión tapaba la ventana
+  // principal), el programa parecía "congelarse" y con el tiempo se iban
+  // acumulando ventanas sueltas. Ahora se arma el ticket en un <iframe>
+  // invisible dentro de la misma pantalla: se manda a imprimir igual (sale
+  // el mismo diálogo de impresión de Windows/Chrome), pero no se abre ninguna
+  // ventana nueva que haya que acordarse de cerrar, y el iframe se borra
+  // solo apenas termina.
+  function imprimirTicket({ ventaId, items, totalVenta, medioPagoUsado, vendedorNombre, listaUsada, fecha }) {
     const filasHtml = items
       .map((i) => {
         const desc = Number(i.descuento_porcentaje) || 0;
@@ -316,13 +319,49 @@ export default function VentasPage() {
         <p>Lista de precios: ${listaUsada === 'distribuidor' ? 'Distribuidor' : 'Principal'}</p>
         <hr />
         <p class="centro">¡Gracias por su compra!</p>
-        <script>window.onload = function () { window.focus(); window.print(); };</script>
       </body>
       </html>`;
 
-    ventana.document.open();
-    ventana.document.write(html);
-    ventana.document.close();
+    // iframe invisible: no aparece como ventana, no lo bloquea el navegador
+    // como pop-up, y no queda nada por cerrar.
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = 'none';
+    iframe.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(iframe);
+
+    let limpiado = false;
+    const limpiar = () => {
+      if (limpiado) return;
+      limpiado = true;
+      if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+    };
+
+    const doc = iframe.contentWindow.document;
+    doc.open();
+    doc.write(html);
+    doc.close();
+
+    const ventanaIframe = iframe.contentWindow;
+    ventanaIframe.addEventListener('afterprint', limpiar);
+    // Por si el navegador no dispara "afterprint" en un iframe (pasa en
+    // algunos casos), se limpia igual pasado un tiempo prudente.
+    setTimeout(limpiar, 30000);
+
+    // Un pequeño margen para que el navegador termine de montar el
+    // documento antes de mandar a imprimir.
+    setTimeout(() => {
+      try {
+        ventanaIframe.focus();
+        ventanaIframe.print();
+      } catch {
+        limpiar();
+      }
+    }, 200);
   }
 
   function escaparHtml(texto) {
@@ -347,10 +386,6 @@ export default function VentasPage() {
       return;
     }
 
-    // La ventana se abre ANTES del fetch (mientras aún estamos "dentro" del
-    // clic del usuario) para que el navegador no la bloquee como pop-up.
-    const ventanaTicket = window.open('', '_blank', 'width=380,height=600');
-
     setGuardando(true);
     const itemsVendidos = pestanaVenta.carrito;
     const totalVendido = total;
@@ -373,21 +408,35 @@ export default function VentasPage() {
     setGuardando(false);
 
     if (data.ok) {
-      imprimirTicket(ventanaTicket, {
+      const fecha = new Date().toLocaleString('es-CO', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      const datosTicket = {
         ventaId: data.ventaId,
         items: itemsVendidos,
         totalVenta: totalVendido,
         medioPagoUsado: pestanaVenta.medioPago,
         vendedorNombre,
         listaUsada: pestanaVenta.lista,
-      });
+        fecha,
+      };
+      imprimirTicket(datosTicket);
+      setUltimaVenta(datosTicket);
       setMensaje('Venta registrada.');
       actualizarPestana(pestanaVenta.id, (p) => ({ ...p, carrito: [], editandoId: null, medioPago: '' }));
       cargarTodo();
     } else {
-      if (ventanaTicket) ventanaTicket.close();
       setError(data.error || 'No se pudo registrar la venta');
     }
+  }
+
+  function reimprimirUltimaFactura() {
+    if (!ultimaVenta) return;
+    imprimirTicket(ultimaVenta);
   }
 
   return (
@@ -580,7 +629,14 @@ export default function VentasPage() {
 
             <div style={styles.piePagina}>
               <span>{activa.carrito.length} producto(s)</span>
-              <button onClick={() => actualizarPestana(activa.id, (p) => ({ ...p, carrito: [] }))} style={styles.btnCancelar}>Cancelar</button>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                {ultimaVenta && (
+                  <button onClick={reimprimirUltimaFactura} style={styles.btnCancelar} title={`Venta #${ultimaVenta.ventaId}`}>
+                    Reimprimir última factura
+                  </button>
+                )}
+                <button onClick={() => actualizarPestana(activa.id, (p) => ({ ...p, carrito: [] }))} style={styles.btnCancelar}>Cancelar</button>
+              </div>
             </div>
           </div>
         </div>
