@@ -10,6 +10,14 @@ function crearPestana(id, nombre) {
     carrito: [],
     editandoId: null,
     medioPago: '',
+    // Pago combinado: cuando está activo, en vez de un solo "medioPago" se
+    // usan estas líneas (cada una con su propio medio y monto), por ejemplo
+    // una parte en Efectivo y otra en Tarjeta.
+    pagoCombinado: false,
+    pagosCombinados: [
+      { medio: 'Efectivo', monto: '' },
+      { medio: 'Tarjeta', monto: '' },
+    ],
     vendedorId: '',
     lista: 'principal',
   };
@@ -263,6 +271,49 @@ export default function VentasPage() {
     return `$${Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
   }
 
+  // --- Pago combinado (ej. parte en efectivo y parte con tarjeta) ---
+
+  function activarPagoCombinado(activo) {
+    actualizarPestana(activa.id, { pagoCombinado: activo, medioPago: '' });
+  }
+
+  function actualizarLineaPago(indice, campo, valor) {
+    actualizarPestana(activa.id, (p) => ({
+      ...p,
+      pagosCombinados: p.pagosCombinados.map((l, i) => (i === indice ? { ...l, [campo]: valor } : l)),
+    }));
+  }
+
+  function agregarLineaPago() {
+    actualizarPestana(activa.id, (p) => ({
+      ...p,
+      pagosCombinados: [...p.pagosCombinados, { medio: 'Transferencia', monto: '' }],
+    }));
+  }
+
+  function quitarLineaPago(indice) {
+    actualizarPestana(activa.id, (p) => ({
+      ...p,
+      pagosCombinados: p.pagosCombinados.filter((_, i) => i !== indice),
+    }));
+  }
+
+  // Llena la última línea con lo que falte para completar el total, para no
+  // tener que sacar la cuenta a mano.
+  function completarRestoEn(indice) {
+    actualizarPestana(activa.id, (p) => {
+      const sumaOtras = p.pagosCombinados.reduce((acc, l, i) => (i === indice ? acc : acc + (Number(l.monto) || 0)), 0);
+      const resto = Math.max(0, total - sumaOtras);
+      return {
+        ...p,
+        pagosCombinados: p.pagosCombinados.map((l, i) => (i === indice ? { ...l, monto: String(resto) } : l)),
+      };
+    });
+  }
+
+  const sumaPagosCombinados = activa.pagosCombinados.reduce((acc, l) => acc + (Number(l.monto) || 0), 0);
+  const diferenciaPago = Math.round((total - sumaPagosCombinados) * 100) / 100;
+
   // Antes esto abría una ventana nueva del navegador (window.open) para
   // armar el ticket e imprimirlo ahí. El problema: si esa ventana se quedaba
   // abierta (por olvido, o porque el diálogo de impresión tapaba la ventana
@@ -272,7 +323,7 @@ export default function VentasPage() {
   // el mismo diálogo de impresión de Windows/Chrome), pero no se abre ninguna
   // ventana nueva que haya que acordarse de cerrar, y el iframe se borra
   // solo apenas termina.
-  function imprimirTicket({ ventaId, items, totalVenta, medioPagoUsado, vendedorNombre, listaUsada, fecha }) {
+  function imprimirTicket({ ventaId, items, totalVenta, pagos, vendedorNombre, listaUsada, fecha }) {
     const filasHtml = items
       .map((i) => {
         const desc = Number(i.descuento_porcentaje) || 0;
@@ -337,7 +388,11 @@ export default function VentasPage() {
           <tr class="total-fila"><td>TOTAL</td><td style="text-align:right;">${moneda(totalVenta)}</td></tr>
         </table>
         <hr />
-        <p>Medio de pago: ${escaparHtml(medioPagoUsado)}</p>
+        ${
+          pagos.length > 1
+            ? pagos.map((p) => `<p>${escaparHtml(p.medio_pago)}: ${moneda(p.monto)}</p>`).join('')
+            : `<p>Medio de pago: ${escaparHtml(pagos[0]?.medio_pago || '-')}</p>`
+        }
         ${vendedorNombre ? `<p>Vendedor: ${escaparHtml(vendedorNombre)}</p>` : ''}
         <p>Lista de precios: ${listaUsada === 'distribuidor' ? 'Distribuidor' : 'Principal'}</p>
         <hr />
@@ -404,7 +459,21 @@ export default function VentasPage() {
       setError('Agrega al menos un producto');
       return;
     }
-    if (!pestanaVenta.medioPago) {
+
+    let pagosBody = null;
+    if (pestanaVenta.pagoCombinado) {
+      const lineasValidas = pestanaVenta.pagosCombinados.filter((l) => Number(l.monto) > 0);
+      if (lineasValidas.length < 2) {
+        setError('Para pago combinado, ingresa el monto de al menos dos medios de pago');
+        return;
+      }
+      const suma = lineasValidas.reduce((acc, l) => acc + Number(l.monto), 0);
+      if (Math.abs(suma - total) > 1) {
+        setError(`Los montos ingresados (${moneda(suma)}) no coinciden con el total (${moneda(total)})`);
+        return;
+      }
+      pagosBody = lineasValidas.map((l) => ({ medio_pago: l.medio, monto: Number(l.monto) }));
+    } else if (!pestanaVenta.medioPago) {
       setError('Selecciona el medio de pago');
       return;
     }
@@ -417,7 +486,8 @@ export default function VentasPage() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        medio_pago: pestanaVenta.medioPago,
+        medio_pago: pagosBody ? undefined : pestanaVenta.medioPago,
+        pagos: pagosBody || undefined,
         vendedor_id: pestanaVenta.vendedorId ? Number(pestanaVenta.vendedorId) : null,
         items: pestanaVenta.carrito.map((i) => ({
           producto_id: i.producto_id,
@@ -442,7 +512,7 @@ export default function VentasPage() {
         ventaId: data.ventaId,
         items: itemsVendidos,
         totalVenta: totalVendido,
-        medioPagoUsado: pestanaVenta.medioPago,
+        pagos: data.pagos || (pagosBody || [{ medio_pago: pestanaVenta.medioPago, monto: totalVendido }]),
         vendedorNombre,
         listaUsada: pestanaVenta.lista,
         fecha,
@@ -450,7 +520,17 @@ export default function VentasPage() {
       imprimirTicket(datosTicket);
       setUltimaVenta(datosTicket);
       setMensaje('Venta registrada.');
-      actualizarPestana(pestanaVenta.id, (p) => ({ ...p, carrito: [], editandoId: null, medioPago: '' }));
+      actualizarPestana(pestanaVenta.id, (p) => ({
+        ...p,
+        carrito: [],
+        editandoId: null,
+        medioPago: '',
+        pagoCombinado: false,
+        pagosCombinados: [
+          { medio: 'Efectivo', monto: '' },
+          { medio: 'Tarjeta', monto: '' },
+        ],
+      }));
       cargarTodo();
     } else {
       setError(data.error || 'No se pudo registrar la venta');
@@ -564,15 +644,26 @@ export default function VentasPage() {
           <div style={styles.listaCarrito}>
             {activa.carrito.length === 0 && <p style={{ color: 'var(--text-secondary)' }}>Toca un producto para agregarlo.</p>}
             {activa.carrito.map((item) => (
-              <div key={item.producto_id} style={styles.itemCarrito}>
+              <div
+                key={item.producto_id}
+                onClick={() => alternarEdicion(item.producto_id)}
+                style={{ ...styles.itemCarrito, cursor: 'pointer' }}
+                title="Clic para editar precio o descuento"
+              >
                 <div style={styles.itemHeader}>
-                  <strong onClick={() => alternarEdicion(item.producto_id)} style={{ cursor: 'pointer' }}>
-                    {item.nombre}
-                  </strong>
-                  <button onClick={() => quitarDelCarrito(item.producto_id)} style={styles.btnQuitar}>×</button>
+                  <strong>{item.nombre}</strong>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      quitarDelCarrito(item.producto_id);
+                    }}
+                    style={styles.btnQuitar}
+                  >
+                    ×
+                  </button>
                 </div>
 
-                <div style={styles.itemControles}>
+                <div style={styles.itemControles} onClick={(e) => e.stopPropagation()}>
                   <div style={styles.stepper}>
                     <button onClick={() => cambiarCantidad(item.producto_id, -1)} style={styles.stepperBtn}>−</button>
                     <span>{item.cantidad}</span>
@@ -582,7 +673,7 @@ export default function VentasPage() {
                 </div>
 
                 {activa.editandoId === item.producto_id && (
-                  <div style={styles.edicion}>
+                  <div style={styles.edicion} onClick={(e) => e.stopPropagation()}>
                     <label style={styles.labelEdicion}>
                       Precio
                       <input
@@ -613,20 +704,24 @@ export default function VentasPage() {
 
           <div style={styles.piePanel}>
             <div style={styles.filaDosCampos}>
-              <label style={styles.labelCampo}>
-                Medio de pago *
-                <select
-                  value={activa.medioPago}
-                  onChange={(e) => actualizarPestana(activa.id, { medioPago: e.target.value })}
-                  style={styles.inputCampo}
-                >
-                  <option value="">Seleccionar</option>
-                  <option value="Efectivo">Efectivo</option>
-                  <option value="Tarjeta">Tarjeta</option>
-                  <option value="Transferencia">Transferencia</option>
-                  <option value="Otro">Otro</option>
-                </select>
-              </label>
+              {!activa.pagoCombinado ? (
+                <label style={styles.labelCampo}>
+                  Medio de pago *
+                  <select
+                    value={activa.medioPago}
+                    onChange={(e) => actualizarPestana(activa.id, { medioPago: e.target.value })}
+                    style={styles.inputCampo}
+                  >
+                    <option value="">Seleccionar</option>
+                    <option value="Efectivo">Efectivo</option>
+                    <option value="Tarjeta">Tarjeta</option>
+                    <option value="Transferencia">Transferencia</option>
+                    <option value="Otro">Otro</option>
+                  </select>
+                </label>
+              ) : (
+                <div style={{ flex: 1 }} />
+              )}
               <label style={styles.labelCampo}>
                 Vendedor
                 <select
@@ -641,6 +736,54 @@ export default function VentasPage() {
                 </select>
               </label>
             </div>
+
+            <button type="button" onClick={() => activarPagoCombinado(!activa.pagoCombinado)} style={styles.linkPagoCombinado}>
+              {activa.pagoCombinado ? '✕ Cancelar pago combinado' : '+ Pagar con más de un medio (ej. efectivo + tarjeta)'}
+            </button>
+
+            {activa.pagoCombinado && (
+              <div style={styles.pagoCombinadoBox}>
+                {activa.pagosCombinados.map((l, i) => (
+                  <div key={i} style={styles.filaPagoCombinado}>
+                    <select
+                      value={l.medio}
+                      onChange={(e) => actualizarLineaPago(i, 'medio', e.target.value)}
+                      style={{ ...styles.inputCampo, flex: 1 }}
+                    >
+                      <option value="Efectivo">Efectivo</option>
+                      <option value="Tarjeta">Tarjeta</option>
+                      <option value="Transferencia">Transferencia</option>
+                      <option value="Otro">Otro</option>
+                    </select>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="Monto"
+                      value={l.monto}
+                      onChange={(e) => actualizarLineaPago(i, 'monto', e.target.value)}
+                      style={{ ...styles.inputCampo, width: '110px' }}
+                    />
+                    <button type="button" onClick={() => completarRestoEn(i)} style={styles.btnMiniLink} title="Llenar con lo que falte">
+                      Completar
+                    </button>
+                    {activa.pagosCombinados.length > 2 && (
+                      <button type="button" onClick={() => quitarLineaPago(i)} style={styles.btnQuitar}>×</button>
+                    )}
+                  </div>
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                  <button type="button" onClick={agregarLineaPago} style={styles.btnMiniLink}>+ Agregar otro medio</button>
+                  <span style={{ fontSize: '12px', color: diferenciaPago === 0 ? 'var(--teal-dark)' : 'var(--danger)' }}>
+                    {diferenciaPago === 0
+                      ? 'Los montos cuadran con el total'
+                      : diferenciaPago > 0
+                        ? `Falta ${moneda(diferenciaPago)}`
+                        : `Sobra ${moneda(Math.abs(diferenciaPago))}`}
+                  </span>
+                </div>
+              </div>
+            )}
 
             {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
             {mensaje && <p style={{ color: 'var(--teal-dark)' }}>{mensaje}</p>}
@@ -943,6 +1086,33 @@ const styles = {
   inputEdicion: { display: 'block', width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', marginTop: '2px' },
   piePanel: { flexShrink: 0, borderTop: '1px solid var(--border)', paddingTop: '12px' },
   filaDosCampos: { display: 'flex', gap: '10px' },
+  linkPagoCombinado: {
+    border: 'none',
+    background: 'none',
+    color: 'var(--teal-dark)',
+    cursor: 'pointer',
+    fontSize: '12px',
+    fontWeight: 600,
+    padding: '6px 0',
+    textAlign: 'left',
+  },
+  pagoCombinadoBox: {
+    background: 'var(--bg)',
+    borderRadius: '8px',
+    padding: '10px',
+    marginBottom: '8px',
+  },
+  filaPagoCombinado: { display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '8px' },
+  btnMiniLink: {
+    border: 'none',
+    background: 'none',
+    color: 'var(--teal-dark)',
+    cursor: 'pointer',
+    fontSize: '12px',
+    fontWeight: 600,
+    padding: '4px 2px',
+    whiteSpace: 'nowrap',
+  },
   labelCampo: { display: 'block', fontSize: '12px', color: 'var(--text-secondary)', flex: 1, marginBottom: '8px' },
   inputCampo: {
     display: 'block',

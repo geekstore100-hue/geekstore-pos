@@ -432,6 +432,7 @@ export default function ProductosPage() {
                 <th style={styles.th}>Nombre</th>
                 <th style={styles.th}>Categoría</th>
                 <th style={styles.th}>Precio venta</th>
+                <th style={styles.th}>Costo (promedio)</th>
                 <th style={styles.th}>Precio distribuidor</th>
                 <th style={styles.th}>Stock</th>
                 <th style={styles.th}>Activo</th>
@@ -457,6 +458,7 @@ export default function ProductosPage() {
                   </td>
                   <td style={styles.td}>{p.categoria_nombre || '-'}</td>
                   <td style={styles.td}>{moneda(p.precio_venta)}</td>
+                  <td style={styles.td}>{p.es_inventariable === false ? '—' : moneda(p.precio_costo)}</td>
                   <td style={styles.td}>{moneda(p.precio_distribuidor)}</td>
                   <td style={styles.td}>{p.es_inventariable === false ? '—' : p.stock}</td>
                   <td style={styles.td}>{p.activo ? 'Sí' : 'No'}</td>
@@ -467,7 +469,7 @@ export default function ProductosPage() {
               ))}
               {productosPagina.length === 0 && (
                 <tr>
-                  <td style={styles.td} colSpan={9}>
+                  <td style={styles.td} colSpan={10}>
                     {productos.length === 0 ? 'No hay productos todavía.' : 'Ningún producto coincide con la búsqueda.'}
                   </td>
                 </tr>

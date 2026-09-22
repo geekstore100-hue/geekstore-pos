@@ -52,13 +52,30 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const { items, medio_pago, vendedor_id } = await request.json();
+    const { items, medio_pago, vendedor_id, pagos: pagosBody } = await request.json();
 
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ ok: false, error: 'Agrega al menos un producto' }, { status: 400 });
     }
-    if (!medio_pago) {
+
+    // Pago combinado: viene un arreglo "pagos" con varios medios de pago en
+    // vez de un solo "medio_pago" (ej. una parte en efectivo y otra con
+    // tarjeta). Si no viene, se sigue comportando exactamente igual que
+    // antes (un solo medio de pago para toda la venta).
+    const esPagoCombinado = Array.isArray(pagosBody) && pagosBody.length > 0;
+
+    if (!esPagoCombinado && !medio_pago) {
       return NextResponse.json({ ok: false, error: 'Selecciona el medio de pago' }, { status: 400 });
+    }
+
+    let pagos = [];
+    if (esPagoCombinado) {
+      for (const p of pagosBody) {
+        if (!p.medio_pago || !(Number(p.monto) > 0)) {
+          return NextResponse.json({ ok: false, error: 'Revisa los montos del pago combinado' }, { status: 400 });
+        }
+      }
+      pagos = pagosBody.map((p) => ({ medio_pago: p.medio_pago, monto: Number(p.monto) }));
     }
 
     // No se puede vender sin un turno de caja abierto. El turno se determina
@@ -103,11 +120,41 @@ export async function POST(request) {
     });
     const total = itemsConTotal.reduce((acc, i) => acc + i.subtotal, 0);
 
+    if (esPagoCombinado) {
+      const sumaPagos = pagos.reduce((acc, p) => acc + p.monto, 0);
+      // Se permite una diferencia mínima (redondeo de centavos), no una
+      // diferencia real de dinero.
+      if (Math.abs(sumaPagos - total) > 1) {
+        return NextResponse.json(
+          { ok: false, error: `Los montos del pago combinado (${sumaPagos}) no suman el total de la venta (${total})` },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Para el texto que se ve en el historial y en el ticket: si es un solo
+    // medio de pago, se deja tal cual ("Efectivo"); si es combinado, se arma
+    // un texto tipo "Efectivo + Tarjeta" a partir de los medios usados.
+    const medioPagoGuardado = esPagoCombinado
+      ? [...new Set(pagos.map((p) => p.medio_pago))].join(' + ')
+      : medio_pago;
+
     const [venta] = await sql`
       INSERT INTO ventas (total, medio_pago, vendedor_id, turno_id)
-      VALUES (${total}, ${medio_pago}, ${vendedor_id || null}, ${turnoAbierto.id})
+      VALUES (${total}, ${medioPagoGuardado}, ${vendedor_id || null}, ${turnoAbierto.id})
       RETURNING id
     `;
+
+    // El detalle de pago se guarda siempre en pagos_venta (aunque sea un
+    // solo medio de pago), para que el cuadre de caja de turnos solo tenga
+    // que mirar una sola tabla.
+    const pagosAGuardar = esPagoCombinado ? pagos : [{ medio_pago, monto: total }];
+    for (const p of pagosAGuardar) {
+      await sql`
+        INSERT INTO pagos_venta (venta_id, medio_pago, monto)
+        VALUES (${venta.id}, ${p.medio_pago}, ${p.monto})
+      `;
+    }
 
     for (const item of itemsConTotal) {
       if (item._inventariable) {
@@ -125,7 +172,7 @@ export async function POST(request) {
       `;
     }
 
-    return NextResponse.json({ ok: true, ventaId: venta.id, total });
+    return NextResponse.json({ ok: true, ventaId: venta.id, total, pagos: pagosAGuardar });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }

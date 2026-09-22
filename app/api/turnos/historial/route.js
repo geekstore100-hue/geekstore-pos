@@ -25,21 +25,31 @@ export async function GET(request) {
               COALESCE(vs.ventas_tarjeta, 0) AS ventas_tarjeta,
               COALESCE(vs.ventas_transferencia, 0) AS ventas_transferencia,
               COALESCE(vs.ventas_otro, 0) AS ventas_otro,
-              COALESCE(vs.total_ventas, 0) AS total_ventas,
+              COALESCE(vt.total_ventas, 0) AS total_ventas,
               COALESCE(ds.total_devuelto, 0) AS devolucion_dinero
             FROM turnos t
             LEFT JOIN (
+              -- El efectivo/tarjeta/transferencia/otro se suma desde
+              -- pagos_venta (no desde ventas.medio_pago), porque una venta
+              -- puede estar pagada con más de un medio a la vez (pago
+              -- combinado).
               SELECT
-                turno_id,
-                SUM(total) FILTER (WHERE medio_pago = 'Efectivo') AS ventas_efectivo,
-                SUM(total) FILTER (WHERE medio_pago = 'Tarjeta') AS ventas_tarjeta,
-                SUM(total) FILTER (WHERE medio_pago = 'Transferencia') AS ventas_transferencia,
-                SUM(total) FILTER (WHERE medio_pago = 'Otro') AS ventas_otro,
-                SUM(total) AS total_ventas
+                v.turno_id,
+                SUM(pv.monto) FILTER (WHERE pv.medio_pago = 'Efectivo') AS ventas_efectivo,
+                SUM(pv.monto) FILTER (WHERE pv.medio_pago = 'Tarjeta') AS ventas_tarjeta,
+                SUM(pv.monto) FILTER (WHERE pv.medio_pago = 'Transferencia') AS ventas_transferencia,
+                SUM(pv.monto) FILTER (WHERE pv.medio_pago = 'Otro') AS ventas_otro
+              FROM pagos_venta pv
+              JOIN ventas v ON v.id = pv.venta_id
+              WHERE v.anulada = false
+              GROUP BY v.turno_id
+            ) vs ON vs.turno_id = t.id
+            LEFT JOIN (
+              SELECT turno_id, SUM(total) AS total_ventas
               FROM ventas
               WHERE anulada = false
               GROUP BY turno_id
-            ) vs ON vs.turno_id = t.id
+            ) vt ON vt.turno_id = t.id
             LEFT JOIN (
               SELECT turno_id, SUM(monto) AS total_devuelto
               FROM devoluciones
@@ -61,21 +71,31 @@ export async function GET(request) {
               COALESCE(vs.ventas_tarjeta, 0) AS ventas_tarjeta,
               COALESCE(vs.ventas_transferencia, 0) AS ventas_transferencia,
               COALESCE(vs.ventas_otro, 0) AS ventas_otro,
-              COALESCE(vs.total_ventas, 0) AS total_ventas,
+              COALESCE(vt.total_ventas, 0) AS total_ventas,
               COALESCE(ds.total_devuelto, 0) AS devolucion_dinero
             FROM turnos t
             LEFT JOIN (
+              -- El efectivo/tarjeta/transferencia/otro se suma desde
+              -- pagos_venta (no desde ventas.medio_pago), porque una venta
+              -- puede estar pagada con más de un medio a la vez (pago
+              -- combinado).
               SELECT
-                turno_id,
-                SUM(total) FILTER (WHERE medio_pago = 'Efectivo') AS ventas_efectivo,
-                SUM(total) FILTER (WHERE medio_pago = 'Tarjeta') AS ventas_tarjeta,
-                SUM(total) FILTER (WHERE medio_pago = 'Transferencia') AS ventas_transferencia,
-                SUM(total) FILTER (WHERE medio_pago = 'Otro') AS ventas_otro,
-                SUM(total) AS total_ventas
+                v.turno_id,
+                SUM(pv.monto) FILTER (WHERE pv.medio_pago = 'Efectivo') AS ventas_efectivo,
+                SUM(pv.monto) FILTER (WHERE pv.medio_pago = 'Tarjeta') AS ventas_tarjeta,
+                SUM(pv.monto) FILTER (WHERE pv.medio_pago = 'Transferencia') AS ventas_transferencia,
+                SUM(pv.monto) FILTER (WHERE pv.medio_pago = 'Otro') AS ventas_otro
+              FROM pagos_venta pv
+              JOIN ventas v ON v.id = pv.venta_id
+              WHERE v.anulada = false
+              GROUP BY v.turno_id
+            ) vs ON vs.turno_id = t.id
+            LEFT JOIN (
+              SELECT turno_id, SUM(total) AS total_ventas
               FROM ventas
               WHERE anulada = false
               GROUP BY turno_id
-            ) vs ON vs.turno_id = t.id
+            ) vt ON vt.turno_id = t.id
             LEFT JOIN (
               SELECT turno_id, SUM(monto) AS total_devuelto
               FROM devoluciones
