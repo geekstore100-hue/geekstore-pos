@@ -9,6 +9,7 @@ export default function EntradasPage() {
   const [busqueda, setBusqueda] = useState('');
   const [productoId, setProductoId] = useState('');
   const [cantidad, setCantidad] = useState(1);
+  const [precioCompra, setPrecioCompra] = useState('');
   const [nota, setNota] = useState('');
   const [error, setError] = useState('');
   const [mensaje, setMensaje] = useState('');
@@ -128,7 +129,12 @@ export default function EntradasPage() {
     const res = await fetch('/api/entradas', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ producto_id: Number(productoId), cantidad: Number(cantidad), nota }),
+      body: JSON.stringify({
+        producto_id: Number(productoId),
+        cantidad: Number(cantidad),
+        nota,
+        precio_compra: precioCompra ? Number(precioCompra) : undefined,
+      }),
     });
     const data = await res.json();
     setGuardando(false);
@@ -137,12 +143,17 @@ export default function EntradasPage() {
       setMensaje('Entrada registrada.');
       setProductoId('');
       setCantidad(1);
+      setPrecioCompra('');
       setNota('');
       setBusqueda('');
       cargarTodo();
     } else {
       setError(data.error || 'No se pudo registrar la entrada');
     }
+  }
+
+  function moneda(n) {
+    return n || n === 0 ? `$${Number(n).toLocaleString('es-CO', { maximumFractionDigits: 0 })}` : '-';
   }
 
   return (
@@ -183,13 +194,30 @@ export default function EntradasPage() {
 
           {seleccionado && (
             <p style={{ color: 'var(--text-secondary)' }}>
-              Stock actual en Kennedy: <strong>{seleccionado.stock}</strong>
+              Stock actual: <strong>{seleccionado.stock}</strong> · Costo promedio actual: <strong>{moneda(seleccionado.precio_costo)}</strong>
             </p>
           )}
 
           <label style={{ display: 'block', marginBottom: '10px' }}>
             Cantidad que llegó
             <input type="number" min="1" value={cantidad} onChange={(e) => setCantidad(e.target.value)} style={styles.input} />
+          </label>
+
+          <label style={{ display: 'block', marginBottom: '10px' }}>
+            Precio de compra (por unidad)
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={precioCompra}
+              onChange={(e) => setPrecioCompra(e.target.value)}
+              style={styles.input}
+              placeholder="Ej: 8500"
+            />
+            <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              Si lo llenas, el costo promedio del producto se actualiza solo con esta compra. Si lo dejas vacío, la
+              entrada solo corrige la cantidad y el costo promedio queda igual.
+            </span>
           </label>
 
           <label style={{ display: 'block', marginBottom: '10px' }}>
@@ -227,6 +255,7 @@ export default function EntradasPage() {
               <th style={styles.th}>Hora</th>
               <th style={styles.th}>Producto</th>
               <th style={styles.th}>Cantidad</th>
+              <th style={styles.th}>Precio de compra</th>
               <th style={styles.th}>Nota</th>
             </tr>
           </thead>
@@ -243,12 +272,13 @@ export default function EntradasPage() {
                 <td style={styles.td}>{new Date(en.creado_en).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</td>
                 <td style={styles.td}>{en.referencia} — {en.nombre}</td>
                 <td style={styles.td}>{en.cantidad}</td>
+                <td style={styles.td}>{moneda(en.precio_compra)}</td>
                 <td style={styles.td}>{en.nota || '-'}</td>
               </tr>
             ))}
             {entradas.length === 0 && (
               <tr>
-                <td style={styles.td} colSpan={5}>Sin entradas registradas hoy.</td>
+                <td style={styles.td} colSpan={6}>Sin entradas registradas hoy.</td>
               </tr>
             )}
           </tbody>
