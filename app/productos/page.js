@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Shell from '../../components/Shell';
 
 const vacio = {
@@ -33,6 +33,19 @@ export default function ProductosPage() {
   const [errorImagen, setErrorImagen] = useState('');
   const [procesandoImagenId, setProcesandoImagenId] = useState(null);
   const [portadaActual, setPortadaActual] = useState(null);
+
+  // Búsqueda y paginación de la lista: antes se mostraban todos los
+  // productos de una sola vez, lo que hacía la página larguísima y además
+  // escondía el formulario de edición (que aparece arriba de la tabla) si
+  // se hacía clic en "Editar" estando muy abajo en la lista.
+  const [busqueda, setBusqueda] = useState('');
+  const [porPagina, setPorPagina] = useState(100);
+  const [pagina, setPagina] = useState(1);
+
+  // Ficha de detalle de un producto (se abre al hacer clic en el nombre o
+  // en la referencia): muestra la info completa, incluida la foto y el
+  // costo (promedio) sin necesidad de entrar a editar.
+  const [detalleProducto, setDetalleProducto] = useState(null);
 
   async function cargarProductos() {
     setCargando(true);
@@ -161,6 +174,30 @@ export default function ProductosPage() {
     cargarSubcategorias(categoriaId);
   }
 
+  function abrirDetalle(p) {
+    setDetalleProducto(p);
+  }
+
+  function cerrarDetalle() {
+    setDetalleProducto(null);
+  }
+
+  const productosFiltrados = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return productos;
+    return productos.filter(
+      (p) => (p.referencia || '').toLowerCase().includes(q) || (p.nombre || '').toLowerCase().includes(q)
+    );
+  }, [productos, busqueda]);
+
+  const totalPaginas = Math.max(1, Math.ceil(productosFiltrados.length / porPagina));
+  const paginaSegura = Math.min(pagina, totalPaginas);
+  const productosPagina = productosFiltrados.slice((paginaSegura - 1) * porPagina, paginaSegura * porPagina);
+
+  useEffect(() => {
+    setPagina(1);
+  }, [busqueda, porPagina]);
+
   async function guardar(e) {
     e.preventDefault();
     setError('');
@@ -204,7 +241,12 @@ export default function ProductosPage() {
       </div>
 
       {mostrarForm && (
-        <form onSubmit={guardar} style={styles.formCard}>
+        // El formulario se muestra como ventana emergente centrada (en vez de
+        // aparecer arriba de la tabla) para que, sin importar qué tan abajo
+        // esté la persona en una lista larga, se note claramente que sí pasó
+        // algo al tocar el lápiz de editar.
+        <div style={styles.overlay} onMouseDown={() => setMostrarForm(false)}>
+        <form onSubmit={guardar} onMouseDown={(e) => e.stopPropagation()} style={{ ...styles.formCard, ...styles.formModal }}>
           <h3 style={{ marginTop: 0 }}>{form.id ? 'Editar producto' : 'Nuevo producto'}</h3>
 
           <label style={{ display: 'block', marginBottom: '8px' }}>Tipo de producto</label>
@@ -358,7 +400,25 @@ export default function ProductosPage() {
             <button type="button" onClick={() => setMostrarForm(false)} style={styles.btnSecundario}>Cancelar</button>
           </div>
         </form>
+        </div>
       )}
+
+      <div style={styles.barraLista}>
+        <input
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          placeholder="Buscar por referencia o nombre..."
+          style={styles.buscador}
+        />
+        <label style={styles.selectorPorPagina}>
+          Ver por página
+          <select value={porPagina} onChange={(e) => setPorPagina(Number(e.target.value))} style={styles.selectPorPagina}>
+            <option value={100}>100</option>
+            <option value={200}>200</option>
+            <option value={300}>300</option>
+          </select>
+        </label>
+      </div>
 
       <div style={styles.tableCard}>
         {cargando ? (
@@ -379,7 +439,7 @@ export default function ProductosPage() {
               </tr>
             </thead>
             <tbody>
-              {productos.map((p) => (
+              {productosPagina.map((p) => (
                 <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={styles.td}>
                     {p.imagen_key ? (
@@ -388,9 +448,11 @@ export default function ProductosPage() {
                       <div style={styles.miniaturaVacia} />
                     )}
                   </td>
-                  <td style={styles.td}>{p.referencia}</td>
                   <td style={styles.td}>
-                    {p.nombre}
+                    <span onClick={() => abrirDetalle(p)} style={styles.clicable}>{p.referencia}</span>
+                  </td>
+                  <td style={styles.td}>
+                    <span onClick={() => abrirDetalle(p)} style={styles.clicable}>{p.nombre}</span>
                     {p.es_inventariable === false && <span style={styles.tagServicio}>Servicio</span>}
                   </td>
                   <td style={styles.td}>{p.categoria_nombre || '-'}</td>
@@ -399,19 +461,103 @@ export default function ProductosPage() {
                   <td style={styles.td}>{p.es_inventariable === false ? '—' : p.stock}</td>
                   <td style={styles.td}>{p.activo ? 'Sí' : 'No'}</td>
                   <td style={styles.td}>
-                    <button onClick={() => editarProducto(p)} style={styles.btnSecundario}>Editar</button>
+                    <button onClick={() => editarProducto(p)} title="Editar producto" style={styles.btnLapiz}>✏️</button>
                   </td>
                 </tr>
               ))}
-              {productos.length === 0 && (
+              {productosPagina.length === 0 && (
                 <tr>
-                  <td style={styles.td} colSpan={9}>No hay productos todavía.</td>
+                  <td style={styles.td} colSpan={9}>
+                    {productos.length === 0 ? 'No hay productos todavía.' : 'Ningún producto coincide con la búsqueda.'}
+                  </td>
                 </tr>
               )}
             </tbody>
           </table>
         )}
+
+        {!cargando && productosFiltrados.length > 0 && (
+          <div style={styles.paginacion}>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+              {productosFiltrados.length} producto(s) · página {paginaSegura} de {totalPaginas}
+            </span>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => setPagina((n) => Math.max(1, n - 1))}
+                disabled={paginaSegura <= 1}
+                style={styles.btnSecundario}
+              >
+                Anterior
+              </button>
+              <button
+                onClick={() => setPagina((n) => Math.min(totalPaginas, n + 1))}
+                disabled={paginaSegura >= totalPaginas}
+                style={styles.btnSecundario}
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        )}
       </div>
+
+      {detalleProducto && (
+        <div style={styles.overlay} onMouseDown={cerrarDetalle}>
+          <div style={styles.modalDetalle} onMouseDown={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <h3 style={{ marginTop: 0, marginBottom: '2px' }}>{detalleProducto.nombre}</h3>
+              <button onClick={cerrarDetalle} style={styles.btnCerrarModal}>✕</button>
+            </div>
+            <p style={{ color: 'var(--text-secondary)', marginTop: 0, fontSize: '13px' }}>
+              Ref. {detalleProducto.referencia}
+              {detalleProducto.es_inventariable === false && <span style={styles.tagServicio}>Servicio</span>}
+            </p>
+
+            {detalleProducto.imagen_key ? (
+              <img src={`/api/imagenes/${detalleProducto.imagen_key}`} alt="" style={styles.fotoDetalle} />
+            ) : (
+              <div style={{ ...styles.fotoDetalle, ...styles.fotoDetalleVacia }}>Sin foto</div>
+            )}
+
+            <div style={styles.filaDetalle}><span>Categoría</span><strong>{detalleProducto.categoria_nombre || '-'}</strong></div>
+            {detalleProducto.subcategoria_nombre && (
+              <div style={styles.filaDetalle}><span>Subcategoría</span><strong>{detalleProducto.subcategoria_nombre}</strong></div>
+            )}
+            <div style={styles.filaDetalle}><span>Precio de venta</span><strong>{moneda(detalleProducto.precio_venta)}</strong></div>
+            {detalleProducto.es_inventariable !== false && (
+              <div style={styles.filaDetalle}><span>Costo (promedio)</span><strong>{moneda(detalleProducto.precio_costo)}</strong></div>
+            )}
+            <div style={styles.filaDetalle}><span>Precio distribuidor</span><strong>{moneda(detalleProducto.precio_distribuidor)}</strong></div>
+            {detalleProducto.es_inventariable === false ? (
+              <div style={styles.filaDetalle}><span>Stock</span><strong>—</strong></div>
+            ) : (
+              <>
+                <div style={styles.filaDetalle}><span>Stock Principal</span><strong>{detalleProducto.stock_principal ?? '-'}</strong></div>
+                <div style={styles.filaDetalle}><span>Stock Distribuidor</span><strong>{detalleProducto.stock_distribuidor ?? '-'}</strong></div>
+              </>
+            )}
+            <div style={styles.filaDetalle}><span>Activo</span><strong>{detalleProducto.activo ? 'Sí' : 'No'}</strong></div>
+            {detalleProducto.descripcion && (
+              <div style={{ marginTop: '10px' }}>
+                <div style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '2px' }}>Descripción</div>
+                <div>{detalleProducto.descripcion}</div>
+              </div>
+            )}
+
+            <div style={{ marginTop: '16px' }}>
+              <button
+                onClick={() => {
+                  cerrarDetalle();
+                  editarProducto(detalleProducto);
+                }}
+                style={styles.btnPrimario}
+              >
+                Editar este producto
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Shell>
   );
 }
@@ -419,6 +565,48 @@ export default function ProductosPage() {
 const styles = {
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' },
   formCard: { background: '#fff', border: '1px solid var(--border)', padding: '20px', borderRadius: 'var(--radius)', marginBottom: '24px' },
+  // El formulario de nuevo/editar producto y la ficha de detalle se muestran
+  // como ventana emergente centrada sobre un fondo oscuro.
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.4)',
+    zIndex: 100,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '20px',
+  },
+  formModal: {
+    marginBottom: 0,
+    width: '640px',
+    maxWidth: '100%',
+    maxHeight: '90vh',
+    overflowY: 'auto',
+    boxShadow: '0 12px 40px rgba(0,0,0,0.2)',
+  },
+  modalDetalle: {
+    background: '#fff',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius)',
+    padding: '20px',
+    width: '420px',
+    maxWidth: '100%',
+    maxHeight: '90vh',
+    overflowY: 'auto',
+    boxShadow: '0 12px 40px rgba(0,0,0,0.2)',
+  },
+  btnCerrarModal: { border: 'none', background: 'none', cursor: 'pointer', fontSize: '16px', color: 'var(--text-secondary)' },
+  fotoDetalle: { width: '100%', height: '200px', objectFit: 'contain', background: 'var(--bg)', borderRadius: '8px', margin: '10px 0' },
+  fotoDetalleVacia: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', fontSize: '13px' },
+  filaDetalle: { display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: '14px', borderBottom: '1px solid var(--border)' },
+  barraLista: { display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap' },
+  buscador: { flex: 1, minWidth: '220px', padding: '10px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', boxSizing: 'border-box', background: '#fff' },
+  selectorPorPagina: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-secondary)' },
+  selectPorPagina: { padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '14px' },
+  clicable: { cursor: 'pointer', color: 'var(--teal-dark)' },
+  btnLapiz: { border: '1px solid var(--border)', background: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', padding: '6px 9px', lineHeight: 1 },
+  paginacion: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 4px' },
   tableCard: { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '8px 16px' },
   input: { display: 'block', width: '100%', padding: '9px', marginTop: '4px', borderRadius: '8px', border: '1px solid var(--border)', boxSizing: 'border-box' },
   grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },

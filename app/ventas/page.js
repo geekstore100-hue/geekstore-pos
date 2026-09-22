@@ -278,7 +278,8 @@ export default function VentasPage() {
         const desc = Number(i.descuento_porcentaje) || 0;
         const sub = i.cantidad * Number(i.precio_unitario) * (1 - desc / 100);
         return `
-          <tr><td colspan="2" style="padding-top:4px;">${escaparHtml(i.nombre)}</td></tr>
+          <tr><td colspan="2" style="padding-top:6px;">${escaparHtml(i.nombre)}</td></tr>
+          <tr><td colspan="2" class="ref">Ref. ${escaparHtml(i.referencia || '-')}</td></tr>
           <tr>
             <td>${i.cantidad} x ${moneda(i.precio_unitario)}${desc ? ` (-${desc}%)` : ''}</td>
             <td style="text-align:right;">${moneda(sub)}</td>
@@ -286,6 +287,19 @@ export default function VentasPage() {
       })
       .join('');
 
+    // Nota sobre calidad de impresión: el papel es de 80mm, pero en la
+    // mayoría de impresoras térmicas el área que realmente imprime es un
+    // poco más angosta (por eso se usa 72mm de ancho de contenido en vez de
+    // los 80mm completos) — si se usa el ancho completo, el borde derecho
+    // queda fuera del área imprimible y sale cortado. También se usa una
+    // fuente de palo (sans-serif) en negrita en vez de una fuente con
+    // trazos finos tipo máquina de escribir, porque en impresión térmica se
+    // ve más nítida y menos "borrosa". Si de todas formas sigue saliendo
+    // borroso o cortado, revisa en el cuadro de impresión de Windows/Chrome
+    // que la Escala esté en 100% (no "Ajustar al papel"), los márgenes en
+    // "Ninguno", y el tamaño de papel configurado como 80mm / Recibo, no
+    // Carta/A4. También vale la pena revisar el nivel de "densidad" o
+    // "calidad de impresión" en el panel de control de la impresora térmica.
     const html = `<!DOCTYPE html>
       <html>
       <head>
@@ -294,13 +308,22 @@ export default function VentasPage() {
         <style>
           @page { size: 80mm auto; margin: 0; }
           * { box-sizing: border-box; }
-          body { width: 80mm; margin: 0; padding: 8px; font-family: 'Courier New', monospace; font-size: 12px; color: #000; }
-          h1 { font-size: 16px; text-align: center; margin: 0 0 2px; }
-          p { margin: 2px 0; }
+          body {
+            width: 72mm;
+            margin: 0 auto;
+            padding: 4px 0 10px;
+            font-family: Arial, Helvetica, sans-serif;
+            font-weight: 600;
+            font-size: 13px;
+            color: #000;
+          }
+          h1 { font-size: 17px; text-align: center; margin: 0 0 2px; letter-spacing: 1px; }
+          p { margin: 3px 0; }
           .centro { text-align: center; }
+          .ref { font-size: 11px; font-weight: 400; color: #333; padding-bottom: 2px; }
           table { width: 100%; border-collapse: collapse; }
-          hr { border: none; border-top: 1px dashed #000; margin: 6px 0; }
-          .total-fila td { font-size: 14px; font-weight: bold; padding-top: 4px; }
+          hr { border: none; border-top: 1px dashed #000; margin: 8px 0; }
+          .total-fila td { font-size: 15px; font-weight: 700; padding-top: 6px; }
         </style>
       </head>
       <body>
@@ -631,8 +654,13 @@ export default function VentasPage() {
               <span>{activa.carrito.length} producto(s)</span>
               <div style={{ display: 'flex', gap: '12px' }}>
                 {ultimaVenta && (
-                  <button onClick={reimprimirUltimaFactura} style={styles.btnCancelar} title={`Venta #${ultimaVenta.ventaId}`}>
-                    Reimprimir última factura
+                  <button
+                    onClick={reimprimirUltimaFactura}
+                    style={styles.btnIconoDiscreto}
+                    title={`Reimprimir última factura (venta #${ultimaVenta.ventaId})`}
+                    aria-label="Reimprimir última factura"
+                  >
+                    🖨️
                   </button>
                 )}
                 <button onClick={() => actualizarPestana(activa.id, (p) => ({ ...p, carrito: [] }))} style={styles.btnCancelar}>Cancelar</button>
@@ -942,6 +970,18 @@ const styles = {
   },
   piePagina: { display: 'flex', justifyContent: 'space-between', marginTop: '10px', fontSize: '13px', color: 'var(--text-secondary)' },
   btnCancelar: { border: 'none', background: 'none', color: 'var(--teal-dark)', cursor: 'pointer' },
+  // Icono discreto (sin texto) para reimprimir la última factura; el texto
+  // solo aparece como tooltip nativo al dejar el cursor encima (atributo
+  // "title" del botón).
+  btnIconoDiscreto: {
+    border: 'none',
+    background: 'none',
+    cursor: 'pointer',
+    fontSize: '15px',
+    padding: 0,
+    lineHeight: 1,
+    opacity: 0.75,
+  },
   pestanasBar: {
     position: 'fixed',
     bottom: '14px',
