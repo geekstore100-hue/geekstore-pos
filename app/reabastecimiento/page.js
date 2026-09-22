@@ -32,6 +32,10 @@ export default function ReabastecimientoPage() {
   const [mensaje, setMensaje] = useState('');
   const [pagandoId, setPagandoId] = useState(null);
 
+  // Para el botón "Etiquetas Excel" de cada traspaso ya guardado.
+  const [generandoEtiquetasId, setGenerandoEtiquetasId] = useState(null);
+  const [errorEtiquetas, setErrorEtiquetas] = useState('');
+
   // Controla el panel flotante del traspaso, para no tener que bajar hasta el
   // final de la página cada vez que se agrega o se revisa un producto.
   const [carritoAbierto, setCarritoAbierto] = useState(false);
@@ -194,6 +198,59 @@ export default function ReabastecimientoPage() {
 
     setCarrito([]);
     router.push('/ajustes-inventario');
+  }
+
+  // Genera un Excel (.xlsx) para importar en OpenLabel e imprimir etiquetas de
+  // precio de los productos que llegaron en este traspaso: una fila por cada
+  // unidad, con Referencia, Artículo y Precio de venta (formato colombiano
+  // con punto de miles). Es lo mismo que hay en Entradas, pero aplicado a lo
+  // que llegó por traspaso entre bodegas.
+  async function descargarExcelEtiquetasTraspaso(t) {
+    setErrorEtiquetas('');
+    setGenerandoEtiquetasId(t.id);
+    try {
+      const res = await fetch(`/api/traspasos/${t.id}`);
+      const data = await res.json();
+      if (!data.ok) {
+        setErrorEtiquetas(data.error || 'No se pudo cargar el traspaso');
+        return;
+      }
+
+      const filas = [];
+      const sinPrecio = new Set();
+
+      data.items.forEach((it) => {
+        const producto = productosTodos.find((p) => p.referencia === it.referencia);
+        const precio = Number(producto?.precio_venta) || 0;
+        if (!producto || !producto.precio_venta) sinPrecio.add(it.referencia);
+
+        const precioFormateado = precio.toLocaleString('es-CO', { maximumFractionDigits: 0 });
+        const cantidad = Math.max(1, Number(it.cantidad) || 0);
+
+        for (let i = 0; i < cantidad; i++) {
+          filas.push([it.referencia, it.nombre, precioFormateado]);
+        }
+      });
+
+      if (filas.length === 0) {
+        setErrorEtiquetas('Este traspaso no tiene productos');
+        return;
+      }
+      if (sinPrecio.size > 0) {
+        setErrorEtiquetas(
+          `Ojo: no se encontró precio de venta para: ${Array.from(sinPrecio).join(', ')}. Se generó el Excel igual, con $0 para esos productos.`
+        );
+      }
+
+      const XLSX = await import('xlsx');
+      const hoja = XLSX.utils.aoa_to_sheet([['Referencia', 'Artículo', 'Precio'], ...filas]);
+      hoja['!cols'] = [{ wch: 16 }, { wch: 36 }, { wch: 12 }];
+      const libro = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(libro, hoja, 'Etiquetas');
+      XLSX.writeFile(libro, `etiquetas_openlabel_traspaso${t.id}.xlsx`);
+    } finally {
+      setGenerandoEtiquetasId(null);
+    }
   }
 
   async function marcarPagado(traspasoId) {
@@ -456,6 +513,7 @@ export default function ReabastecimientoPage() {
       </div>
 
       <h3 style={{ marginTop: '28px' }}>Traspasos recientes</h3>
+      {errorEtiquetas && <p style={{ color: 'var(--danger)' }}>{errorEtiquetas}</p>}
       <div style={styles.tableCard}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
@@ -487,7 +545,7 @@ export default function ReabastecimientoPage() {
                   )}
                 </td>
                 <td style={styles.td}>
-                  <div style={{ display: 'flex', gap: '10px' }}>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                     <a href={`/traspasos/${t.id}/imprimir`} target="_blank" rel="noreferrer" style={styles.linkVer}>
                       Ver / imprimir
                     </a>
@@ -496,6 +554,13 @@ export default function ReabastecimientoPage() {
                         Editar
                       </a>
                     )}
+                    <button
+                      onClick={() => descargarExcelEtiquetasTraspaso(t)}
+                      disabled={generandoEtiquetasId === t.id}
+                      style={styles.linkBoton}
+                    >
+                      {generandoEtiquetasId === t.id ? 'Generando...' : 'Etiquetas Excel'}
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -639,6 +704,7 @@ const styles = {
     borderTop: '1px solid var(--border)',
   },
   linkVer: { color: 'var(--teal-dark)', fontSize: '13px', textDecoration: 'none', fontWeight: 600 },
+  linkBoton: { color: 'var(--teal-dark)', fontSize: '13px', textDecoration: 'none', fontWeight: 600, border: 'none', background: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit' },
 
   // Panel flotante del traspaso: se queda fijo en la esquina mientras se
   // recorre la lista de alertas, para no tener que bajar hasta el final de
