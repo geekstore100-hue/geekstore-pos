@@ -27,6 +27,14 @@ const links = [
     ],
   },
   { href: '/devoluciones', label: 'Devoluciones', icon: IconDevolucion },
+  {
+    href: '/gastos/facturas-compra',
+    label: 'Gastos',
+    icon: IconGastos,
+    children: [
+      { href: '/gastos/facturas-compra', label: 'Facturas de compra', icon: IconGastos },
+    ],
+  },
   { href: '/reportes', label: 'Reportes', icon: IconChart },
   { href: '/configuraciones', label: 'Configuraciones', icon: IconSettings },
 ];
@@ -314,6 +322,16 @@ function IconDevolucion() {
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <path d="M3 10h11a5 5 0 010 10h-2" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M7 6L3 10l4 4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconGastos() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="6" width="18" height="13" rx="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3 10h18" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M7 14.5h4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M16 3v4M8 3v4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
