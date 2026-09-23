@@ -15,15 +15,23 @@ export default function ReportesPage() {
   const [hasta, setHasta] = useState(hoyISO());
   const [inventario, setInventario] = useState([]);
   const [ventasPorItem, setVentasPorItem] = useState([]);
+  const [ventasPorVendedor, setVentasPorVendedor] = useState([]);
   const [cargando, setCargando] = useState(true);
 
   async function cargar() {
     setCargando(true);
-    const res = await fetch(`/api/reportes?desde=${desde}&hasta=${hasta}`);
-    const data = await res.json();
+    const [resReportes, resVendedores] = await Promise.all([
+      fetch(`/api/reportes?desde=${desde}&hasta=${hasta}`),
+      fetch(`/api/reportes/vendedores?desde=${desde}&hasta=${hasta}`),
+    ]);
+    const data = await resReportes.json();
+    const dataVendedores = await resVendedores.json();
     if (data.ok) {
       setInventario(data.inventario);
       setVentasPorItem(data.ventasPorItem);
+    }
+    if (dataVendedores.ok) {
+      setVentasPorVendedor(dataVendedores.ventasPorVendedor);
     }
     setCargando(false);
   }
@@ -125,6 +133,46 @@ export default function ReportesPage() {
               <td style={styles.td} colSpan={2}>Total</td>
               <td style={styles.td}>{totalUnidadesVendidas}</td>
               <td style={styles.td}>{moneda(totalVendido)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <h3>Ventas por vendedor</h3>
+      <div style={styles.tableCard}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+              <th style={styles.th}>Vendedor</th>
+              <th style={styles.th}>Cantidad de ventas</th>
+              <th style={styles.th}>Unidades vendidas</th>
+              <th style={styles.th}>Total vendido</th>
+              <th style={styles.th}>Ticket promedio</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ventasPorVendedor.map((v) => (
+              <tr key={v.vendedor_nombre} style={{ borderBottom: '1px solid var(--border)' }}>
+                <td style={styles.td}>{v.vendedor_nombre}</td>
+                <td style={styles.td}>{v.cantidad_ventas}</td>
+                <td style={styles.td}>{v.unidades_vendidas}</td>
+                <td style={styles.td}>{moneda(v.total_vendido)}</td>
+                <td style={styles.td}>{moneda(Number(v.total_vendido) / Number(v.cantidad_ventas))}</td>
+              </tr>
+            ))}
+            {ventasPorVendedor.length === 0 && !cargando && (
+              <tr>
+                <td style={styles.td} colSpan={5}>Sin ventas en ese rango.</td>
+              </tr>
+            )}
+          </tbody>
+          <tfoot>
+            <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 'bold' }}>
+              <td style={styles.td} colSpan={3}>Total</td>
+              <td style={styles.td}>
+                {moneda(ventasPorVendedor.reduce((acc, v) => acc + Number(v.total_vendido || 0), 0))}
+              </td>
+              <td style={styles.td}></td>
             </tr>
           </tfoot>
         </table>

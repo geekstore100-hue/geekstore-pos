@@ -15,7 +15,6 @@ const links = [
       { href: '/ajustes-inventario', label: 'Ajustes de inventario', icon: IconAdjust },
     ],
   },
-  { href: '/entradas', label: 'Compras', icon: IconInbox },
   { href: '/reabastecimiento', label: 'Reabastecimiento', icon: IconReabastecer },
   {
     href: '/historial',
