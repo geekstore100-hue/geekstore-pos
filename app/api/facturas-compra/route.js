@@ -61,6 +61,7 @@ export async function POST(request) {
     const fecha_vencimiento = body.fecha_vencimiento || null;
     const notas = body.notas?.trim() || null;
     const retencionPorcentaje = Number(body.retencion_porcentaje) || 0;
+    const retencionBase = Number(body.retencion_base) || 0;
     const itemsBody = Array.isArray(body.items) ? body.items : [];
 
     if (!proveedor_id) {
@@ -74,6 +75,9 @@ export async function POST(request) {
     }
     if (!TARIFAS_RETEICA.includes(retencionPorcentaje)) {
       return NextResponse.json({ ok: false, error: 'La tarifa de ReteICA no es válida' }, { status: 400 });
+    }
+    if (retencionPorcentaje > 0 && retencionBase <= 0) {
+      return NextResponse.json({ ok: false, error: 'Escribe la base sobre la que se calcula la retención de ReteICA' }, { status: 400 });
     }
     if (itemsBody.length === 0) {
       return NextResponse.json({ ok: false, error: 'Agrega al menos un producto a la factura' }, { status: 400 });
@@ -121,11 +125,10 @@ export async function POST(request) {
 
     const subtotal = items.reduce((acc, it) => acc + it.subtotalLinea, 0);
     const total = subtotal; // Por ahora no se manejan impuestos ni descuentos a nivel de factura.
-    // Al crear la factura, la base de la retención es el subtotal completo
-    // (lo normal). Si hace falta, se puede entrar después a "Editar
-    // retención" y cambiar esa base a mano (ej. si solo aplica a una parte
-    // de la compra).
-    const retencionBase = subtotal;
+    // La base de la retención NO se calcula sola a partir del subtotal: la
+    // escribe Nelson a mano (por si la retención solo debe aplicar a una
+    // parte de la compra). Si no eligió ninguna tarifa, queda en 0. Esto se
+    // puede seguir cambiando después desde "Editar retención" en el detalle.
     const retencionValor = retencionBase * (retencionPorcentaje / 100);
 
     const [factura] = await sql`

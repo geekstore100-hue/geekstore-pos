@@ -14,6 +14,7 @@ const formVacio = {
   fecha_creacion: hoyISO(),
   fecha_vencimiento: '',
   retencion_porcentaje: 0,
+  retencion_base: '',
   notas: '',
 };
 
@@ -153,9 +154,11 @@ export default function FacturasCompraPage() {
       }, 0),
     [items]
   );
+  // La base de la retención la escribe Nelson a mano (NO se calcula sola a
+  // partir del subtotal), por si solo aplica a una parte de la compra.
   const retencionValor = useMemo(
-    () => subtotal * (Number(form.retencion_porcentaje) / 100),
-    [subtotal, form.retencion_porcentaje]
+    () => (Number(form.retencion_base) || 0) * (Number(form.retencion_porcentaje) / 100),
+    [form.retencion_base, form.retencion_porcentaje]
   );
   const totalFactura = subtotal;
   const porPagar = totalFactura - retencionValor;
@@ -208,6 +211,10 @@ export default function FacturasCompraPage() {
       setErrorForm(`Revisa la cantidad y el precio de "${itemInvalido.nombre}"`);
       return;
     }
+    if (Number(form.retencion_porcentaje) > 0 && !(Number(form.retencion_base) > 0)) {
+      setErrorForm('Escribe la base sobre la que se calcula la retención de ReteICA');
+      return;
+    }
 
     setGuardando(true);
     try {
@@ -221,6 +228,7 @@ export default function FacturasCompraPage() {
           fecha_creacion: form.fecha_creacion,
           fecha_vencimiento: form.fecha_vencimiento || null,
           retencion_porcentaje: Number(form.retencion_porcentaje),
+          retencion_base: Number(form.retencion_base) || 0,
           notas: form.notas,
           items: items.map((it) => ({
             producto_id: it.producto_id,
@@ -600,7 +608,10 @@ export default function FacturasCompraPage() {
                 <span>Retención (ReteICA)</span>
                 <select
                   value={form.retencion_porcentaje}
-                  onChange={(e) => setForm({ ...form, retencion_porcentaje: e.target.value })}
+                  onChange={(e) => {
+                    const valor = e.target.value;
+                    setForm({ ...form, retencion_porcentaje: valor, retencion_base: Number(valor) === 0 ? '' : form.retencion_base });
+                  }}
                   style={styles.selectChico}
                 >
                   <option value={0}>Sin retención</option>
@@ -608,8 +619,21 @@ export default function FacturasCompraPage() {
                   <option value={0.41}>0.41%</option>
                 </select>
               </div>
-              {retencionValor > 0 && (
-                <div style={styles.filaResumen}><span></span><span>-${moneda(retencionValor)}</span></div>
+              {Number(form.retencion_porcentaje) > 0 && (
+                <>
+                  <div style={styles.filaResumen}>
+                    <span>Base de la retención</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={form.retencion_base}
+                      onChange={(e) => setForm({ ...form, retencion_base: e.target.value })}
+                      placeholder="0"
+                      style={{ ...styles.selectChico, width: '140px' }}
+                    />
+                  </div>
+                  <div style={styles.filaResumen}><span></span><span>-${moneda(retencionValor)}</span></div>
+                </>
               )}
               <div style={{ ...styles.filaResumen, fontWeight: 700 }}><span>Total</span><span>${moneda(totalFactura)}</span></div>
               <div style={{ ...styles.filaResumen, fontWeight: 700, color: 'var(--teal-dark)' }}>
