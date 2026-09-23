@@ -24,9 +24,12 @@ export default function Shell({ title, children }) {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <Sidebar />
+      {/* pos-no-imprimir: se oculta al imprimir (ver cotizaciones de
+          distribuidor) — a nadie le sirve la barra lateral en el papel. */}
+      <style>{'@media print { .pos-no-imprimir { display: none !important; } }'}</style>
+      <div className="pos-no-imprimir"><Sidebar /></div>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-        <header style={styles.topbar}>
+        <header className="pos-no-imprimir" style={styles.topbar}>
           <span style={styles.title}>{title}</span>
           <span style={styles.badge}>Geek Store</span>
         </header>

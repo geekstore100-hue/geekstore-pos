@@ -17,6 +17,15 @@ const links = [
   },
   { href: '/reabastecimiento', label: 'Reabastecimiento', icon: IconReabastecer },
   {
+    href: '/cotizaciones-distribuidor',
+    label: 'Distribuidores',
+    icon: IconTruck,
+    children: [
+      { href: '/cotizaciones-distribuidor', label: 'Pedidos', icon: IconInbox },
+      { href: '/distribuidores', label: 'Administrar', icon: IconTruck },
+    ],
+  },
+  {
     href: '/historial',
     label: 'Historial',
     icon: IconHistorial,
@@ -331,6 +340,16 @@ function IconGastos() {
       <path d="M3 10h18" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M7 14.5h4" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M16 3v4M8 3v4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconTruck() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="1" y="7" width="13" height="10" rx="1" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M14 10h4l3 3v4h-7z" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="6" cy="19" r="1.7" />
+      <circle cx="17.5" cy="19" r="1.7" />
     </svg>
   );
 }
