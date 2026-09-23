@@ -340,17 +340,27 @@ export default function VentasPage() {
 
     // Nota sobre calidad de impresión: el papel es de 80mm, pero en la
     // mayoría de impresoras térmicas el área que realmente imprime es un
-    // poco más angosta (por eso se usa 72mm de ancho de contenido en vez de
-    // los 80mm completos) — si se usa el ancho completo, el borde derecho
-    // queda fuera del área imprimible y sale cortado. También se usa una
-    // fuente de palo (sans-serif) en negrita en vez de una fuente con
-    // trazos finos tipo máquina de escribir, porque en impresión térmica se
-    // ve más nítida y menos "borrosa". Si de todas formas sigue saliendo
-    // borroso o cortado, revisa en el cuadro de impresión de Windows/Chrome
-    // que la Escala esté en 100% (no "Ajustar al papel"), los márgenes en
-    // "Ninguno", y el tamaño de papel configurado como 80mm / Recibo, no
-    // Carta/A4. También vale la pena revisar el nivel de "densidad" o
-    // "calidad de impresión" en el panel de control de la impresora térmica.
+    // poco más angosta (por eso se usa menos de 80mm de ancho de contenido)
+    // — si se usa el ancho completo, el borde derecho queda fuera del área
+    // imprimible y sale cortado. También se usa una fuente de palo
+    // (sans-serif) en negrita en vez de una fuente con trazos finos tipo
+    // máquina de escribir, porque en impresión térmica se ve más nítida y
+    // menos "borrosa".
+    //
+    // Antes el body iba centrado (margin: 0 auto) con 72mm de ancho. Eso
+    // se ve perfecto en "Guardar como PDF" (el navegador sí centra bien
+    // dentro de la página), pero muchas impresoras térmicas NO centran:
+    // el cabezal imprime siempre pegado al borde izquierdo del área
+    // imprimible, así que el "margen" que el centrado dejaba a la derecha
+    // terminaba empujando el contenido justo al borde y se cortaba —
+    // mientras a la izquierda solo quedaba papel en blanco de más, que no
+    // se nota. Por eso ahora el contenido va pegado a la izquierda (sin
+    // centrar) y más angosto (68mm en vez de 72mm), dejando un colchón
+    // amplio de sobra a la derecha para que ninguna impresora lo corte.
+    // Si de todas formas algún ticket sale cortado o borroso, revisa en
+    // el cuadro de impresión de Windows/Chrome que la Escala esté en 100%
+    // (no "Ajustar al papel"), los márgenes en "Ninguno", y el tamaño de
+    // papel configurado como 80mm / Recibo, no Carta/A4.
     const html = `<!DOCTYPE html>
       <html>
       <head>
@@ -360,8 +370,8 @@ export default function VentasPage() {
           @page { size: 80mm auto; margin: 0; }
           * { box-sizing: border-box; }
           body {
-            width: 72mm;
-            margin: 0 auto;
+            width: 68mm;
+            margin: 0;
             padding: 4px 0 10px;
             font-family: Arial, Helvetica, sans-serif;
             font-weight: 600;
