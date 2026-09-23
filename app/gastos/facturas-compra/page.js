@@ -43,6 +43,11 @@ export default function FacturasCompraPage() {
   const [cargandoDetalle, setCargandoDetalle] = useState(false);
   const [pagandoId, setPagandoId] = useState(null);
 
+  const [editandoRetencion, setEditandoRetencion] = useState(false);
+  const [retForm, setRetForm] = useState({ retencion_porcentaje: 0, retencion_base: 0, retencion_valor: 0 });
+  const [guardandoRetencion, setGuardandoRetencion] = useState(false);
+  const [errorRetencion, setErrorRetencion] = useState('');
+
   async function cargarFacturas() {
     setCargando(true);
     try {
@@ -243,6 +248,8 @@ export default function FacturasCompraPage() {
   async function abrirDetalle(id) {
     setCargandoDetalle(true);
     setDetalleFactura({ id });
+    setEditandoRetencion(false);
+    setErrorRetencion('');
     try {
       const res = await fetch(`/api/facturas-compra/${id}`);
       const data = await res.json();
@@ -252,6 +259,64 @@ export default function FacturasCompraPage() {
       setDetalleFactura(null);
     } finally {
       setCargandoDetalle(false);
+    }
+  }
+
+  function cerrarDetalle() {
+    setDetalleFactura(null);
+    setEditandoRetencion(false);
+  }
+
+  // Abre el formulario de "Agregar/editar retención" (como en Alegra:
+  // "Más acciones" → "Agregar retenciones"), con los valores actuales de la
+  // factura ya puestos, o en ceros si todavía no tenía retención.
+  function abrirEditarRetencion() {
+    const f = detalleFactura?.factura;
+    setRetForm({
+      retencion_porcentaje: Number(f?.retencion_porcentaje) || 0,
+      retencion_base: Number(f?.retencion_base ?? f?.subtotal) || 0,
+      retencion_valor: Number(f?.retencion_valor) || 0,
+    });
+    setErrorRetencion('');
+    setEditandoRetencion(true);
+  }
+
+  // Al cambiar la tarifa o la base, se sugiere el Valor recalculado
+  // (base × tarifa), pero se puede seguir editando el Valor a mano después.
+  function actualizarRetForm(campo, valor) {
+    setRetForm((actual) => {
+      const siguiente = { ...actual, [campo]: valor };
+      if (campo === 'retencion_porcentaje' || campo === 'retencion_base') {
+        const base = Number(campo === 'retencion_base' ? valor : actual.retencion_base) || 0;
+        const pct = Number(campo === 'retencion_porcentaje' ? valor : actual.retencion_porcentaje) || 0;
+        siguiente.retencion_valor = Math.round(base * (pct / 100));
+      }
+      return siguiente;
+    });
+  }
+
+  async function guardarRetencion() {
+    if (!detalleFactura?.factura) return;
+    setErrorRetencion('');
+    setGuardandoRetencion(true);
+    try {
+      const res = await fetch(`/api/facturas-compra/${detalleFactura.id}/retencion`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(retForm),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        setErrorRetencion(data.error || 'No se pudo guardar la retención');
+        return;
+      }
+      setEditandoRetencion(false);
+      await abrirDetalle(detalleFactura.id);
+      cargarFacturas();
+    } catch {
+      setErrorRetencion('No se pudo guardar la retención');
+    } finally {
+      setGuardandoRetencion(false);
     }
   }
 
@@ -575,11 +640,11 @@ export default function FacturasCompraPage() {
       )}
 
       {detalleFactura && (
-        <div style={styles.overlay} onMouseDown={() => setDetalleFactura(null)}>
+        <div style={styles.overlay} onMouseDown={cerrarDetalle}>
           <div style={styles.modalDetalle} onMouseDown={(e) => e.stopPropagation()}>
             <div style={styles.header}>
               <h3 style={{ margin: 0 }}>{detalleFactura.factura?.numero || `FC-${detalleFactura.id}`}</h3>
-              <button onClick={() => setDetalleFactura(null)} style={styles.btnCerrarModal}>✕</button>
+              <button onClick={cerrarDetalle} style={styles.btnCerrarModal}>✕</button>
             </div>
             {cargandoDetalle ? (
               <p>Cargando...</p>
@@ -614,7 +679,7 @@ export default function FacturasCompraPage() {
                 <div style={{ ...styles.resumenFactura, marginTop: '12px' }}>
                   <div style={styles.filaResumen}><span>Subtotal</span><span>${moneda(detalleFactura.factura.subtotal)}</span></div>
                   <div style={styles.filaResumen}>
-                    <span>Retención {Number(detalleFactura.factura.retencion_porcentaje) > 0 ? `(${detalleFactura.factura.retencion_porcentaje}%)` : ''}</span>
+                    <span>Retención {Number(detalleFactura.factura.retencion_porcentaje) > 0 ? `(${detalleFactura.factura.retencion_porcentaje}% sobre $${moneda(detalleFactura.factura.retencion_base)})` : ''}</span>
                     <span>-${moneda(detalleFactura.factura.retencion_valor)}</span>
                   </div>
                   <div style={{ ...styles.filaResumen, fontWeight: 700 }}><span>Total</span><span>${moneda(detalleFactura.factura.total)}</span></div>
@@ -622,6 +687,61 @@ export default function FacturasCompraPage() {
                     <span>Por pagar</span><span>${moneda(detalleFactura.factura.por_pagar)}</span>
                   </div>
                 </div>
+
+                {detalleFactura.factura.estado_pago === 'pagada' ? (
+                  <p style={{ marginTop: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    Esta factura ya está pagada, por eso no se puede editar la retención.
+                  </p>
+                ) : !editandoRetencion ? (
+                  <button type="button" onClick={abrirEditarRetencion} style={styles.btnMiniLink}>
+                    {Number(detalleFactura.factura.retencion_porcentaje) > 0 ? 'Editar retención' : '+ Agregar retención'}
+                  </button>
+                ) : (
+                  <div style={styles.cajaNuevoProveedor}>
+                    <label style={styles.etiquetaChica}>Retención</label>
+                    <select
+                      value={retForm.retencion_porcentaje}
+                      onChange={(e) => actualizarRetForm('retencion_porcentaje', Number(e.target.value))}
+                      style={{ ...styles.select, width: '100%', marginBottom: '8px' }}
+                    >
+                      <option value={0}>Sin retención</option>
+                      <option value={1.1}>ReteICA 1.1%</option>
+                      <option value={0.41}>ReteICA 0.41%</option>
+                    </select>
+                    <div style={styles.grid2}>
+                      <div>
+                        <label style={styles.etiquetaChica}>Base</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={retForm.retencion_base}
+                          onChange={(e) => actualizarRetForm('retencion_base', Number(e.target.value))}
+                          style={{ ...styles.select, width: '100%' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={styles.etiquetaChica}>Valor</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={retForm.retencion_valor}
+                          onChange={(e) => actualizarRetForm('retencion_valor', Number(e.target.value))}
+                          style={{ ...styles.select, width: '100%' }}
+                        />
+                      </div>
+                    </div>
+                    {errorRetencion && <p style={{ color: 'var(--danger)', fontSize: '13px' }}>{errorRetencion}</p>}
+                    <div style={{ marginTop: '8px' }}>
+                      <button type="button" onClick={guardarRetencion} disabled={guardandoRetencion} style={styles.btnPrimario}>
+                        {guardandoRetencion ? 'Guardando...' : 'Guardar retención'}
+                      </button>
+                      <button type="button" onClick={() => setEditandoRetencion(false)} style={styles.btnSecundario}>
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {detalleFactura.factura.notas && (
                   <p style={{ marginTop: '10px', fontSize: '13px', color: 'var(--text-secondary)' }}>{detalleFactura.factura.notas}</p>
                 )}

@@ -17,6 +17,7 @@ export async function GET() {
         f.fecha_vencimiento,
         f.subtotal,
         f.retencion_porcentaje,
+        f.retencion_base,
         f.retencion_valor,
         f.total,
         (f.total - f.retencion_valor) AS por_pagar,
@@ -120,13 +121,18 @@ export async function POST(request) {
 
     const subtotal = items.reduce((acc, it) => acc + it.subtotalLinea, 0);
     const total = subtotal; // Por ahora no se manejan impuestos ni descuentos a nivel de factura.
-    const retencionValor = subtotal * (retencionPorcentaje / 100);
+    // Al crear la factura, la base de la retención es el subtotal completo
+    // (lo normal). Si hace falta, se puede entrar después a "Editar
+    // retención" y cambiar esa base a mano (ej. si solo aplica a una parte
+    // de la compra).
+    const retencionBase = subtotal;
+    const retencionValor = retencionBase * (retencionPorcentaje / 100);
 
     const [factura] = await sql`
       INSERT INTO facturas_compra
-        (numero, proveedor_id, bodega_id, fecha_creacion, fecha_vencimiento, subtotal, retencion_porcentaje, retencion_valor, total, notas)
+        (numero, proveedor_id, bodega_id, fecha_creacion, fecha_vencimiento, subtotal, retencion_porcentaje, retencion_base, retencion_valor, total, notas)
       VALUES
-        (${numero}, ${proveedor_id}, ${bodega_id}, ${fecha_creacion}, ${fecha_vencimiento}, ${subtotal}, ${retencionPorcentaje}, ${retencionValor}, ${total}, ${notas})
+        (${numero}, ${proveedor_id}, ${bodega_id}, ${fecha_creacion}, ${fecha_vencimiento}, ${subtotal}, ${retencionPorcentaje}, ${retencionBase}, ${retencionValor}, ${total}, ${notas})
       RETURNING id
     `;
 

@@ -13,7 +13,7 @@ export async function GET(request, { params }) {
     const [factura] = await sql`
       SELECT
         f.id, f.numero, f.fecha_creacion, f.fecha_vencimiento,
-        f.subtotal, f.retencion_porcentaje, f.retencion_valor, f.total,
+        f.subtotal, f.retencion_porcentaje, f.retencion_base, f.retencion_valor, f.total,
         (f.total - f.retencion_valor) AS por_pagar,
         f.estado_pago, f.pagado_en, f.notas,
         p.nombre AS proveedor_nombre, p.identificacion AS proveedor_identificacion, p.telefono AS proveedor_telefono,
