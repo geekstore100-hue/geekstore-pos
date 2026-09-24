@@ -25,7 +25,7 @@ export async function GET(request) {
     const productos = await sql`
       SELECT
         p.id, p.referencia, p.alegra_id, p.nombre, p.descripcion, p.imagen_key,
-        p.precio_distribuidor, p.es_inventariable,
+        p.precio_distribuidor, p.precio_venta, p.es_inventariable,
         c.nombre AS categoria_nombre,
         COALESCE(st.stock_total, 0) AS stock_total
       FROM productos p
@@ -60,6 +60,7 @@ export async function GET(request) {
           reference: p.referencia,
           category: p.categoria_nombre || '',
           price: Number(p.precio_distribuidor) || 0,
+          priceDetal: Number(p.precio_venta) || 0,
           available: Number(p.stock_total) || 0,
           image: images[0] ?? null,
           images,
