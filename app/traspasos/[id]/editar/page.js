@@ -216,27 +216,6 @@ export default function EditarTraspasoPage() {
           />
         </label>
 
-        <div style={{ position: 'relative', marginTop: '10px' }}>
-          <label style={styles.labelCampo}>Agregar otro producto</label>
-          <input
-            type="text"
-            value={buscarTexto}
-            onChange={(e) => setBuscarTexto(e.target.value)}
-            placeholder="Buscar por nombre o referencia..."
-            style={styles.inputCampo}
-          />
-          {resultadosBusqueda.length > 0 && (
-            <div style={styles.dropdownBusqueda}>
-              {resultadosBusqueda.map((p) => (
-                <div key={p.id} style={styles.opcionBusqueda} onClick={() => agregarProducto(p)}>
-                  <span style={{ fontWeight: 600 }}>{p.nombre}</span>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '12px', marginLeft: '8px' }}>{p.referencia}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
         <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '14px' }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
@@ -282,8 +261,30 @@ export default function EditarTraspasoPage() {
               );
             })}
             {lineas.length === 0 && (
-              <tr><td style={styles.td} colSpan={6}>Sin productos. Agrega al menos uno arriba.</td></tr>
+              <tr><td style={styles.td} colSpan={6}>Sin productos. Agrega al menos uno abajo.</td></tr>
             )}
+            <tr>
+              <td style={{ ...styles.td, position: 'relative' }}>
+                <input
+                  type="text"
+                  value={buscarTexto}
+                  onChange={(e) => setBuscarTexto(e.target.value)}
+                  placeholder="+ Agregar otro producto (nombre o referencia)..."
+                  style={styles.inputCampo}
+                />
+                {resultadosBusqueda.length > 0 && (
+                  <div style={styles.dropdownBusqueda}>
+                    {resultadosBusqueda.map((p) => (
+                      <div key={p.id} style={styles.opcionBusqueda} onClick={() => agregarProducto(p)}>
+                        <span style={{ fontWeight: 600 }}>{p.nombre}</span>
+                        <span style={{ color: 'var(--text-secondary)', fontSize: '12px', marginLeft: '8px' }}>{p.referencia}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </td>
+              <td style={styles.td} colSpan={5}></td>
+            </tr>
           </tbody>
         </table>
         {lineas.some((l) => Number(l.cantidad) > (stockOrigenPorProducto[l.producto_id] ?? 0) + (l.cantidadOriginal || 0)) && (
