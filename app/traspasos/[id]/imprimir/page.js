@@ -35,6 +35,14 @@ export default function ImprimirTraspasoPage() {
     return Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 });
   }
 
+  // Algunas bodegas ya tienen "Bodega" en su propio nombre (como "Bodega
+  // Distribuidor"), así que anteponerlo siempre daba "Bodega Bodega
+  // Distribuidor" en el encabezado. Esto evita duplicarlo.
+  function etiquetaBodega(nombre) {
+    const n = nombre || '';
+    return /^bodega\b/i.test(n.trim()) ? n : `Bodega ${n}`;
+  }
+
   function fechaHora(iso) {
     return new Date(iso).toLocaleString('es-CO', {
       day: '2-digit',
@@ -92,18 +100,18 @@ export default function ImprimirTraspasoPage() {
           <tr style={{ textAlign: 'left' }}>
             <th style={{ ...styles.th, ...styles.thNeutro }} rowSpan={2}>Referencia</th>
             <th style={{ ...styles.th, ...styles.thNeutro }} rowSpan={2}>Producto</th>
-            <th style={{ ...styles.th, ...styles.thDestino, textAlign: 'center' }} colSpan={3}>
-              Bodega {traspaso.bodega_destino_nombre} (recibe)
-            </th>
             <th style={{ ...styles.th, ...styles.thOrigen, textAlign: 'center' }}>
-              Bodega {traspaso.bodega_origen_nombre} (entrega)
+              {etiquetaBodega(traspaso.bodega_origen_nombre)} (entrega)
+            </th>
+            <th style={{ ...styles.th, ...styles.thDestino, textAlign: 'center' }} colSpan={3}>
+              {etiquetaBodega(traspaso.bodega_destino_nombre)} (recibe)
             </th>
           </tr>
           <tr style={{ borderBottom: '2px solid #333', textAlign: 'left' }}>
+            <th style={{ ...styles.th, ...styles.thOrigen, textAlign: 'right' }}>Queda disponible</th>
             <th style={{ ...styles.th, ...styles.thDestino, textAlign: 'right' }}>Ya había en {traspaso.bodega_destino_nombre}</th>
             <th style={{ ...styles.th, ...styles.thDestino, textAlign: 'right' }}>Llegan ahora</th>
             <th style={{ ...styles.th, ...styles.thDestino, textAlign: 'right' }}>Total esperado</th>
-            <th style={{ ...styles.th, ...styles.thOrigen, textAlign: 'right' }}>Queda disponible</th>
           </tr>
         </thead>
         <tbody>
@@ -116,13 +124,13 @@ export default function ImprimirTraspasoPage() {
               <tr key={i} style={{ borderBottom: '1px solid #ccc' }}>
                 <td style={styles.td}>{it.referencia}</td>
                 <td style={styles.td}>{it.nombre}</td>
+                <td style={{ ...styles.td, ...styles.tdOrigen, textAlign: 'right', fontWeight: 700 }}>
+                  {quedaOrigen === null ? '-' : numero(quedaOrigen)}
+                </td>
                 <td style={{ ...styles.td, ...styles.tdDestino, textAlign: 'right' }}>{numero(it.stock_antes)}</td>
                 <td style={{ ...styles.td, ...styles.tdDestino, textAlign: 'right' }}>{numero(it.cantidad)}</td>
                 <td style={{ ...styles.td, ...styles.tdDestino, textAlign: 'right', fontWeight: 700 }}>
                   {numero(Number(it.stock_antes || 0) + Number(it.cantidad))}
-                </td>
-                <td style={{ ...styles.td, ...styles.tdOrigen, textAlign: 'right', fontWeight: 700 }}>
-                  {quedaOrigen === null ? '-' : numero(quedaOrigen)}
                 </td>
               </tr>
             );
