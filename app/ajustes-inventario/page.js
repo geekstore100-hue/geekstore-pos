@@ -21,6 +21,12 @@ export default function AjustesInventarioPage() {
   const [bodegas, setBodegas] = useState([]);
   const [bodegaId, setBodegaId] = useState('');
   const [stockPorProducto, setStockPorProducto] = useState({});
+  // Stock en "Bodega Distribuidor" para cada producto, sin importar cuál
+  // bodega esté seleccionada arriba para el ajuste. Nelson pidió esto:
+  // cuando arma un ajuste a mano (no desde "Confirmar" en Reabastecimiento)
+  // no tenía cómo saber cuántas unidades había disponibles para traer desde
+  // Distribuidor, así que no sabía qué cantidad poner en cada línea.
+  const [stockDistribuidorPorProducto, setStockDistribuidorPorProducto] = useState({});
   const [ajustesRecientes, setAjustesRecientes] = useState([]);
   const [filas, setFilas] = useState([nuevaLinea()]);
   const [filaBuscando, setFilaBuscando] = useState(null);
@@ -123,8 +129,25 @@ export default function AjustesInventarioPage() {
         const principal = dBod.bodegas.find((b) => b.nombre === 'Principal');
         return String((principal || dBod.bodegas[0])?.id || '');
       });
+      const distribuidor = dBod.bodegas.find((b) => b.nombre === 'Bodega Distribuidor');
+      if (distribuidor) {
+        const rStockDist = await fetch(`/api/stock?bodega_id=${distribuidor.id}`);
+        const dStockDist = await rStockDist.json();
+        if (dStockDist.ok) {
+          const mapa = {};
+          dStockDist.stock.forEach((s) => {
+            mapa[s.producto_id] = Number(s.cantidad);
+          });
+          setStockDistribuidorPorProducto(mapa);
+        }
+      }
     }
     if (dAjustes.ok) setAjustesRecientes(dAjustes.ajustes);
+  }
+
+  function stockDistribuidorDe(fila) {
+    if (!fila.producto_id) return null;
+    return stockDistribuidorPorProducto[fila.producto_id] ?? 0;
   }
 
   async function cargarStock(bId) {
@@ -381,6 +404,7 @@ export default function AjustesInventarioPage() {
                 <th style={styles.th}>Producto</th>
                 <th style={styles.th}>Costo</th>
                 <th style={styles.th}>Cantidad actual</th>
+                <th style={styles.th}>Disp. en Distribuidor</th>
                 <th style={styles.th}>Objetivo</th>
                 <th style={styles.th}>Cantidad</th>
                 <th style={styles.th}>Cantidad final</th>
@@ -416,6 +440,7 @@ export default function AjustesInventarioPage() {
                   </td>
                   <td style={styles.td}>{f.producto_id ? moneda(f.costo) : '-'}</td>
                   <td style={styles.td}>{f.producto_id ? cantidadActualDe(f) : '-'}</td>
+                  <td style={styles.td}>{f.producto_id ? stockDistribuidorDe(f) : '-'}</td>
                   <td style={styles.td}>
                     <select
                       value={f.objetivo}
@@ -444,7 +469,9 @@ export default function AjustesInventarioPage() {
               ))}
             </tbody>
           </table>
-          <button type="button" onClick={agregarFila} style={styles.linkBtn}>+ Agregar producto</button>
+          <button type="button" onClick={agregarFila} style={styles.btnAgregarFila}>
+            + Agregar otro producto
+          </button>
         </div>
 
         {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
@@ -553,6 +580,22 @@ const styles = {
     fontSize: '14px',
   },
   linkBtn: { border: 'none', background: 'none', color: 'var(--teal-dark)', cursor: 'pointer', fontSize: '13px', padding: 0, marginTop: '8px' },
+  // Antes era un enlace de texto chiquito debajo de la tabla y pasaba
+  // desapercibido — Nelson no encontraba cómo agregar un producto que se
+  // le había olvidado. Ahora es un botón normal, igual de visible que
+  // "Guardar cambios" o "Cancelar".
+  btnAgregarFila: {
+    display: 'block',
+    marginTop: '12px',
+    padding: '10px 16px',
+    borderRadius: '8px',
+    border: '1px dashed var(--teal)',
+    background: 'var(--teal-light)',
+    color: 'var(--teal-dark)',
+    cursor: 'pointer',
+    fontWeight: 600,
+    fontSize: '14px',
+  },
   tabla: { width: '100%', borderCollapse: 'collapse', marginTop: '8px' },
   th: { padding: '10px 8px', fontSize: '13px', color: 'var(--text-secondary)', textAlign: 'left' },
   td: { padding: '8px', fontSize: '14px', verticalAlign: 'top' },
