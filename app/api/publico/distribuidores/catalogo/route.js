@@ -10,12 +10,19 @@ import { claveValida, buscarDistribuidor } from '../../../../../lib/distribuidor
 // el precio distribuidor que ya se guarda por producto en el POS.
 export const dynamic = 'force-dynamic';
 
+// URL pública fija (ver la misma nota en app/api/publico/catalogo/route.js):
+// no se deriva de request.url porque en Netlify a veces expone el host
+// interno de la rama en vez del dominio público, y con eso las imágenes no
+// cargan del otro lado.
+const SITIO_PUBLICO = 'https://geekstore-pos.netlify.app';
+
 export async function GET(request) {
   try {
     if (!claveValida(request)) {
       return NextResponse.json({ productos: [], error: 'No autorizado' }, { status: 401 });
     }
-    const { searchParams, origin } = new URL(request.url);
+    const { searchParams } = new URL(request.url);
+    const origin = SITIO_PUBLICO;
     const cedula = searchParams.get('cedula');
     const distribuidor = await buscarDistribuidor(cedula);
     if (!distribuidor) {

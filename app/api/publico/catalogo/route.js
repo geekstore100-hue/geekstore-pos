@@ -38,9 +38,19 @@ import sql from '../../../../lib/db';
 //   la tienda misma.
 export const dynamic = 'force-dynamic';
 
+// URL pública fija del POS (NO se deriva de request.url): en Netlify, las
+// funciones que atienden geekstore-pos.netlify.app a veces ven internamente
+// el host de la rama (main--geekstore-pos.netlify.app) en vez del dominio
+// público. Si se arma la URL de las imágenes con ese origen interno, la
+// tienda las bloquea (next.config.mjs de la tienda solo permite imágenes
+// desde "geekstore-pos.netlify.app" exactamente) y no cargan. Usando un
+// origen fijo, las URLs de imagen siempre quedan iguales sin importar cómo
+// llegó la petición.
+const SITIO_PUBLICO = 'https://geekstore-pos.netlify.app';
+
 export async function GET(request) {
   try {
-    const origin = new URL(request.url).origin;
+    const origin = SITIO_PUBLICO;
 
     const productos = await sql`
       SELECT
