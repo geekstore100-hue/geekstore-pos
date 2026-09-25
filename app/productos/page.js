@@ -47,6 +47,10 @@ export default function ProductosPage() {
   // en la referencia): muestra la info completa, incluida la foto y el
   // costo (promedio) sin necesidad de entrar a editar.
   const [detalleProducto, setDetalleProducto] = useState(null);
+  const [tabFacturasDetalle, setTabFacturasDetalle] = useState('venta');
+  const [facturasVentas, setFacturasVentas] = useState([]);
+  const [facturasCompras, setFacturasCompras] = useState([]);
+  const [cargandoFacturasDetalle, setCargandoFacturasDetalle] = useState(false);
 
   async function cargarProductos() {
     setCargando(true);
@@ -176,12 +180,34 @@ export default function ProductosPage() {
     cargarSubcategorias(categoriaId);
   }
 
+  async function cargarFacturasProducto(productoId) {
+    setCargandoFacturasDetalle(true);
+    setFacturasVentas([]);
+    setFacturasCompras([]);
+    const res = await fetch(`/api/productos/${productoId}/facturas`);
+    const data = await res.json();
+    if (data.ok) {
+      setFacturasVentas(data.ventas || []);
+      setFacturasCompras(data.comprasFacturas || []);
+    }
+    setCargandoFacturasDetalle(false);
+  }
+
   function abrirDetalle(p) {
     setDetalleProducto(p);
+    setTabFacturasDetalle('venta');
+    cargarFacturasProducto(p.id);
   }
 
   function cerrarDetalle() {
     setDetalleProducto(null);
+    setFacturasVentas([]);
+    setFacturasCompras([]);
+  }
+
+  function fecha(iso) {
+    if (!iso) return '-';
+    return new Date(iso).toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' });
   }
 
   const productosFiltrados = useMemo(() => {
@@ -573,6 +599,108 @@ export default function ProductosPage() {
               </div>
             )}
 
+            {/* Facturas de venta / de compra en las que aparece este
+                producto — mismo espíritu que la ficha de un ítem en
+                Alegra, con pestañas para no mezclar las dos listas. */}
+            <div style={{ marginTop: '18px' }}>
+              <div style={styles.tabsFacturas}>
+                <button
+                  type="button"
+                  onClick={() => setTabFacturasDetalle('venta')}
+                  style={{ ...styles.tabFactura, ...(tabFacturasDetalle === 'venta' ? styles.tabFacturaActiva : {}) }}
+                >
+                  Facturas de venta {facturasVentas.length > 0 ? `(${facturasVentas.length})` : ''}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTabFacturasDetalle('compra')}
+                  style={{ ...styles.tabFactura, ...(tabFacturasDetalle === 'compra' ? styles.tabFacturaActiva : {}) }}
+                >
+                  Facturas de compra {facturasCompras.length > 0 ? `(${facturasCompras.length})` : ''}
+                </button>
+              </div>
+
+              {cargandoFacturasDetalle ? (
+                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '10px' }}>Cargando...</p>
+              ) : (
+                <div style={{ overflowX: 'auto', marginTop: '10px' }}>
+                  {tabFacturasDetalle === 'venta' ? (
+                    <table style={styles.tablaFacturas}>
+                      <thead>
+                        <tr>
+                          <th style={styles.thFactura}>Venta</th>
+                          <th style={styles.thFactura}>Fecha</th>
+                          <th style={styles.thFactura}>Cant.</th>
+                          <th style={styles.thFactura}>Precio unit.</th>
+                          <th style={styles.thFactura}>Subtotal</th>
+                          <th style={styles.thFactura}>Medio de pago</th>
+                          <th style={styles.thFactura}>Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {facturasVentas.map((v, i) => (
+                          <tr key={i}>
+                            <td style={styles.tdFactura}>#{v.venta_id}</td>
+                            <td style={styles.tdFactura}>{fecha(v.creado_en)}</td>
+                            <td style={styles.tdFactura}>{v.cantidad}</td>
+                            <td style={styles.tdFactura}>{moneda(v.precio_unitario)}</td>
+                            <td style={styles.tdFactura}>{moneda(v.subtotal)}</td>
+                            <td style={styles.tdFactura}>{v.medio_pago || '-'}</td>
+                            <td style={styles.tdFactura}>
+                              {v.anulada ? <span style={styles.tagOculto}>Anulada</span> : 'Cobrada'}
+                            </td>
+                          </tr>
+                        ))}
+                        {facturasVentas.length === 0 && (
+                          <tr>
+                            <td style={styles.tdFactura} colSpan={7}>Este producto todavía no se ha vendido.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <table style={styles.tablaFacturas}>
+                      <thead>
+                        <tr>
+                          <th style={styles.thFactura}>Factura</th>
+                          <th style={styles.thFactura}>Proveedor</th>
+                          <th style={styles.thFactura}>Creación</th>
+                          <th style={styles.thFactura}>Vencimiento</th>
+                          <th style={styles.thFactura}>Cant.</th>
+                          <th style={styles.thFactura}>Precio unit.</th>
+                          <th style={styles.thFactura}>Total factura</th>
+                          <th style={styles.thFactura}>Por pagar</th>
+                          <th style={styles.thFactura}>Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {facturasCompras.map((f, i) => (
+                          <tr key={i}>
+                            <td style={styles.tdFactura}>{f.numero || `#${f.factura_id}`}</td>
+                            <td style={styles.tdFactura}>{f.proveedor_nombre}</td>
+                            <td style={styles.tdFactura}>{fecha(f.fecha_creacion)}</td>
+                            <td style={styles.tdFactura}>{fecha(f.fecha_vencimiento)}</td>
+                            <td style={styles.tdFactura}>{f.cantidad}</td>
+                            <td style={styles.tdFactura}>{moneda(f.precio_unitario)}</td>
+                            <td style={styles.tdFactura}>{moneda(f.total_factura)}</td>
+                            <td style={styles.tdFactura}>{moneda(f.por_pagar)}</td>
+                            <td style={styles.tdFactura}>
+                              {f.estado_pago === 'pagado' ? 'Pagada' : 'Pendiente'}
+                            </td>
+                          </tr>
+                        ))}
+                        {facturasCompras.length === 0 && (
+                          <tr>
+                            <td style={styles.tdFactura} colSpan={9}>Este producto todavía no tiene facturas de compra.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div style={{ marginTop: '16px' }}>
               <button
                 onClick={() => {
@@ -619,7 +747,9 @@ const styles = {
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius)',
     padding: '20px',
-    width: '420px',
+    // Se amplió de 420px a 720px para que quepan las tablas de
+    // facturas de venta/compra sin quedar demasiado apretadas.
+    width: '720px',
     maxWidth: '100%',
     maxHeight: '90vh',
     overflowY: 'auto',
@@ -675,6 +805,28 @@ const styles = {
     borderRadius: '999px',
     padding: '2px 8px',
   },
+  tabsFacturas: { display: 'flex', gap: '6px', borderBottom: '1px solid var(--border)' },
+  tabFactura: {
+    padding: '8px 14px',
+    border: 'none',
+    background: 'none',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: 600,
+    color: 'var(--text-secondary)',
+    borderBottom: '2px solid transparent',
+    marginBottom: '-1px',
+  },
+  tabFacturaActiva: { color: 'var(--teal-dark)', borderBottom: '2px solid var(--teal)' },
+  tablaFacturas: { width: '100%', borderCollapse: 'collapse', fontSize: '13px', whiteSpace: 'nowrap' },
+  thFactura: {
+    textAlign: 'left',
+    padding: '8px 10px',
+    color: 'var(--text-secondary)',
+    fontWeight: 600,
+    borderBottom: '1px solid var(--border)',
+  },
+  tdFactura: { padding: '8px 10px', borderBottom: '1px solid var(--border)' },
   galeria: {
     display: 'flex',
     flexWrap: 'wrap',
