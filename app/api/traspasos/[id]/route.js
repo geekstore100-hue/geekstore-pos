@@ -36,10 +36,6 @@ export async function GET(request, { params }) {
     // 'traspaso_entrada' (traspaso creado directamente) o 'ajuste_incremento'
     // (traspaso confirmado a través de la pantalla de Ajustes de Inventario).
     // Filtrar por la bodega destino en vez del tipo cubre ambos casos.
-    // También se trae, del movimiento de salida en la bodega de ORIGEN (mismo
-    // traspaso, mismo producto), cuánto había ahí antes de sacar la
-    // mercancía, para poder mostrar en el documento cuánto queda disponible
-    // en la bodega de origen después de este traspaso.
     const items = await sql`
       SELECT
         me.producto_id,
@@ -47,22 +43,43 @@ export async function GET(request, { params }) {
         p.nombre,
         me.cantidad,
         me.precio_unitario,
-        me.stock_antes,
-        mo.stock_antes AS stock_antes_origen
+        me.stock_antes
       FROM movimientos_stock me
       JOIN productos p ON p.id = me.producto_id
-      LEFT JOIN movimientos_stock mo
-        ON mo.traspaso_id = me.traspaso_id
-        AND mo.producto_id = me.producto_id
-        AND mo.bodega_id = ${traspaso.bodega_origen_id}
-        AND mo.tipo = 'traspaso_salida'
       WHERE me.traspaso_id = ${id}
         AND me.bodega_id = ${traspaso.bodega_destino_id}
         AND me.tipo IN ('traspaso_entrada', 'ajuste_incremento')
       ORDER BY p.nombre ASC
     `;
 
-    return NextResponse.json({ ok: true, traspaso, items });
+    // "Queda disponible" en el documento impreso antes se calculaba restando
+    // la cantidad de este traspaso a un "stock_antes" que quedaba grabado en
+    // el movimiento de salida DESDE EL MOMENTO en que ese producto se agregó
+    // por primera vez al traspaso — y ese valor nunca se actualizaba después,
+    // ni cuando se editaba la cantidad (PUT /api/traspasos/[id]) ni si
+    // mientras tanto pasó cualquier otro movimiento de esa bodega (otra
+    // venta, otro traspaso, otra entrada). Por eso Nelson veía en la pantalla
+    // de editar un "disponible" correcto y calculado al momento, pero al
+    // imprimir salía un número viejo que ya no correspondía a la realidad.
+    // La forma correcta y a prueba de ediciones es simplemente consultar el
+    // stock ACTUAL de la bodega de origen para esos productos — ya que para
+    // cuando se imprime, la base de datos ya quedó actualizada con el
+    // resultado final del traspaso (con todas sus ediciones incluidas).
+    const idsInvolucrados = [...new Set(items.map((it) => it.producto_id))];
+    const stockActualOrigen = idsInvolucrados.length
+      ? await sql`
+          SELECT producto_id, cantidad
+          FROM stock
+          WHERE bodega_id = ${traspaso.bodega_origen_id} AND producto_id = ANY(${idsInvolucrados})
+        `
+      : [];
+    const stockOrigenPorProducto = new Map(stockActualOrigen.map((f) => [f.producto_id, Number(f.cantidad)]));
+    const itemsConStockOrigen = items.map((it) => ({
+      ...it,
+      stock_actual_origen: stockOrigenPorProducto.get(it.producto_id) ?? 0,
+    }));
+
+    return NextResponse.json({ ok: true, traspaso, items: itemsConStockOrigen });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }

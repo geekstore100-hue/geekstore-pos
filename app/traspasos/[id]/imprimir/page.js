@@ -116,16 +116,17 @@ export default function ImprimirTraspasoPage() {
         </thead>
         <tbody>
           {items.map((it, i) => {
-            const quedaOrigen =
-              it.stock_antes_origen === null || it.stock_antes_origen === undefined
-                ? null
-                : Number(it.stock_antes_origen) - Number(it.cantidad);
+            // "Queda disponible" viene directo del stock ACTUAL de la bodega
+            // de origen (calculado por la API), no de una foto vieja de
+            // cuando se agregó el producto al traspaso — así siempre refleja
+            // la realidad, incluso después de editar cantidades varias veces.
+            const quedaOrigen = it.stock_actual_origen;
             return (
               <tr key={i} style={{ borderBottom: '1px solid #ccc' }}>
                 <td style={styles.td}>{it.referencia}</td>
                 <td style={styles.td}>{it.nombre}</td>
                 <td style={{ ...styles.td, ...styles.tdOrigen, textAlign: 'right', fontWeight: 700 }}>
-                  {quedaOrigen === null ? '-' : numero(quedaOrigen)}
+                  {numero(quedaOrigen)}
                 </td>
                 <td style={{ ...styles.td, ...styles.tdDestino, textAlign: 'right' }}>{numero(it.stock_antes)}</td>
                 <td style={{ ...styles.td, ...styles.tdDestino, textAlign: 'right' }}>{numero(it.cantidad)}</td>
