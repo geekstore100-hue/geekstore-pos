@@ -16,6 +16,7 @@ const vacio = {
   activo: true,
   es_inventariable: true,
   mostrar_en_tienda: true,
+  es_gamer: false,
 };
 
 export default function ProductosPage() {
@@ -120,6 +121,7 @@ export default function ProductosPage() {
       activo: p.activo,
       es_inventariable: p.es_inventariable === undefined || p.es_inventariable === null ? true : p.es_inventariable,
       mostrar_en_tienda: p.mostrar_en_tienda === undefined || p.mostrar_en_tienda === null ? true : p.mostrar_en_tienda,
+      es_gamer: Boolean(p.es_gamer),
     });
     setError('');
     setErrorImagen('');
@@ -366,7 +368,19 @@ export default function ProductosPage() {
               />
               Mostrar en la tienda (geekstore.com.co)
             </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '20px' }}>
+              <input
+                type="checkbox"
+                checked={form.es_gamer}
+                onChange={(e) => setForm({ ...form, es_gamer: e.target.checked })}
+              />
+              Es artículo gamer (Zona Gamer)
+            </label>
           </div>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '-8px', marginBottom: '10px' }}>
+            Márcalo si además de su categoría normal (por ejemplo, Accesorios PC &gt; Mouse) quieres
+            que el producto también se pueda encontrar como artículo de Zona Gamer.
+          </p>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '-8px', marginBottom: '10px' }}>
             Desmárcalo para productos que quieras manejar solo aquí en el POS (o solo con
             distribuidores) sin que aparezcan en la página pública — no afecta el portal de
@@ -497,6 +511,7 @@ export default function ProductosPage() {
                   <td style={styles.td}>
                     <span onClick={() => abrirDetalle(p)} style={styles.clicable}>{p.nombre}</span>
                     {p.es_inventariable === false && <span style={styles.tagServicio}>Servicio</span>}
+                    {p.es_gamer && <span style={styles.tagGamer}>Zona Gamer</span>}
                   </td>
                   <td style={styles.td}>{p.categoria_nombre || '-'}</td>
                   <td style={styles.td}>{moneda(p.precio_venta)}</td>
@@ -573,6 +588,9 @@ export default function ProductosPage() {
             <div style={styles.filaDetalle}><span>Categoría</span><strong>{detalleProducto.categoria_nombre || '-'}</strong></div>
             {detalleProducto.subcategoria_nombre && (
               <div style={styles.filaDetalle}><span>Subcategoría</span><strong>{detalleProducto.subcategoria_nombre}</strong></div>
+            )}
+            {detalleProducto.es_gamer && (
+              <div style={styles.filaDetalle}><span>Zona Gamer</span><strong>Sí</strong></div>
             )}
             <div style={styles.filaDetalle}><span>Precio de venta</span><strong>{moneda(detalleProducto.precio_venta)}</strong></div>
             {detalleProducto.es_inventariable !== false && (
@@ -802,6 +820,15 @@ const styles = {
     fontWeight: 600,
     color: 'var(--danger)',
     background: '#fdeaea',
+    borderRadius: '999px',
+    padding: '2px 8px',
+  },
+  tagGamer: {
+    marginLeft: '8px',
+    fontSize: '11px',
+    fontWeight: 600,
+    color: '#6b21a8',
+    background: '#f3e8ff',
     borderRadius: '999px',
     padding: '2px 8px',
   },
