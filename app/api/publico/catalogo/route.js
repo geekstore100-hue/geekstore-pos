@@ -23,10 +23,12 @@ import sql from '../../../../lib/db';
 //   creados directamente aquí (que nunca existieron en Alegra ni en Google).
 //   Así el cambio de fuente de datos es invisible para Google y para los
 //   enlaces ya indexados.
-// - Solo se incluyen productos activos. Los productos físicos (con
-//   inventario) solo se incluyen si tienen stock en alguna bodega; los
-//   servicios (es_inventariable = false) se incluyen siempre, porque no
-//   manejan stock.
+// - Solo se incluyen productos activos y con "Mostrar en la tienda"
+//   marcado (columna mostrar_en_tienda — se controla desde Productos en
+//   el POS; por defecto todos la tienen activada). Los productos físicos
+//   (con inventario) además solo se incluyen si tienen stock en alguna
+//   bodega; los servicios (es_inventariable = false) se incluyen siempre
+//   que tengan la bandera activa, porque no manejan stock.
 // - Esta ruta es pública (sin clave), igual que el catálogo que la tienda
 //   ya expone hoy al público — no hay ningún dato aquí que no se vea ya en
 //   la tienda misma.
@@ -49,7 +51,11 @@ export async function GET(request) {
         FROM stock
         GROUP BY producto_id
       ) st ON st.producto_id = p.id
-      WHERE p.activo = true
+      -- mostrar_en_tienda: lo desmarca Nelson desde Productos cuando no
+      -- quiere que un artículo aparezca en geekstore.com.co (sigue
+      -- existiendo normal en el POS y en el portal de distribuidores,
+      -- solo se excluye de este catálogo público).
+      WHERE p.activo = true AND p.mostrar_en_tienda = true
       ORDER BY p.nombre ASC
     `;
 

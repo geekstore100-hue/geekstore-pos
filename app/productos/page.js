@@ -15,6 +15,7 @@ const vacio = {
   precio_distribuidor: '',
   activo: true,
   es_inventariable: true,
+  mostrar_en_tienda: true,
 };
 
 export default function ProductosPage() {
@@ -114,6 +115,7 @@ export default function ProductosPage() {
       precio_distribuidor: p.precio_distribuidor || '',
       activo: p.activo,
       es_inventariable: p.es_inventariable === undefined || p.es_inventariable === null ? true : p.es_inventariable,
+      mostrar_en_tienda: p.mostrar_en_tienda === undefined || p.mostrar_en_tienda === null ? true : p.mostrar_en_tienda,
     });
     setError('');
     setErrorImagen('');
@@ -330,7 +332,20 @@ export default function ProductosPage() {
               <input type="checkbox" checked={form.activo} onChange={(e) => setForm({ ...form, activo: e.target.checked })} />
               Activo
             </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '20px' }}>
+              <input
+                type="checkbox"
+                checked={form.mostrar_en_tienda}
+                onChange={(e) => setForm({ ...form, mostrar_en_tienda: e.target.checked })}
+              />
+              Mostrar en la tienda (geekstore.com.co)
+            </label>
           </div>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '-8px', marginBottom: '10px' }}>
+            Desmárcalo para productos que quieras manejar solo aquí en el POS (o solo con
+            distribuidores) sin que aparezcan en la página pública — no afecta el portal de
+            distribuidores, que sigue su propio filtro de precio de distribuidor.
+          </p>
           <label style={{ display: 'block', marginTop: '10px' }}>
             Descripción
             <textarea value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} style={{ ...styles.input, width: '100%', minHeight: '60px' }} />
@@ -436,6 +451,7 @@ export default function ProductosPage() {
                 <th style={styles.th}>Precio distribuidor</th>
                 <th style={styles.th}>Stock</th>
                 <th style={styles.th}>Activo</th>
+                <th style={styles.th}>En tienda</th>
                 <th style={styles.th}></th>
               </tr>
             </thead>
@@ -463,13 +479,20 @@ export default function ProductosPage() {
                   <td style={styles.td}>{p.es_inventariable === false ? '—' : p.stock}</td>
                   <td style={styles.td}>{p.activo ? 'Sí' : 'No'}</td>
                   <td style={styles.td}>
+                    {p.mostrar_en_tienda === false ? (
+                      <span style={styles.tagOculto}>No</span>
+                    ) : (
+                      'Sí'
+                    )}
+                  </td>
+                  <td style={styles.td}>
                     <button onClick={() => editarProducto(p)} title="Editar producto" style={styles.btnLapiz}>✏️</button>
                   </td>
                 </tr>
               ))}
               {productosPagina.length === 0 && (
                 <tr>
-                  <td style={styles.td} colSpan={10}>
+                  <td style={styles.td} colSpan={11}>
                     {productos.length === 0 ? 'No hay productos todavía.' : 'Ningún producto coincide con la búsqueda.'}
                   </td>
                 </tr>
@@ -539,6 +562,10 @@ export default function ProductosPage() {
               </>
             )}
             <div style={styles.filaDetalle}><span>Activo</span><strong>{detalleProducto.activo ? 'Sí' : 'No'}</strong></div>
+            <div style={styles.filaDetalle}>
+              <span>Mostrar en la tienda</span>
+              <strong>{detalleProducto.mostrar_en_tienda === false ? 'No' : 'Sí'}</strong>
+            </div>
             {detalleProducto.descripcion && (
               <div style={{ marginTop: '10px' }}>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '2px' }}>Descripción</div>
@@ -637,6 +664,14 @@ const styles = {
     fontWeight: 600,
     color: 'var(--teal-dark)',
     background: 'var(--teal-light)',
+    borderRadius: '999px',
+    padding: '2px 8px',
+  },
+  tagOculto: {
+    fontSize: '11px',
+    fontWeight: 600,
+    color: 'var(--danger)',
+    background: '#fdeaea',
     borderRadius: '999px',
     padding: '2px 8px',
   },

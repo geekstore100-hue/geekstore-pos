@@ -20,6 +20,7 @@ export async function GET() {
         p.imagen_key,
         p.activo,
         p.es_inventariable,
+        p.mostrar_en_tienda,
         COALESCE(SUM(s.cantidad), 0) AS stock,
         COALESCE(SUM(s.cantidad) FILTER (WHERE b.nombre = 'Principal'), 0) AS stock_principal,
         COALESCE(SUM(s.cantidad) FILTER (WHERE b.nombre = 'Bodega Distribuidor'), 0) AS stock_distribuidor
@@ -51,6 +52,7 @@ export async function POST(request) {
       precio_distribuidor,
       activo,
       es_inventariable,
+      mostrar_en_tienda,
     } = body;
 
     if (!referencia || !referencia.trim()) {
@@ -75,13 +77,15 @@ export async function POST(request) {
     const [producto] = await sql`
       INSERT INTO productos (
         referencia, nombre, descripcion, categoria_id, subcategoria_id,
-        precio_venta, precio_costo, precio_distribuidor, activo, es_inventariable
+        precio_venta, precio_costo, precio_distribuidor, activo, es_inventariable,
+        mostrar_en_tienda
       )
       VALUES (
         ${referencia.trim()}, ${nombre.trim()}, ${descripcion || null},
         ${categoria_id || null}, ${subcategoria_id || null},
         ${precio_venta || null}, ${precioCostoFinal}, ${precio_distribuidor || null},
-        ${activo === undefined ? true : activo}, ${inventariable}
+        ${activo === undefined ? true : activo}, ${inventariable},
+        ${mostrar_en_tienda === undefined ? true : Boolean(mostrar_en_tienda)}
       )
       RETURNING id
     `;
