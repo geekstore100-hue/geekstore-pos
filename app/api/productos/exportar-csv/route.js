@@ -5,6 +5,10 @@ import sql from '../../../../lib/db';
 // que Nelson se lo pase a Claude y pueda revisar categorías/subcategorías
 // de los ~3.100 productos sin tener que copiar y pegar nada a mano.
 //
+// Incluye tiene_imagen y stock_total para poder identificar productos
+// "muertos" (sin categoría, sin foto y sin stock) que probablemente ya no
+// se venden y no vale la pena gastar tiempo categorizando.
+//
 // Se visita directo en el navegador: https://<tu-pos>.netlify.app/api/productos/exportar-csv
 // y el navegador descarga el archivo solo (Content-Disposition: attachment).
 //
@@ -34,14 +38,24 @@ export async function GET() {
         sc.nombre AS subcategoria,
         p.activo,
         p.es_inventariable,
-        p.mostrar_en_tienda
+        p.mostrar_en_tienda,
+        (p.imagen_key IS NOT NULL) AS tiene_imagen,
+        COALESCE(st.total, 0) AS stock_total
       FROM productos p
       LEFT JOIN categorias c ON c.id = p.categoria_id
       LEFT JOIN subcategorias sc ON sc.id = p.subcategoria_id
+      LEFT JOIN (
+        SELECT producto_id, SUM(cantidad) AS total
+        FROM stock
+        GROUP BY producto_id
+      ) st ON st.producto_id = p.id
       ORDER BY c.nombre ASC NULLS LAST, p.nombre ASC
     `;
 
-    const encabezado = ['referencia', 'nombre', 'descripcion', 'categoria', 'subcategoria', 'activo', 'tipo', 'mostrar_en_tienda'];
+    const encabezado = [
+      'referencia', 'nombre', 'descripcion', 'categoria', 'subcategoria',
+      'activo', 'tipo', 'mostrar_en_tienda', 'tiene_imagen', 'stock_total',
+    ];
     const filas = productos.map((p) =>
       [
         celdaCsv(p.referencia),
@@ -52,6 +66,8 @@ export async function GET() {
         celdaCsv(p.activo ? 'si' : 'no'),
         celdaCsv(p.es_inventariable === false ? 'servicio' : 'producto'),
         celdaCsv(p.mostrar_en_tienda === false ? 'no' : 'si'),
+        celdaCsv(p.tiene_imagen ? 'si' : 'no'),
+        celdaCsv(p.stock_total),
       ].join(',')
     );
 
