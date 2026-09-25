@@ -10,8 +10,12 @@ import sql from '../../../../lib/db';
 // apunte aquí — sin tocar código de la tienda.
 //
 // Forma exacta que espera la tienda por cada producto:
-//   { id, name, description, reference, category, price, available,
-//     warehouses: [{name, quantity}], image, images, status }
+//   { id, name, description, reference, category, subcategory, gamer, price,
+//     available, warehouses: [{name, quantity}], image, images, status }
+// "subcategory" y "gamer" se agregaron para que la tienda pueda navegar por
+// subcategoría (Accesorios PC > Mouse, etc.) y mostrar/filtrar la etiqueta
+// "Zona Gamer" — vienen vacíos/false para productos sin subcategoría o sin
+// marcar como gamer, así que la tienda sigue funcionando igual si no los usa.
 //
 // Notas importantes:
 // - El "id" que usa la tienda es clave para Google Merchant Center (el feed
@@ -41,11 +45,13 @@ export async function GET(request) {
     const productos = await sql`
       SELECT
         p.id, p.referencia, p.alegra_id, p.nombre, p.descripcion, p.precio_venta, p.imagen_key,
-        p.es_inventariable,
+        p.es_inventariable, p.es_gamer,
         c.nombre AS categoria_nombre,
+        sc.nombre AS subcategoria_nombre,
         COALESCE(st.stock_total, 0) AS stock_total
       FROM productos p
       LEFT JOIN categorias c ON c.id = p.categoria_id
+      LEFT JOIN subcategorias sc ON sc.id = p.subcategoria_id
       LEFT JOIN (
         SELECT producto_id, SUM(cantidad) AS stock_total
         FROM stock
@@ -94,6 +100,8 @@ export async function GET(request) {
           description: p.descripcion || '',
           reference: p.referencia,
           category: p.categoria_nombre || '',
+          subcategory: p.subcategoria_nombre || '',
+          gamer: Boolean(p.es_gamer),
           price: Number(p.precio_venta) || 0,
           available: Number(p.stock_total) || 0,
           warehouses: bodegasPorProducto.get(p.id) || [],
