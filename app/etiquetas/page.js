@@ -97,14 +97,22 @@ export default function EtiquetasPage() {
     <div style={{ fontFamily: 'Arial, sans-serif', color: '#111' }}>
       <style>{`
         @media print {
-          @page { size: 74mm 45mm; margin: 0; }
+          /* Nelson imprime en hojas tamaño Carta con varias etiquetas por
+             hoja (no un rollo de una sola etiqueta por página), así que acá
+             NO se fuerza el tamaño de página a 74mm x 45mm — eso era lo que
+             hacía que Chrome sacara cada etiqueta perdida en una hoja carta
+             enorme, con encabezados y pies de página de Chrome. En vez de
+             eso, las etiquetas fluyen en una cuadrícula dentro de la hoja
+             carta normal, tantas como quepan por fila, y siguen a la
+             siguiente hoja solo cuando se llena. */
+          @page { margin: 10mm; }
           .no-imprimir { display: none; }
-          .etiqueta { page-break-after: always; }
-          .etiqueta:last-child { page-break-after: auto; }
-          body { margin: 0; }
+          .hoja-etiquetas { display: flex; flex-wrap: wrap; gap: 4mm; }
+          .etiqueta { break-inside: avoid; page-break-inside: avoid; }
         }
         @media screen {
-          .etiqueta { margin: 0 auto 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
+          .hoja-etiquetas { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+          .etiqueta { box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
         }
       `}</style>
 
@@ -113,8 +121,10 @@ export default function EtiquetasPage() {
         <h2 style={{ marginTop: '10px', marginBottom: '4px' }}>Imprimir etiquetas</h2>
         <p style={{ color: '#555', marginTop: 0 }}>
           Busca los artículos, agrégalos a la lista y ajusta cantidad o texto adicional (por ejemplo, las
-          características del equipo) antes de imprimir. Cada etiqueta mide 74mm x 45mm — recuerda configurar ese
-          tamaño de papel en el diálogo de impresión.
+          características del equipo) antes de imprimir. Las etiquetas salen en cuadrícula sobre hojas tamaño Carta,
+          varias por hoja, con un borde delgado para recortarlas. Antes de imprimir, en el diálogo de impresión abre
+          "Más ajustes" y desmarca "Encabezados y pies de página" (si no, Chrome agrega la fecha y la URL en cada
+          hoja) — Chrome recuerda esa opción para la próxima vez.
         </p>
 
         {error && <p style={{ color: '#c0392b' }}>{error}</p>}
@@ -203,18 +213,20 @@ export default function EtiquetasPage() {
         )}
       </div>
 
-      {etiquetas.map(({ producto, nota, copia }) => (
-        <div key={`${producto.id}-${copia}`} className="etiqueta" style={styles.etiqueta}>
-          <div style={styles.logoContenedor}>
-            {logoUrl && <img src={logoUrl} alt="" style={styles.logo} />}
+      <div className="hoja-etiquetas">
+        {etiquetas.map(({ producto, nota, copia }) => (
+          <div key={`${producto.id}-${copia}`} className="etiqueta" style={styles.etiqueta}>
+            <div style={styles.logoContenedor}>
+              {logoUrl && <img src={logoUrl} alt="" style={styles.logo} />}
+            </div>
+            <div style={styles.textos}>
+              <div style={styles.nombre}>{producto.nombre}</div>
+              {nota && <div style={styles.nota}>{nota}</div>}
+            </div>
+            <div style={styles.precio}>{formatoPrecio(producto.precio_venta)}</div>
           </div>
-          <div style={styles.textos}>
-            <div style={styles.nombre}>{producto.nombre}</div>
-            {nota && <div style={styles.nota}>{nota}</div>}
-          </div>
-          <div style={styles.precio}>{formatoPrecio(producto.precio_venta)}</div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
@@ -275,6 +287,7 @@ const styles = {
   etiqueta: {
     width: '74mm',
     height: '45mm',
+    flexShrink: 0,
     boxSizing: 'border-box',
     border: '1px solid #000',
     padding: '3mm',
