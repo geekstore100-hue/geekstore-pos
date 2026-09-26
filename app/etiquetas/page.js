@@ -23,7 +23,7 @@ export default function EtiquetasPage() {
   const [error, setError] = useState('');
 
   const [busqueda, setBusqueda] = useState('');
-  const [cola, setCola] = useState([]); // [{ id, producto, cantidad, nota }]
+  const [cola, setCola] = useState([]); // [{ id, producto, cantidad, nota, nombreEtiqueta }]
 
   useEffect(() => {
     async function cargar() {
@@ -63,7 +63,10 @@ export default function EtiquetasPage() {
       if (existe) {
         return actual.map((item) => (item.id === p.id ? { ...item, cantidad: item.cantidad + 1 } : item));
       }
-      return [...actual, { id: p.id, producto: p, cantidad: 1, nota: '' }];
+      // nombreEtiqueta arranca igual al nombre del producto, pero es
+      // editable acá sin tocar el producto real — para acortar o cambiar
+      // cómo se ve el nombre en la etiqueta sin afectar el catálogo.
+      return [...actual, { id: p.id, producto: p, cantidad: 1, nota: '', nombreEtiqueta: p.nombre }];
     });
   }
 
@@ -80,17 +83,37 @@ export default function EtiquetasPage() {
     setCola((actual) => actual.map((item) => (item.id === id ? { ...item, nota: valor } : item)));
   }
 
+  function cambiarNombreEtiqueta(id, valor) {
+    setCola((actual) => actual.map((item) => (item.id === id ? { ...item, nombreEtiqueta: valor } : item)));
+  }
+
   function formatoPrecio(n) {
     return '$' + Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 });
+  }
+
+  // Encoge un poco la letra del nombre cuando es largo, para que casi
+  // siempre quepa en una sola línea (a ojo, con Arial en negrita mayúscula,
+  // sobre los ~62mm de ancho útil de la etiqueta ya no caben mucho más de
+  // 24-25 letras a 11pt). Es una aproximación, no una medición exacta.
+  function tamanioFuenteNombre(texto) {
+    const largo = String(texto || '').length;
+    if (largo > 34) return '8.5pt';
+    if (largo > 24) return '9.5pt';
+    return '11pt';
   }
 
   const logoUrl = logoKey ? `/api/imagenes/${logoKey}` : null;
   const totalEtiquetas = cola.reduce((acc, item) => acc + item.cantidad, 0);
 
-  // Una etiqueta repetida tantas veces como diga su cantidad, conservando la
-  // nota (dato adicional) de cada artículo.
+  // Una etiqueta repetida tantas veces como diga su cantidad, conservando el
+  // nombre editado y la nota (dato adicional) de cada artículo.
   const etiquetas = cola.flatMap((item) =>
-    Array.from({ length: item.cantidad }, (_, i) => ({ producto: item.producto, nota: item.nota, copia: i }))
+    Array.from({ length: item.cantidad }, (_, i) => ({
+      producto: item.producto,
+      nombreEtiqueta: item.nombreEtiqueta || item.producto.nombre,
+      nota: item.nota,
+      copia: i,
+    }))
   );
 
   return (
@@ -161,6 +184,7 @@ export default function EtiquetasPage() {
               <tr style={{ textAlign: 'left', borderBottom: '1px solid #ddd' }}>
                 <th style={styles.th}>Referencia</th>
                 <th style={styles.th}>Artículo</th>
+                <th style={styles.th}>Nombre en la etiqueta</th>
                 <th style={styles.th}>Precio</th>
                 <th style={styles.th}>Copias</th>
                 <th style={styles.th}>Texto adicional (opcional)</th>
@@ -172,6 +196,14 @@ export default function EtiquetasPage() {
                 <tr key={item.id} style={{ borderBottom: '1px solid #eee' }}>
                   <td style={styles.td}>{item.producto.referencia}</td>
                   <td style={styles.td}>{item.producto.nombre}</td>
+                  <td style={styles.td}>
+                    <input
+                      value={item.nombreEtiqueta}
+                      onChange={(e) => cambiarNombreEtiqueta(item.id, e.target.value)}
+                      placeholder={item.producto.nombre}
+                      style={styles.inputNota}
+                    />
+                  </td>
                   <td style={styles.td}>{formatoPrecio(item.producto.precio_venta)}</td>
                   <td style={styles.td}>
                     <input
@@ -214,13 +246,13 @@ export default function EtiquetasPage() {
       </div>
 
       <div className="hoja-etiquetas">
-        {etiquetas.map(({ producto, nota, copia }) => (
+        {etiquetas.map(({ producto, nombreEtiqueta, nota, copia }) => (
           <div key={`${producto.id}-${copia}`} className="etiqueta" style={styles.etiqueta}>
             <div style={styles.logoContenedor}>
               {logoUrl && <img src={logoUrl} alt="" style={styles.logo} />}
             </div>
             <div style={styles.textos}>
-              <div style={styles.nombre}>{producto.nombre}</div>
+              <div style={{ ...styles.nombre, fontSize: tamanioFuenteNombre(nombreEtiqueta) }}>{nombreEtiqueta}</div>
               {nota && <div style={styles.nota}>{nota}</div>}
             </div>
             <div style={styles.precio}>{formatoPrecio(producto.precio_venta)}</div>
@@ -284,20 +316,19 @@ const styles = {
     fontWeight: 600,
     fontSize: '14px',
   },
-  // El padding horizontal se quitó de acá (queda solo arriba/abajo) porque
-  // el logo debe llegar HASTA el recuadro negro de la etiqueta, sin espacio
-  // a los lados — si la etiqueta tuviera padding a los lados, el logo (que
-  // ocupa el 100% del ancho de este contenedor) quedaría separado del
-  // borde. El nombre, el texto adicional y el precio sí necesitan su propio
-  // padding lateral (ver "textos" y "precio" más abajo) para no pegarse al
-  // borde ellos.
+  // Sin padding arriba, a la izquierda ni a la derecha: el logo debe tocar
+  // el recuadro negro por esos 3 lados (ocupa el 100% del ancho de este
+  // contenedor, ver "logoContenedor" más abajo). Solo queda padding abajo,
+  // para separar el precio del borde inferior. El nombre, el texto
+  // adicional y el precio sí tienen su propio padding lateral (ver "textos"
+  // y "precio" más abajo) para no pegarse al borde ellos.
   etiqueta: {
     width: '74mm',
     height: '45mm',
     flexShrink: 0,
     boxSizing: 'border-box',
     border: '1px solid #000',
-    padding: '2mm 0',
+    padding: '0 0 2mm 0',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
@@ -332,5 +363,15 @@ const styles = {
     overflow: 'hidden',
     color: '#222',
   },
-  precio: { fontWeight: 800, fontSize: '17pt', padding: '0 3mm', boxSizing: 'border-box' },
+  // Línea delgada justo antes del precio, para separarlo visualmente del
+  // nombre/texto adicional (pedido de Nelson). Va de borde a borde, igual
+  // que el logo, para que se vea como una sola franja horizontal completa.
+  precio: {
+    width: '100%',
+    boxSizing: 'border-box',
+    borderTop: '1px solid #000',
+    padding: '1.2mm 3mm 0',
+    fontWeight: 800,
+    fontSize: '17pt',
+  },
 };
