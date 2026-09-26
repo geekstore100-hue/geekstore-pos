@@ -160,11 +160,23 @@ export default function VentasPage() {
     }
   }
 
+  // Antes esto se mostraba completo (los ~3000 productos, cada uno con su
+  // foto) cada vez que se escribía o borraba una letra en el buscador —
+  // React tenía que re-renderizar miles de tarjetas con imagen en cada
+  // tecla, lo que se sentía pesadísimo justo al escribir un código. Ahora
+  // se limita a los primeros LIMITE_RESULTADOS que calcen con la búsqueda
+  // (o los más recientes si el buscador está vacío); en la práctica nadie
+  // necesita ver 3000 tarjetas a la vez, y con 2-3 letras del código o
+  // nombre ya se llega al producto buscado.
+  const LIMITE_RESULTADOS = 60;
+
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
     if (!q) return productos;
     return productos.filter((p) => p.referencia.toLowerCase().includes(q) || p.nombre.toLowerCase().includes(q));
   }, [busqueda, productos]);
+
+  const filtradosVisibles = useMemo(() => filtrados.slice(0, LIMITE_RESULTADOS), [filtrados]);
 
   function stockPrincipalDe(producto_id) {
     const p = productos.find((x) => x.id === producto_id);
@@ -582,8 +594,13 @@ export default function VentasPage() {
               style={styles.buscador}
             />
           </div>
+          {filtrados.length > LIMITE_RESULTADOS && (
+            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: '4px 0 8px' }}>
+              Mostrando {LIMITE_RESULTADOS} de {filtrados.length} — sigue escribiendo para afinar la búsqueda.
+            </p>
+          )}
           <div style={styles.grid}>
-            {filtrados.map((p) => {
+            {filtradosVisibles.map((p) => {
               const enCarrito = activa.carrito.find((i) => i.producto_id === p.id);
               const inventariable = p.es_inventariable !== false;
               const stockPrincipal = Number(p.stock_principal) || 0;
