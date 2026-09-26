@@ -49,6 +49,16 @@ export default function EntradasPage() {
     setSeleccionadas(new Set());
   }
 
+  // Al principio del Excel se agregan 3 filas de prueba (ver FILAS_PRUEBA
+  // más abajo): la impresora de etiquetas de Nelson daña la primera fila
+  // física al imprimir, así que esas 3 se sacrifican en vez de perder
+  // etiquetas de productos reales.
+  const FILAS_PRUEBA = [
+    ['PRUEBA', 'Etiqueta de prueba (impresora)', '0'],
+    ['PRUEBA', 'Etiqueta de prueba (impresora)', '0'],
+    ['PRUEBA', 'Etiqueta de prueba (impresora)', '0'],
+  ];
+
   // Genera un Excel (.xlsx) para importar en OpenLabel e imprimir etiquetas de
   // precio: una fila POR CADA UNIDAD que entró (si llegaron 5 unidades de un
   // artículo, se repiten 5 filas iguales), con columnas Referencia, Artículo
@@ -91,7 +101,7 @@ export default function EntradasPage() {
     setGenerandoExcel(true);
     try {
       const XLSX = await import('xlsx');
-      const hoja = XLSX.utils.aoa_to_sheet([['Referencia', 'Artículo', 'Precio'], ...filas]);
+      const hoja = XLSX.utils.aoa_to_sheet([['Referencia', 'Artículo', 'Precio'], ...FILAS_PRUEBA, ...filas]);
       hoja['!cols'] = [{ wch: 16 }, { wch: 36 }, { wch: 12 }];
       const libro = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(libro, hoja, 'Etiquetas');
