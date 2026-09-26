@@ -284,13 +284,20 @@ const styles = {
     fontWeight: 600,
     fontSize: '14px',
   },
+  // El padding horizontal se quitó de acá (queda solo arriba/abajo) porque
+  // el logo debe llegar HASTA el recuadro negro de la etiqueta, sin espacio
+  // a los lados — si la etiqueta tuviera padding a los lados, el logo (que
+  // ocupa el 100% del ancho de este contenedor) quedaría separado del
+  // borde. El nombre, el texto adicional y el precio sí necesitan su propio
+  // padding lateral (ver "textos" y "precio" más abajo) para no pegarse al
+  // borde ellos.
   etiqueta: {
     width: '74mm',
     height: '45mm',
     flexShrink: 0,
     boxSizing: 'border-box',
     border: '1px solid #000',
-    padding: '3mm',
+    padding: '2mm 0',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
@@ -298,12 +305,10 @@ const styles = {
     textAlign: 'center',
     overflow: 'hidden',
   },
-  // El logo ocupa todo el ancho disponible de la etiqueta (de borde a borde,
-  // respetando el padding de 3mm) y el alto se ajusta solo según su
-  // proporción real (width:100% + height:auto), así que nunca se deforma —
-  // esto reemplaza el intento anterior de meterlo en una caja chica
-  // centrada, que lo dejaba con margen a los lados en vez de llegar hasta
-  // los bordes como en la imagen de referencia de Nelson.
+  // El logo ocupa el 100% del ancho de la etiqueta (sin ningún padding a los
+  // lados, ver nota arriba) y el alto se ajusta solo según su proporción
+  // real (width:100% + height:auto), así que llega hasta el borde negro sin
+  // deformarse.
   logoContenedor: {
     width: '100%',
     display: 'flex',
@@ -311,7 +316,7 @@ const styles = {
     flexShrink: 0,
   },
   logo: { width: '100%', height: 'auto', display: 'block' },
-  textos: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' },
+  textos: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', width: '100%', padding: '0 3mm', boxSizing: 'border-box' },
   nombre: {
     fontWeight: 700,
     fontSize: '11pt',
@@ -327,5 +332,5 @@ const styles = {
     overflow: 'hidden',
     color: '#222',
   },
-  precio: { fontWeight: 800, fontSize: '17pt' },
+  precio: { fontWeight: 800, fontSize: '17pt', padding: '0 3mm', boxSizing: 'border-box' },
 };
