@@ -298,23 +298,19 @@ const styles = {
     textAlign: 'center',
     overflow: 'hidden',
   },
-  // El logo se dibuja dentro de una caja de tamaño FIJO (no un porcentaje del
-  // ancho de la etiqueta), para que quede siempre como un recuadro pequeño y
-  // centrado — igual que en la imagen de referencia — sin importar la forma
-  // (ancha, cuadrada, etc.) de la imagen que Nelson suba en Ajustes. Antes el
-  // <img> solo tenía maxWidth/maxHeight en porcentaje, así que un logo con
-  // proporciones anchas terminaba ocupando casi todo el ancho de la etiqueta
-  // ("extendido a los lados").
+  // El logo ocupa todo el ancho disponible de la etiqueta (de borde a borde,
+  // respetando el padding de 3mm) y el alto se ajusta solo según su
+  // proporción real (width:100% + height:auto), así que nunca se deforma —
+  // esto reemplaza el intento anterior de meterlo en una caja chica
+  // centrada, que lo dejaba con margen a los lados en vez de llegar hasta
+  // los bordes como en la imagen de referencia de Nelson.
   logoContenedor: {
-    width: '50mm',
-    height: '9mm',
+    width: '100%',
     display: 'flex',
-    alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
     flexShrink: 0,
   },
-  logo: { maxWidth: '100%', maxHeight: '100%', width: 'auto', height: 'auto', objectFit: 'contain' },
+  logo: { width: '100%', height: 'auto', display: 'block' },
   textos: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' },
   nombre: {
     fontWeight: 700,
