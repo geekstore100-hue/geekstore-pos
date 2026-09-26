@@ -6,6 +6,7 @@ import Shell from '../../components/Shell';
 const SECCIONES = [
   { id: 'vendedores', label: 'Vendedores', descripcion: 'Quién vende' },
   { id: 'categorias', label: 'Categorías y subcategorías', descripcion: 'Cómo se organiza el inventario' },
+  { id: 'etiquetas', label: 'Etiquetas de producto', descripcion: 'Logo que se imprime en las etiquetas' },
   { id: 'seguridad', label: 'Seguridad', descripcion: 'Clave de administrador' },
 ];
 
@@ -29,6 +30,12 @@ export default function ConfiguracionesPage() {
   const [errorSubcategoria, setErrorSubcategoria] = useState('');
   const [guardandoCategoria, setGuardandoCategoria] = useState(false);
   const [guardandoSubcategoria, setGuardandoSubcategoria] = useState(false);
+
+  // Etiquetas de producto: logo que se imprime en las etiquetas de 74x45mm
+  const [logoKey, setLogoKey] = useState(null);
+  const [cargandoLogo, setCargandoLogo] = useState(true);
+  const [subiendoLogo, setSubiendoLogo] = useState(false);
+  const [errorLogo, setErrorLogo] = useState('');
 
   // Seguridad: clave de administrador
   const [claveConfigurada, setClaveConfigurada] = useState(null);
@@ -65,10 +72,19 @@ export default function ConfiguracionesPage() {
     if (data.ok) setClaveConfigurada(data.configurada);
   }
 
+  async function cargarLogoEtiqueta() {
+    setCargandoLogo(true);
+    const res = await fetch('/api/configuracion/logo-etiqueta');
+    const data = await res.json();
+    if (data.ok) setLogoKey(data.imagen_key);
+    setCargandoLogo(false);
+  }
+
   useEffect(() => {
     cargar();
     cargarCategorias();
     cargarClaveConfigurada();
+    cargarLogoEtiqueta();
   }, []);
 
   useEffect(() => {
@@ -175,6 +191,43 @@ export default function ConfiguracionesPage() {
       body: JSON.stringify({ nombre: v.nombre, activo: !v.activo }),
     });
     cargar();
+  }
+
+  async function subirLogoEtiqueta(e) {
+    const archivo = e.target.files?.[0];
+    e.target.value = '';
+    if (!archivo) return;
+    setErrorLogo('');
+    setSubiendoLogo(true);
+    try {
+      const formData = new FormData();
+      formData.append('imagen', archivo);
+      const res = await fetch('/api/configuracion/logo-etiqueta', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.ok) {
+        setLogoKey(data.imagen_key);
+      } else {
+        setErrorLogo(data.error || 'No se pudo subir el logo');
+      }
+    } finally {
+      setSubiendoLogo(false);
+    }
+  }
+
+  async function quitarLogoEtiqueta() {
+    setErrorLogo('');
+    setSubiendoLogo(true);
+    try {
+      const res = await fetch('/api/configuracion/logo-etiqueta', { method: 'DELETE' });
+      const data = await res.json();
+      if (data.ok) {
+        setLogoKey(null);
+      } else {
+        setErrorLogo(data.error || 'No se pudo quitar el logo');
+      }
+    } finally {
+      setSubiendoLogo(false);
+    }
   }
 
   async function guardarClaveAdmin(e) {
@@ -412,6 +465,55 @@ export default function ConfiguracionesPage() {
             </>
           )}
 
+          {seccionActiva === 'etiquetas' && (
+            <>
+              <h2 style={{ marginTop: 0 }}>Etiquetas de producto</h2>
+              <p style={{ color: 'var(--text-secondary)', marginTop: '-8px' }}>
+                Logo que aparece arriba en las etiquetas de 74mm x 45mm que se imprimen desde Productos
+                (botón "Imprimir etiquetas"). Cámbialo aquí cuando quieras, sin tocar código.
+              </p>
+
+              <div style={{ ...styles.formCard, maxWidth: '420px' }}>
+                {cargandoLogo ? (
+                  <p>Cargando...</p>
+                ) : (
+                  <>
+                    <div style={styles.previewLogo}>
+                      {logoKey ? (
+                        <img src={`/api/imagenes/${logoKey}`} alt="Logo de etiqueta" style={styles.imgLogo} />
+                      ) : (
+                        <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+                          No has configurado un logo todavía — las etiquetas se imprimirán sin logo.
+                        </span>
+                      )}
+                    </div>
+
+                    <label style={{ ...styles.btnPrimario, display: 'inline-block' }}>
+                      {subiendoLogo ? 'Subiendo...' : logoKey ? 'Cambiar logo' : '+ Subir logo'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={subirLogoEtiqueta}
+                        disabled={subiendoLogo}
+                        style={{ display: 'none' }}
+                      />
+                    </label>
+                    {logoKey && (
+                      <button
+                        onClick={quitarLogoEtiqueta}
+                        disabled={subiendoLogo}
+                        style={{ ...styles.btnSecundario, marginLeft: '8px' }}
+                      >
+                        Quitar logo
+                      </button>
+                    )}
+                    {errorLogo && <p style={{ color: 'var(--danger)', marginTop: '10px' }}>{errorLogo}</p>}
+                  </>
+                )}
+              </div>
+            </>
+          )}
+
           {seccionActiva === 'seguridad' && (
             <>
               <h2 style={{ marginTop: 0 }}>Seguridad</h2>
@@ -506,4 +608,16 @@ const styles = {
   btnSecundario: { padding: '7px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: '#fff', marginLeft: '8px', cursor: 'pointer', fontSize: '13px' },
   grid2Cat: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', alignItems: 'start' },
   filaClickeable: { borderBottom: '1px solid var(--border)', cursor: 'pointer' },
+  previewLogo: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: '90px',
+    marginBottom: '14px',
+    padding: '12px',
+    border: '1px dashed var(--border)',
+    borderRadius: '8px',
+    background: '#fafafa',
+  },
+  imgLogo: { maxHeight: '80px', maxWidth: '100%', objectFit: 'contain' },
 };

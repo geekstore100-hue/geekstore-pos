@@ -53,6 +53,19 @@ export default function ProductosPage() {
   const [facturasCompras, setFacturasCompras] = useState([]);
   const [cargandoFacturasDetalle, setCargandoFacturasDetalle] = useState(false);
 
+  // Selección para "Imprimir etiquetas" (etiquetas de 74x45mm con logo,
+  // nombre y precio — ver /etiquetas/imprimir).
+  const [seleccionEtiquetas, setSeleccionEtiquetas] = useState(new Set());
+
+  function alternarSeleccionEtiqueta(id) {
+    setSeleccionEtiquetas((actual) => {
+      const nuevo = new Set(actual);
+      if (nuevo.has(id)) nuevo.delete(id);
+      else nuevo.add(id);
+      return nuevo;
+    });
+  }
+
   async function cargarProductos() {
     setCargando(true);
     const res = await fetch('/api/productos');
@@ -465,6 +478,21 @@ export default function ProductosPage() {
           placeholder="Buscar por referencia o nombre..."
           style={styles.buscador}
         />
+        {seleccionEtiquetas.size > 0 && (
+          <>
+            <a
+              href={`/etiquetas/imprimir?ids=${Array.from(seleccionEtiquetas).join(',')}`}
+              target="_blank"
+              rel="noreferrer"
+              style={styles.btnImprimirEtiquetas}
+            >
+              🏷️ Imprimir etiquetas ({seleccionEtiquetas.size})
+            </a>
+            <button onClick={() => setSeleccionEtiquetas(new Set())} style={styles.btnSecundario}>
+              Quitar selección
+            </button>
+          </>
+        )}
         <label style={styles.selectorPorPagina}>
           Ver por página
           <select value={porPagina} onChange={(e) => setPorPagina(Number(e.target.value))} style={styles.selectPorPagina}>
@@ -483,6 +511,7 @@ export default function ProductosPage() {
             <thead>
               <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
                 <th style={styles.th}></th>
+                <th style={styles.th}></th>
                 <th style={styles.th}>Referencia</th>
                 <th style={styles.th}>Nombre</th>
                 <th style={styles.th}>Categoría</th>
@@ -498,6 +527,14 @@ export default function ProductosPage() {
             <tbody>
               {productosPagina.map((p) => (
                 <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={styles.td}>
+                    <input
+                      type="checkbox"
+                      checked={seleccionEtiquetas.has(p.id)}
+                      onChange={() => alternarSeleccionEtiqueta(p.id)}
+                      title="Elegir para imprimir etiqueta"
+                    />
+                  </td>
                   <td style={styles.td}>
                     {p.imagen_key ? (
                       <img src={`/api/imagenes/${p.imagen_key}`} alt="" style={styles.miniatura} />
@@ -528,12 +565,21 @@ export default function ProductosPage() {
                   </td>
                   <td style={styles.td}>
                     <button onClick={() => editarProducto(p)} title="Editar producto" style={styles.btnLapiz}>✏️</button>
+                    <a
+                      href={`/etiquetas/imprimir?ids=${p.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="Imprimir etiqueta de este producto"
+                      style={styles.btnEtiqueta}
+                    >
+                      🏷️
+                    </a>
                   </td>
                 </tr>
               ))}
               {productosPagina.length === 0 && (
                 <tr>
-                  <td style={styles.td} colSpan={11}>
+                  <td style={styles.td} colSpan={12}>
                     {productos.length === 0 ? 'No hay productos todavía.' : 'Ningún producto coincide con la búsqueda.'}
                   </td>
                 </tr>
@@ -783,6 +829,19 @@ const styles = {
   selectPorPagina: { padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '14px' },
   clicable: { cursor: 'pointer', color: 'var(--teal-dark)' },
   btnLapiz: { border: '1px solid var(--border)', background: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', padding: '6px 9px', lineHeight: 1 },
+  btnEtiqueta: { border: '1px solid var(--border)', background: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', padding: '6px 9px', lineHeight: 1, marginLeft: '6px', textDecoration: 'none', display: 'inline-block' },
+  btnImprimirEtiquetas: {
+    padding: '9px 14px',
+    borderRadius: '8px',
+    border: 'none',
+    background: 'var(--teal)',
+    color: '#fff',
+    cursor: 'pointer',
+    fontWeight: 600,
+    fontSize: '13px',
+    textDecoration: 'none',
+    whiteSpace: 'nowrap',
+  },
   paginacion: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 4px' },
   tableCard: { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '8px 16px' },
   input: { display: 'block', width: '100%', padding: '9px', marginTop: '4px', borderRadius: '8px', border: '1px solid var(--border)', boxSizing: 'border-box' },
