@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import Sidebar from './Sidebar';
 import PanicoBoton from './PanicoBoton';
+import PanicoReceptor from './PanicoReceptor';
 
 export default function Shell({ title, children }) {
   // Evita el problema clásico de los navegadores: si el mouse queda sobre un
@@ -59,10 +60,13 @@ export default function Shell({ title, children }) {
         </header>
         <main className="pos-main">{children}</main>
       </div>
-      {/* Ver components/PanicoBoton.js — vive acá para que esté disponible
-          en cualquier pantalla que use Shell (prácticamente todo el
-          sistema), sin tener que acordarse de agregarlo página por página. */}
+      {/* Botón de pánico: PanicoBoton es el control remoto (solo se ve/hace
+          algo en celular) y PanicoReceptor es la pantalla que se oculta
+          (solo actúa en computador) — cada uno vive acá para estar
+          disponible en cualquier pantalla que use Shell, sin tener que
+          acordarse de agregarlos página por página. Ver ambos archivos. */}
       <PanicoBoton />
+      <PanicoReceptor />
     </div>
   );
 }
