@@ -1,20 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getStore } from '@netlify/blobs';
 import sql from '../../../../../lib/db';
+import { leerImagenSubida } from '../../../../../lib/validarImagen';
 
 export const dynamic = 'force-dynamic';
-
-function extensionDe(nombre, tipo) {
-  const m = String(nombre || '').match(/\.([a-zA-Z0-9]+)$/);
-  if (m) {
-    const ext = m[1].toLowerCase();
-    if (['jpg', 'jpeg', 'png', 'jfif', 'webp', 'gif'].includes(ext)) return ext;
-  }
-  if (tipo === 'image/png') return 'png';
-  if (tipo === 'image/webp') return 'webp';
-  if (tipo === 'image/gif') return 'gif';
-  return 'jpg';
-}
 
 // Lista las fotos de un producto (para mostrarlas al editarlo).
 export async function GET(request, { params }) {
@@ -44,17 +33,18 @@ export async function POST(request, { params }) {
     }
 
     const formData = await request.formData();
-    const archivo = formData.get('imagen');
-    if (!archivo || typeof archivo === 'string') {
-      return NextResponse.json({ ok: false, error: 'No se recibió ninguna imagen' }, { status: 400 });
+    // Se revisa que sea de verdad una foto (JPG/PNG/WEBP/GIF) mirando el
+    // contenido del archivo, no lo que diga el navegador — ver
+    // lib/validarImagen.js.
+    const imagen = await leerImagenSubida(formData.get('imagen'));
+    if (!imagen.ok) {
+      return NextResponse.json({ ok: false, error: imagen.error }, { status: 400 });
     }
 
-    const ext = extensionDe(archivo.name, archivo.type);
-    const key = `${producto.referencia}-${Date.now()}.${ext}`;
-    const buffer = await archivo.arrayBuffer();
+    const key = `${producto.referencia}-${Date.now()}.${imagen.ext}`;
 
     const store = getStore('productos-imagenes');
-    await store.set(key, buffer, { metadata: { contentType: archivo.type || 'image/jpeg' } });
+    await store.set(key, imagen.buffer, { metadata: { contentType: imagen.contentType } });
 
     const [{ max_orden }] = await sql`
       SELECT COALESCE(MAX(orden), -1) AS max_orden FROM producto_imagenes WHERE producto_id = ${id}

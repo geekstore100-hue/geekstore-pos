@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getStore } from '@netlify/blobs';
 import sql from '../../../../lib/db';
+import { leerImagenSubida } from '../../../../lib/validarImagen';
 
 // Logo que se imprime en las etiquetas de producto (74mm x 45mm, ver
 // /etiquetas/imprimir). Se guarda como una imagen más en el mismo store de
@@ -10,18 +11,6 @@ import sql from '../../../../lib/db';
 // se guarda en la tabla genérica "configuracion" (clave = 'logo_etiqueta'),
 // para poder cambiarlo después desde Ajustes sin tocar código.
 export const dynamic = 'force-dynamic';
-
-function extensionDe(nombre, tipo) {
-  const m = String(nombre || '').match(/\.([a-zA-Z0-9]+)$/);
-  if (m) {
-    const ext = m[1].toLowerCase();
-    if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) return ext;
-  }
-  if (tipo === 'image/png') return 'png';
-  if (tipo === 'image/webp') return 'webp';
-  if (tipo === 'image/gif') return 'gif';
-  return 'jpg';
-}
 
 export async function GET() {
   try {
@@ -38,17 +27,16 @@ export async function GET() {
 export async function POST(request) {
   try {
     const formData = await request.formData();
-    const archivo = formData.get('imagen');
-    if (!archivo || typeof archivo === 'string') {
-      return NextResponse.json({ ok: false, error: 'No se recibió ninguna imagen' }, { status: 400 });
+    // Se revisa que sea de verdad una imagen (ver lib/validarImagen.js).
+    const imagen = await leerImagenSubida(formData.get('imagen'));
+    if (!imagen.ok) {
+      return NextResponse.json({ ok: false, error: imagen.error }, { status: 400 });
     }
 
-    const ext = extensionDe(archivo.name, archivo.type);
-    const key = `logo-etiqueta-${Date.now()}.${ext}`;
-    const buffer = await archivo.arrayBuffer();
+    const key = `logo-etiqueta-${Date.now()}.${imagen.ext}`;
 
     const store = getStore('productos-imagenes');
-    await store.set(key, buffer, { metadata: { contentType: archivo.type || 'image/png' } });
+    await store.set(key, imagen.buffer, { metadata: { contentType: imagen.contentType } });
 
     await sql`
       INSERT INTO configuracion (clave, valor, actualizado_en)

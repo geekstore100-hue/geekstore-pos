@@ -93,7 +93,7 @@ export default function AjustesInventarioPage() {
     if (data.ok && data.valida) {
       setAccesoPermitido(true);
     } else {
-      setErrorClave('Clave incorrecta');
+      setErrorClave(data.error || 'Clave incorrecta');
     }
   }
 

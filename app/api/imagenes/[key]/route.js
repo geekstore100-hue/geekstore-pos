@@ -27,11 +27,26 @@ export async function GET(request, { params }) {
       return NextResponse.json({ ok: false, error: 'Imagen no encontrada' }, { status: 404 });
     }
 
-    const contentType = resultado.metadata?.contentType || 'application/octet-stream';
+    // Seguridad: esta ruta es pública y vive en el mismo dominio del POS.
+    // Si alguna vez se guardó algo que NO es una foto (antes se confiaba en
+    // el tipo que decía el navegador al subir), no se le permite al
+    // navegador abrirlo como página web:
+    // - Solo se sirve con su tipo original si es una imagen normal (SVG
+    //   queda por fuera, porque un SVG puede llevar código). Todo lo demás
+    //   se entrega como descarga.
+    // - nosniff: el navegador no "adivina" el tipo por el contenido.
+    // - CSP con sandbox: aunque se abriera como página, no puede ejecutar
+    //   código ni usar la sesión. No afecta cómo se ven las fotos en la
+    //   tienda ni en el POS.
+    const tipoGuardado = String(resultado.metadata?.contentType || '');
+    const esImagenSegura = /^image\//i.test(tipoGuardado) && !/svg/i.test(tipoGuardado);
 
     return new NextResponse(resultado.data, {
       headers: {
-        'Content-Type': contentType,
+        'Content-Type': esImagenSegura ? tipoGuardado : 'application/octet-stream',
+        ...(esImagenSegura ? {} : { 'Content-Disposition': 'attachment' }),
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
         // max-age: cuánto la guarda el navegador de cada persona.
         // s-maxage: cuánto la guarda el CDN de Netlify (lo más importante
         // acá, porque es lo que evita que cada visita dispare la función).

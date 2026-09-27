@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../../lib/db';
 import { hashClave, verificarClave } from '../../../../lib/claveAdmin';
+import { ipDe, minutosBloqueado, registrarFallo, limpiarFallos } from '../../../../lib/limiteIntentos';
 
 // Dice si ya hay una clave de administrador configurada (nunca devuelve la
 // clave ni su hash).
@@ -27,8 +28,23 @@ export async function POST(request) {
 
     const [fila] = await sql`SELECT valor FROM configuracion WHERE clave = 'clave_administrador'`;
 
-    if (fila?.valor && !verificarClave(claveActual, fila.valor)) {
-      return NextResponse.json({ ok: false, error: 'La clave actual no es correcta' }, { status: 403 });
+    // Mismo límite de intentos que al verificar la clave (ver
+    // verificar/route.js): si no, este formulario serviría para adivinar
+    // la clave actual probando sin límite.
+    if (fila?.valor) {
+      const llaveLimite = `admin:${ipDe(request)}`;
+      const minutos = await minutosBloqueado(llaveLimite);
+      if (minutos > 0) {
+        return NextResponse.json(
+          { ok: false, error: `Demasiados intentos fallidos. Espera ${minutos} minuto${minutos === 1 ? '' : 's'} e intenta de nuevo.` },
+          { status: 429 }
+        );
+      }
+      if (!verificarClave(claveActual, fila.valor)) {
+        await registrarFallo(llaveLimite);
+        return NextResponse.json({ ok: false, error: 'La clave actual no es correcta' }, { status: 403 });
+      }
+      await limpiarFallos(llaveLimite);
     }
 
     const nuevoValor = hashClave(claveNueva.trim());

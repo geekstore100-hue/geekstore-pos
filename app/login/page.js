@@ -14,11 +14,18 @@ export default function LoginPage() {
     setError('');
     setCargando(true);
 
-    const res = await fetch('/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clave }),
-    });
+    let res;
+    try {
+      res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clave }),
+      });
+    } catch {
+      setCargando(false);
+      setError('No hay conexión con el servidor');
+      return;
+    }
 
     setCargando(false);
 
@@ -26,7 +33,16 @@ export default function LoginPage() {
       router.push('/ventas');
       router.refresh();
     } else {
-      setError('Clave incorrecta');
+      // El servidor puede decir algo más específico que "Clave incorrecta"
+      // (por ejemplo, que hay que esperar por demasiados intentos fallidos).
+      let mensaje = 'Clave incorrecta';
+      try {
+        const data = await res.json();
+        if (data?.error) mensaje = data.error;
+      } catch {
+        // Respuesta sin JSON: se deja el mensaje por defecto.
+      }
+      setError(mensaje);
     }
   }
 
