@@ -141,6 +141,34 @@ export default function ReabastecimientoPage() {
     setCarrito((actual) => actual.filter((it) => it.producto_id !== productoId));
   }
 
+  const [enListaCompras, setEnListaCompras] = useState({}); // { [producto_id]: true } — ya agregados en esta sesión
+  const [agregandoListaId, setAgregandoListaId] = useState(null);
+
+  // Manda el producto a la lista de compras (Lista de compras, agrupada por
+  // proveedor) con el proveedor más barato ya sugerido — se puede cambiar
+  // después desde esa pantalla si hace falta.
+  async function agregarAListaCompras(item) {
+    setAgregandoListaId(item.id);
+    try {
+      const res = await fetch('/api/lista-compras', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          producto_id: item.id,
+          proveedor_id: item.mejor_proveedor?.proveedor_id || null,
+          cantidad: item.cantidad_sugerida || 1,
+          precio_referencia: item.mejor_proveedor?.precio ?? item.precio_costo,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setEnListaCompras((actual) => ({ ...actual, [item.id]: true }));
+      }
+    } finally {
+      setAgregandoListaId(null);
+    }
+  }
+
   const valorCarrito = useMemo(
     () => carrito.reduce((total, it) => total + it.precio_costo * (Number(it.cantidad) || 0), 0),
     [carrito]
@@ -354,8 +382,25 @@ export default function ReabastecimientoPage() {
                 Agregar {item.cantidad_sugerida} {item.estimado ? '(estimado)' : ''}
               </button>
             )
+          ) : enListaCompras[item.id] ? (
+            <span style={styles.badgeEnCarrito}>En la lista de compras</span>
           ) : (
-            <span style={styles.badgeComprar}>Comprar más (sin stock en Distribuidor)</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end' }}>
+              {item.mejor_proveedor ? (
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'right' }}>
+                  Más barato en <strong>{item.mejor_proveedor.proveedor_nombre}</strong> ({moneda0(item.mejor_proveedor.precio)})
+                </span>
+              ) : (
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Sin historial de compras de este producto</span>
+              )}
+              <button
+                onClick={() => agregarAListaCompras(item)}
+                disabled={agregandoListaId === item.id}
+                style={styles.btnPrimario}
+              >
+                {agregandoListaId === item.id ? 'Agregando...' : `Agregar a lista de compras (${item.cantidad_sugerida || 1})`}
+              </button>
+            </div>
           )}
         </div>
       </div>

@@ -32,7 +32,7 @@ export async function GET(request, { params }) {
         g.id, g.motivo, g.observaciones, g.estado, g.total_costo, g.enviado_en, g.resuelto_en, g.creado_en,
         g.proveedor_id, p.nombre AS proveedor_nombre, p.telefono AS proveedor_telefono
       FROM garantias_proveedor g
-      JOIN proveedores p ON p.id = g.proveedor_id
+      LEFT JOIN proveedores p ON p.id = g.proveedor_id
       WHERE g.id = ${id}
     `;
     if (!garantia) {

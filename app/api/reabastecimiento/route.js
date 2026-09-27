@@ -90,6 +90,17 @@ export async function GET() {
             estimado = true;
           }
           cantidadSugerida = Math.min(cantidadSugerida, stockDistribuidor);
+        } else {
+          // "comprar": mismo objetivo de cobertura, pero sin tope de stock de
+          // Distribuidor (no hay de dónde trasladar). Se usa igual como
+          // cantidad por defecto al mandarlo a la lista de compras — se
+          // puede ajustar ahí antes de comprar.
+          if (ventaDiariaPromedio > 0) {
+            cantidadSugerida = Math.max(1, Math.ceil(ventaDiariaPromedio * OBJETIVO_DIAS_COBERTURA) - stockPrincipal);
+          } else {
+            cantidadSugerida = 5;
+            estimado = true;
+          }
         }
 
         return {
@@ -117,6 +128,49 @@ export async function GET() {
         }
         return (a.dias_cobertura ?? Infinity) - (b.dias_cobertura ?? Infinity);
       });
+
+    // Para los que hay que comprar (no alcanza con trasladar de
+    // Distribuidor), se busca de una sola vez cuál proveedor se los ha
+    // vendido más barato, con base en el historial de facturas de compra.
+    // Esto es lo que permite saber "dónde me sale más barato comprarlo" sin
+    // tener que abrir cada producto uno por uno.
+    const idsParaComprar = alertas.filter((a) => a.accion === 'comprar').map((a) => a.id);
+    if (idsParaComprar.length > 0) {
+      const mejores = await sql`
+        WITH compras AS (
+          SELECT m.producto_id, f.proveedor_id, pr.nombre AS proveedor_nombre,
+                 m.precio_unitario, f.fecha_creacion
+          FROM movimientos_stock m
+          JOIN facturas_compra f ON f.id = m.factura_compra_id
+          JOIN proveedores pr ON pr.id = f.proveedor_id
+          WHERE m.tipo = 'factura_compra' AND m.producto_id = ANY(${idsParaComprar})
+        ),
+        resumen AS (
+          SELECT producto_id, proveedor_id, proveedor_nombre,
+                 MIN(precio_unitario) AS precio_minimo,
+                 MAX(fecha_creacion) AS ultima_compra
+          FROM compras
+          GROUP BY producto_id, proveedor_id, proveedor_nombre
+        )
+        SELECT DISTINCT ON (producto_id) producto_id, proveedor_id, proveedor_nombre, precio_minimo, ultima_compra
+        FROM resumen
+        ORDER BY producto_id, precio_minimo ASC, ultima_compra DESC
+      `;
+      const mejorPorProducto = new Map(mejores.map((m) => [m.producto_id, m]));
+      for (const alerta of alertas) {
+        if (alerta.accion === 'comprar') {
+          const mejor = mejorPorProducto.get(alerta.id);
+          alerta.mejor_proveedor = mejor
+            ? {
+                proveedor_id: mejor.proveedor_id,
+                proveedor_nombre: mejor.proveedor_nombre,
+                precio: Number(mejor.precio_minimo),
+                ultima_compra: mejor.ultima_compra,
+              }
+            : null;
+        }
+      }
+    }
 
     return NextResponse.json({
       ok: true,

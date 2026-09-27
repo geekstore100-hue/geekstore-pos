@@ -40,7 +40,7 @@ export async function GET() {
         COUNT(i.id) FILTER (WHERE i.resolucion IS NULL) AS items_pendientes,
         COALESCE(SUM(i.cantidad), 0) AS unidades
       FROM garantias_proveedor g
-      JOIN proveedores p ON p.id = g.proveedor_id
+      LEFT JOIN proveedores p ON p.id = g.proveedor_id
       LEFT JOIN garantia_proveedor_items i ON i.garantia_id = g.id
       GROUP BY g.id, p.nombre
       -- Primero lo que falta entregar, luego lo que está donde el proveedor,
@@ -64,24 +64,29 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const proveedor_id = Number(body.proveedor_id);
+    // El proveedor es opcional: a veces todavía no se sabe a quién se le va
+    // a llevar el producto. Se puede asignar después desde el detalle del
+    // caso (ver [id]/proveedor).
+    const proveedor_id = body.proveedor_id ? Number(body.proveedor_id) : null;
     const itemsBody = Array.isArray(body.items) ? body.items : [];
     // "por_entregar": ya separaste los productos malos (salen del stock
     // vendible) pero todavía no se los has llevado al proveedor. Queda
     // contado como pendiente por entregar hasta que lo marques como
-    // entregado (ver [id]/entregar). "enviada": ya se los entregaste.
-    const estadoInicial = body.entregada ? 'enviada' : 'por_entregar';
+    // entregado (ver [id]/entregar). "enviada": ya se los entregaste. Sin
+    // proveedor todavía no se le puede haber entregado a nadie, así que
+    // siempre arranca "por_entregar" en ese caso, sin importar lo que
+    // venga en body.entregada.
+    const estadoInicial = proveedor_id && body.entregada ? 'enviada' : 'por_entregar';
 
-    if (!proveedor_id) {
-      return NextResponse.json({ ok: false, error: 'Selecciona el proveedor' }, { status: 400 });
-    }
     if (itemsBody.length === 0) {
       return NextResponse.json({ ok: false, error: 'Agrega al menos un producto' }, { status: 400 });
     }
 
-    const [proveedor] = await sql`SELECT id FROM proveedores WHERE id = ${proveedor_id}`;
-    if (!proveedor) {
-      return NextResponse.json({ ok: false, error: 'El proveedor ya no existe' }, { status: 404 });
+    if (proveedor_id) {
+      const [proveedor] = await sql`SELECT id FROM proveedores WHERE id = ${proveedor_id}`;
+      if (!proveedor) {
+        return NextResponse.json({ ok: false, error: 'El proveedor ya no existe' }, { status: 404 });
+      }
     }
 
     // Agrupa por producto por si el mismo producto quedó agregado dos veces

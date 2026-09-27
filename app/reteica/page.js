@@ -6,24 +6,31 @@ import Shell from '../../components/Shell';
 function hoyISO() {
   return new Date().toISOString().slice(0, 10);
 }
-function primerDiaMesISO() {
-  return hoyISO().slice(0, 8) + '01';
+function haceUnAñoISO() {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - 1);
+  return d.toISOString().slice(0, 10);
 }
 
 function moneda(n) {
   return `$${Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
 }
 
-// Certificado de retención de ReteICA para un proveedor, por período. Es el
-// primer paso simple del módulo: se elige proveedor + fechas, se ve el
-// detalle en pantalla y se descarga como PDF (con jsPDF, en el navegador).
-// Más adelante se puede sumar el envío automático por correo — por ahora
-// Nelson lo descarga y lo envía él mismo.
+// Certificado de retención de ReteICA para un proveedor, por período. Al
+// entrar se ve de una vez el resumen de TODOS los proveedores que tuvieron
+// retención en el último año (sin necesidad de buscar primero); se hace
+// clic en uno para ver el detalle de sus facturas y descargar el PDF (con
+// jsPDF, en el navegador). Más adelante se puede sumar el envío automático
+// por correo — por ahora Nelson lo descarga y lo envía él mismo.
 export default function ReteicaPage() {
   const [proveedores, setProveedores] = useState([]);
   const [proveedorId, setProveedorId] = useState('');
-  const [desde, setDesde] = useState(primerDiaMesISO());
+  const [desde, setDesde] = useState(haceUnAñoISO());
   const [hasta, setHasta] = useState(hoyISO());
+
+  const [resumen, setResumen] = useState(null);
+  const [cargandoResumen, setCargandoResumen] = useState(false);
+  const [errorResumen, setErrorResumen] = useState('');
 
   const [datos, setDatos] = useState(null);
   const [cargando, setCargando] = useState(false);
@@ -41,17 +48,45 @@ export default function ReteicaPage() {
       .then((d) => { if (d.ok) setEmpresaConfigurada(Boolean(d.razonSocial && d.nit)); });
   }, []);
 
-  async function consultar(e) {
+  async function cargarResumen(desdeParam, hastaParam) {
+    setErrorResumen('');
+    setCargandoResumen(true);
+    try {
+      const res = await fetch(`/api/reteica/resumen?desde=${desdeParam}&hasta=${hastaParam}`);
+      const data = await res.json();
+      if (data.ok) {
+        setResumen(data);
+      } else {
+        setResumen(null);
+        setErrorResumen(data.error || 'No se pudo cargar el resumen');
+      }
+    } catch {
+      setResumen(null);
+      setErrorResumen('Error de conexión al cargar el resumen');
+    } finally {
+      setCargandoResumen(false);
+    }
+  }
+
+  // Al entrar a la página se carga solo, con el período por defecto (último
+  // año) — sin que Nelson tenga que buscar nada primero.
+  useEffect(() => {
+    cargarResumen(desde, hasta);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function actualizarPeriodo(e) {
     e.preventDefault();
+    cargarResumen(desde, hasta);
+  }
+
+  async function consultarProveedor(id, desdeParam, hastaParam) {
     setError('');
     setDatos(null);
-    if (!proveedorId) {
-      setError('Selecciona el proveedor');
-      return;
-    }
+    setProveedorId(String(id));
     setCargando(true);
     try {
-      const res = await fetch(`/api/reteica/certificado?proveedor_id=${proveedorId}&desde=${desde}&hasta=${hasta}`);
+      const res = await fetch(`/api/reteica/certificado?proveedor_id=${id}&desde=${desdeParam}&hasta=${hastaParam}`);
       const data = await res.json();
       if (data.ok) {
         setDatos(data);
@@ -63,6 +98,15 @@ export default function ReteicaPage() {
     } finally {
       setCargando(false);
     }
+  }
+
+  async function consultar(e) {
+    e.preventDefault();
+    if (!proveedorId) {
+      setError('Selecciona el proveedor');
+      return;
+    }
+    consultarProveedor(proveedorId, desde, hasta);
   }
 
   async function descargarPdf() {
@@ -94,16 +138,7 @@ export default function ReteicaPage() {
         </p>
       )}
 
-      <form onSubmit={consultar} style={styles.barra}>
-        <label>
-          Proveedor
-          <select value={proveedorId} onChange={(e) => setProveedorId(e.target.value)} style={styles.input}>
-            <option value="">Selecciona...</option>
-            {proveedores.map((p) => (
-              <option key={p.id} value={p.id}>{p.nombre}</option>
-            ))}
-          </select>
-        </label>
+      <form onSubmit={actualizarPeriodo} style={styles.barra}>
         <label>
           Desde
           <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} style={styles.input} />
@@ -112,9 +147,87 @@ export default function ReteicaPage() {
           Hasta
           <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} style={styles.input} />
         </label>
-        <button type="submit" disabled={cargando} style={styles.btnPrimario}>
-          {cargando ? 'Consultando...' : 'Consultar'}
+        <button type="submit" disabled={cargandoResumen} style={styles.btnPrimario}>
+          {cargandoResumen ? 'Actualizando...' : 'Actualizar período'}
         </button>
+        <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Por defecto se muestra el último año.</span>
+      </form>
+
+      {errorResumen && <p style={{ color: 'var(--danger)' }}>{errorResumen}</p>}
+
+      {resumen && (
+        <div style={styles.tableCard}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <strong>Proveedores con retención en el período</strong>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+              {String(resumen.periodo.desde)} a {String(resumen.periodo.hasta)}
+            </span>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                <th style={styles.th}>Proveedor</th>
+                <th style={styles.th}>Identificación</th>
+                <th style={styles.th}>Facturas</th>
+                <th style={styles.th}>Base retención</th>
+                <th style={styles.th}>Valor retenido</th>
+                <th style={styles.th}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {resumen.proveedores.map((p) => (
+                <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={styles.td}>{p.nombre}</td>
+                  <td style={styles.td}>{p.identificacion || '—'}</td>
+                  <td style={styles.td}>{p.facturas}</td>
+                  <td style={styles.td}>{moneda(p.total_base)}</td>
+                  <td style={styles.td}>{moneda(p.total_retenido)}</td>
+                  <td style={styles.td}>
+                    <button
+                      onClick={() => consultarProveedor(p.id, desde, hasta)}
+                      disabled={cargando}
+                      style={styles.btnSecundario}
+                    >
+                      Ver certificado
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {resumen.proveedores.length === 0 && (
+                <tr>
+                  <td style={styles.td} colSpan={6}>Ningún proveedor tuvo retención practicada en este período.</td>
+                </tr>
+              )}
+            </tbody>
+            {resumen.proveedores.length > 0 && (
+              <tfoot>
+                <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 'bold' }}>
+                  <td style={styles.td} colSpan={4}>Total retenido</td>
+                  <td style={styles.td}>{moneda(resumen.totales.retenido)}</td>
+                  <td style={styles.td}></td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      )}
+
+      <form onSubmit={consultar} style={styles.barra}>
+        <label>
+          Buscar un proveedor puntual
+          <select value={proveedorId} onChange={(e) => setProveedorId(e.target.value)} style={styles.input}>
+            <option value="">Selecciona...</option>
+            {proveedores.map((p) => (
+              <option key={p.id} value={p.id}>{p.nombre}</option>
+            ))}
+          </select>
+        </label>
+        <button type="submit" disabled={cargando} style={styles.btnSecundario}>
+          {cargando ? 'Consultando...' : 'Ver certificado'}
+        </button>
+        <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+          Usa el mismo período de arriba — útil si el proveedor no aparece en la tabla de resumen.
+        </span>
       </form>
 
       {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
@@ -179,4 +292,5 @@ const styles = {
   th: { padding: '10px 8px', fontSize: '13px', color: 'var(--text-secondary)' },
   td: { padding: '10px 8px', fontSize: '14px' },
   btnPrimario: { padding: '9px 16px', borderRadius: '8px', border: 'none', background: 'var(--teal)', color: '#fff', cursor: 'pointer', fontWeight: 600, height: '38px' },
+  btnSecundario: { padding: '8px 14px', borderRadius: '8px', border: '1px solid var(--border)', background: '#fff', color: 'var(--text)', cursor: 'pointer', fontWeight: 600 },
 };

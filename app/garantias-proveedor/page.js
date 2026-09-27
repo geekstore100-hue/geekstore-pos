@@ -70,6 +70,12 @@ export default function GarantiasProveedorPage() {
   const [entregandoId, setEntregandoId] = useState(null);
   const [filtro, setFiltro] = useState('todas');
 
+  // Asignar proveedor desde el detalle, para los casos que se crearon sin
+  // proveedor todavía.
+  const [proveedorParaAsignar, setProveedorParaAsignar] = useState('');
+  const [asignandoProveedor, setAsignandoProveedor] = useState(false);
+  const [errorAsignarProveedor, setErrorAsignarProveedor] = useState('');
+
   async function cargarGarantias() {
     setCargando(true);
     try {
@@ -205,10 +211,6 @@ export default function GarantiasProveedorPage() {
 
   async function guardarGarantia() {
     setErrorForm('');
-    if (!form.proveedor_id) {
-      setErrorForm('Selecciona el proveedor');
-      return;
-    }
     if (items.length === 0) {
       setErrorForm('Agrega al menos un producto');
       return;
@@ -239,8 +241,8 @@ export default function GarantiasProveedorPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          proveedor_id: Number(form.proveedor_id),
-          entregada: Boolean(form.entregada),
+          proveedor_id: form.proveedor_id ? Number(form.proveedor_id) : null,
+          entregada: Boolean(form.proveedor_id) && Boolean(form.entregada),
           items: items.map((it) => ({
             producto_id: it.producto_id,
             cantidad: Number(it.cantidad),
@@ -284,6 +286,8 @@ export default function GarantiasProveedorPage() {
     setDetalle(null);
     setResolucionesPorItem({});
     setErrorResolucion('');
+    setProveedorParaAsignar('');
+    setErrorAsignarProveedor('');
   }
 
   function actualizarResolucionItem(itemId, campo, valor) {
@@ -336,6 +340,34 @@ export default function GarantiasProveedorPage() {
   }
 
   // Marca como entregada al proveedor una garantía que estaba "por entregar".
+  async function asignarProveedorDetalle(id) {
+    if (!proveedorParaAsignar) {
+      setErrorAsignarProveedor('Selecciona el proveedor');
+      return;
+    }
+    setAsignandoProveedor(true);
+    setErrorAsignarProveedor('');
+    try {
+      const res = await fetch(`/api/garantias-proveedor/${id}/proveedor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proveedor_id: Number(proveedorParaAsignar) }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        setErrorAsignarProveedor(data.error || 'No se pudo asignar el proveedor');
+        return;
+      }
+      setProveedorParaAsignar('');
+      cargarGarantias();
+      abrirDetalle(id);
+    } catch {
+      setErrorAsignarProveedor('No se pudo asignar el proveedor');
+    } finally {
+      setAsignandoProveedor(false);
+    }
+  }
+
   async function marcarEntregada(id) {
     setEntregandoId(id);
     try {
@@ -463,7 +495,9 @@ export default function GarantiasProveedorPage() {
                 return (
                   <tr key={g.id} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={styles.td}>
-                      <span onClick={() => abrirDetalle(g.id)} style={styles.clicable}>{g.proveedor_nombre}</span>
+                      <span onClick={() => abrirDetalle(g.id)} style={styles.clicable}>
+                        {g.proveedor_nombre || <em style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>Sin proveedor asignado</em>}
+                      </span>
                     </td>
                     <td style={styles.td}>{g.motivo || '—'}</td>
                     <td style={styles.td}>
@@ -516,16 +550,16 @@ export default function GarantiasProveedorPage() {
             </div>
 
             <div style={{ marginTop: '4px' }}>
-              <label style={styles.etiquetaChica}>Proveedor *</label>
+              <label style={styles.etiquetaChica}>Proveedor (opcional)</label>
               {!mostrarNuevoProveedor ? (
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <select
                     value={form.proveedor_id}
-                    onChange={(e) => { setForm({ ...form, proveedor_id: e.target.value }); setSugerenciaProveedor(''); }}
+                    onChange={(e) => { setForm({ ...form, proveedor_id: e.target.value, entregada: e.target.value ? form.entregada : false }); setSugerenciaProveedor(''); }}
                     style={{ ...styles.select, flex: 1 }}
                   >
                     <option value="">
-                      {buscandoProveedorSugerido ? 'Buscando proveedor...' : 'Selecciona...'}
+                      {buscandoProveedorSugerido ? 'Buscando proveedor...' : 'Sin proveedor todavía'}
                     </option>
                     {proveedores.map((p) => (
                       <option key={p.id} value={p.id}>{p.nombre}</option>
@@ -575,29 +609,36 @@ export default function GarantiasProveedorPage() {
               )}
             </div>
 
-            <div style={{ marginTop: '14px' }}>
-              <label style={styles.etiquetaChica}>¿Ya se la entregaste al proveedor?</label>
-              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '14px' }}>
-                <label style={styles.opcionRadio}>
-                  <input
-                    type="radio"
-                    name="entregada"
-                    checked={!form.entregada}
-                    onChange={() => setForm({ ...form, entregada: false })}
-                  />
-                  Todavía no (queda pendiente por entregar)
-                </label>
-                <label style={styles.opcionRadio}>
-                  <input
-                    type="radio"
-                    name="entregada"
-                    checked={Boolean(form.entregada)}
-                    onChange={() => setForm({ ...form, entregada: true })}
-                  />
-                  Sí, ya se la entregué
-                </label>
+            {form.proveedor_id ? (
+              <div style={{ marginTop: '14px' }}>
+                <label style={styles.etiquetaChica}>¿Ya se la entregaste al proveedor?</label>
+                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '14px' }}>
+                  <label style={styles.opcionRadio}>
+                    <input
+                      type="radio"
+                      name="entregada"
+                      checked={!form.entregada}
+                      onChange={() => setForm({ ...form, entregada: false })}
+                    />
+                    Todavía no (queda pendiente por entregar)
+                  </label>
+                  <label style={styles.opcionRadio}>
+                    <input
+                      type="radio"
+                      name="entregada"
+                      checked={Boolean(form.entregada)}
+                      onChange={() => setForm({ ...form, entregada: true })}
+                    />
+                    Sí, ya se la entregué
+                  </label>
+                </div>
               </div>
-            </div>
+            ) : (
+              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '10px' }}>
+                Como todavía no elegiste proveedor, este caso quedará como &quot;por entregar&quot;. Podrás asignar el
+                proveedor y marcarla como entregada más adelante, desde el detalle.
+              </p>
+            )}
 
             <div style={{ position: 'relative', marginTop: '16px' }}>
               <label style={styles.etiquetaChica}>Agregar producto</label>
@@ -706,9 +747,41 @@ export default function GarantiasProveedorPage() {
               <p style={{ color: 'var(--danger)' }}>No se pudo cargar el detalle.</p>
             ) : (
               <>
-                <div style={styles.filaDetalle}><span>Proveedor</span><strong>{detalle.garantia.proveedor_nombre}</strong></div>
+                <div style={styles.filaDetalle}>
+                  <span>Proveedor</span>
+                  <strong>
+                    {detalle.garantia.proveedor_nombre || (
+                      <em style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>Sin proveedor asignado</em>
+                    )}
+                  </strong>
+                </div>
                 {detalle.garantia.proveedor_telefono && (
                   <div style={styles.filaDetalle}><span>Teléfono</span><strong>{detalle.garantia.proveedor_telefono}</strong></div>
+                )}
+                {!detalle.garantia.proveedor_id && (
+                  <div style={{ ...styles.avisoPorEntregar, marginTop: '8px' }}>
+                    Todavía no tiene proveedor asignado. Elígelo cuando lo sepas para poder entregarle el producto.
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginTop: '8px' }}>
+                      <select
+                        value={proveedorParaAsignar}
+                        onChange={(e) => setProveedorParaAsignar(e.target.value)}
+                        style={{ ...styles.select, flex: 1, minWidth: '180px' }}
+                      >
+                        <option value="">Selecciona...</option>
+                        {proveedores.map((p) => (
+                          <option key={p.id} value={p.id}>{p.nombre}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => asignarProveedorDetalle(detalle.id)}
+                        disabled={asignandoProveedor}
+                        style={styles.btnPrimario}
+                      >
+                        {asignandoProveedor ? 'Guardando...' : 'Asignar proveedor'}
+                      </button>
+                    </div>
+                    {errorAsignarProveedor && <p style={{ color: 'var(--danger)', marginTop: '6px' }}>{errorAsignarProveedor}</p>}
+                  </div>
                 )}
                 {detalle.garantia.estado === 'por_entregar' ? (
                   <div style={styles.filaDetalle}><span>Lista desde</span><strong>{fecha(detalle.garantia.creado_en)} (hace {diasDesde(detalle.garantia.creado_en)} días)</strong></div>

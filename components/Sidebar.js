@@ -19,6 +19,7 @@ const links = [
     ],
   },
   { href: '/reabastecimiento', label: 'Reabastecimiento', icon: IconReabastecer },
+  { href: '/lista-compras', label: 'Lista de compras', icon: IconListaCompras },
   {
     href: '/cotizaciones-distribuidor',
     label: 'Distribuidores',
@@ -43,6 +44,7 @@ const links = [
   { href: '/reteica', label: 'Certificados ReteICA', icon: IconCertificado },
   { href: '/manifiestos', label: 'Manifiestos de importación', icon: IconManifiesto },
   { href: '/reportes', label: 'Reportes', icon: IconChart },
+  { href: '/analiticas', label: 'Analíticas', icon: IconAnaliticas },
   { href: '/configuraciones', label: 'Configuraciones', icon: IconSettings },
 ];
 
@@ -463,6 +465,23 @@ function IconCertificado() {
       <path d="M8 8h8M8 12h8M8 16h4" strokeLinecap="round" strokeLinejoin="round" />
       <circle cx="17" cy="17" r="4" />
       <path d="M17 15.5v3M15.5 17h3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconListaCompras() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M6 2l1.5 4M18 2l-1.5 4M4 6h16l-1.5 10a2 2 0 01-2 1.7H7.5a2 2 0 01-2-1.7L4 6z" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="9" cy="21" r="1.3" />
+      <circle cx="16" cy="21" r="1.3" />
+    </svg>
+  );
+}
+function IconAnaliticas() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M4 19V5M4 19h16" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M8 15l3-4 3 2 4-6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
