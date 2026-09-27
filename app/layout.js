@@ -16,7 +16,27 @@ export const viewport = {
 export default function RootLayout({ children }) {
   return (
     <html lang="es">
-      <body>{children}</body>
+      <body>
+        {children}
+        {/* Registra el service worker (public/sw.js) que permite que el
+            sistema siga cargando sin internet — ver ese archivo para el
+            detalle. Va como <script> plano (no un componente de React) para
+            no tener que convertir este layout en "use client". */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function () {
+                  navigator.serviceWorker.register('/sw.js').catch(function () {
+                    // Si falla el registro (navegador viejo, etc.) el sistema
+                    // sigue funcionando normal, solo sin el respaldo offline.
+                  });
+                });
+              }
+            `,
+          }}
+        />
+      </body>
     </html>
   );
 }

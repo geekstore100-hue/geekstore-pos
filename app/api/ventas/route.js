@@ -52,7 +52,20 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const { items, medio_pago, vendedor_id, pagos: pagosBody } = await request.json();
+    const { items, medio_pago, vendedor_id, pagos: pagosBody, fecha_offline } = await request.json();
+
+    // fecha_offline: cuando una venta se hizo sin conexión (ver /ventas y
+    // lib/offlineVentas.js) y se está sincronizando después, este es el
+    // momento REAL en que se hizo la venta en la caja, no el momento en que
+    // por fin se pudo enviar al servidor (que puede ser horas o hasta un día
+    // después). Se usa para creado_en si viene y es una fecha válida; si no
+    // viene (venta normal, hecha con internet), se usa el momento actual
+    // como siempre.
+    let fechaVenta = null;
+    if (fecha_offline) {
+      const f = new Date(fecha_offline);
+      if (!Number.isNaN(f.getTime())) fechaVenta = f.toISOString();
+    }
 
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ ok: false, error: 'Agrega al menos un producto' }, { status: 400 });
@@ -140,8 +153,8 @@ export async function POST(request) {
       : medio_pago;
 
     const [venta] = await sql`
-      INSERT INTO ventas (total, medio_pago, vendedor_id, turno_id)
-      VALUES (${total}, ${medioPagoGuardado}, ${vendedor_id || null}, ${turnoAbierto.id})
+      INSERT INTO ventas (total, medio_pago, vendedor_id, turno_id, creado_en)
+      VALUES (${total}, ${medioPagoGuardado}, ${vendedor_id || null}, ${turnoAbierto.id}, COALESCE(${fechaVenta}, now()))
       RETURNING id
     `;
 

@@ -2,6 +2,37 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Shell from '../../components/Shell';
+import {
+  generarIdLocal,
+  guardarVentaPendiente,
+  actualizarVentaPendiente,
+  listarVentasPendientes,
+  eliminarVentaPendiente,
+  guardarSnapshot,
+  leerSnapshot,
+} from '../../lib/offlineVentas';
+
+// Si hay ventas hechas sin conexión todavía pendientes de enviar, se les
+// resta su cantidad al stock que se muestra en pantalla — así, mientras
+// sigue sin haber internet, no se puede seguir vendiendo algo que ya se
+// vendió (sin conexión) hace un rato y que en el servidor todavía figura con
+// el stock viejo. Apenas esa venta se sincroniza, se vuelve a pedir el stock
+// real del servidor y este ajuste ya no hace falta para ella.
+function aplicarAjustesPendientes(productos, pendientes) {
+  if (!pendientes.length) return productos;
+  const descuentos = new Map();
+  for (const venta of pendientes) {
+    for (const item of venta.items) {
+      descuentos.set(item.producto_id, (descuentos.get(item.producto_id) || 0) + Number(item.cantidad));
+    }
+  }
+  if (descuentos.size === 0) return productos;
+  return productos.map((p) =>
+    descuentos.has(p.id)
+      ? { ...p, stock_principal: Math.max(0, Number(p.stock_principal) - descuentos.get(p.id)) }
+      : p
+  );
+}
 
 function crearPestana(id, nombre) {
   return {
@@ -24,12 +55,29 @@ function crearPestana(id, nombre) {
 }
 
 export default function VentasPage() {
-  const [productos, setProductos] = useState([]);
+  const [productosCrudos, setProductosCrudos] = useState([]);
   const [vendedores, setVendedores] = useState([]);
   const [busqueda, setBusqueda] = useState('');
   const [error, setError] = useState('');
   const [mensaje, setMensaje] = useState('');
   const [guardando, setGuardando] = useState(false);
+
+  // --- Ventas sin conexión ---
+  // ventasPendientes: ventas hechas sin internet, guardadas en este
+  // computador (IndexedDB, ver lib/offlineVentas.js) esperando a poder
+  // enviarse al servidor. enLinea sigue el estado real de la conexión.
+  // sincronizando evita que se disparen varios intentos de sincronización al
+  // mismo tiempo.
+  const [ventasPendientes, setVentasPendientes] = useState([]);
+  const [enLinea, setEnLinea] = useState(true);
+  const [sincronizando, setSincronizando] = useState(false);
+
+  // El stock que se muestra ya descuenta lo vendido sin conexión que todavía
+  // no se ha podido enviar (ver aplicarAjustesPendientes arriba).
+  const productos = useMemo(
+    () => aplicarAjustesPendientes(productosCrudos, ventasPendientes),
+    [productosCrudos, ventasPendientes]
+  );
 
   // Ventas en paralelo: cada "pestaña" es una venta independiente en curso
   // (su propio carrito, medio de pago, vendedor y lista de precios), para
@@ -56,26 +104,148 @@ export default function VentasPage() {
   const [observacionesCierre, setObservacionesCierre] = useState('');
   const [cerrandoTurno, setCerrandoTurno] = useState(false);
 
+  // Si no hay internet (o el servidor no contesta), en vez de dejar la
+  // pantalla sin productos ni vendedores, se usa la última copia guardada en
+  // este computador (ver lib/offlineVentas.js). No es en tiempo real, pero
+  // deja seguir vendiendo — mejor eso que no poder vender nada.
   async function cargarTodo() {
-    const [rProd, rVend] = await Promise.all([fetch('/api/productos'), fetch('/api/vendedores')]);
-    const dProd = await rProd.json();
-    const dVend = await rVend.json();
-    if (dProd.ok) setProductos(dProd.productos.filter((p) => p.activo));
-    if (dVend.ok) setVendedores(dVend.vendedores.filter((v) => v.activo));
+    try {
+      const [rProd, rVend] = await Promise.all([fetch('/api/productos'), fetch('/api/vendedores')]);
+      const dProd = await rProd.json();
+      const dVend = await rVend.json();
+      if (dProd.ok) {
+        const lista = dProd.productos.filter((p) => p.activo);
+        setProductosCrudos(lista);
+        guardarSnapshot('productos', lista);
+      }
+      if (dVend.ok) {
+        const lista = dVend.vendedores.filter((v) => v.activo);
+        setVendedores(lista);
+        guardarSnapshot('vendedores', lista);
+      }
+      setEnLinea(true);
+    } catch (e) {
+      setEnLinea(false);
+      const [productosGuardados, vendedoresGuardados] = await Promise.all([
+        leerSnapshot('productos'),
+        leerSnapshot('vendedores'),
+      ]);
+      if (productosGuardados) setProductosCrudos(productosGuardados);
+      if (vendedoresGuardados) setVendedores(vendedoresGuardados);
+    }
   }
 
   async function cargarTurno() {
     setCargandoTurno(true);
-    const res = await fetch('/api/turnos');
-    const data = await res.json();
-    if (data.ok) setTurno(data.turno);
+    try {
+      const res = await fetch('/api/turnos');
+      const data = await res.json();
+      if (data.ok) {
+        setTurno(data.turno);
+        guardarSnapshot('turno', data.turno);
+      }
+      setEnLinea(true);
+    } catch (e) {
+      setEnLinea(false);
+      // Se confía en el último turno conocido: si estaba abierto antes de
+      // quedarse sin internet, se deja seguir vendiendo con ese turno. Al
+      // volver la conexión, cargarTurno() se vuelve a llamar y trae el dato
+      // real del servidor.
+      const turnoGuardado = await leerSnapshot('turno');
+      if (turnoGuardado) setTurno(turnoGuardado);
+    }
     setCargandoTurno(false);
+  }
+
+  async function cargarVentasPendientes() {
+    try {
+      const lista = await listarVentasPendientes();
+      setVentasPendientes(lista);
+      return lista;
+    } catch (e) {
+      return [];
+    }
   }
 
   useEffect(() => {
     cargarTodo();
     cargarTurno();
+    cargarVentasPendientes();
+
+    function alVolverConexion() {
+      setEnLinea(true);
+      cargarTodo();
+      cargarTurno();
+      sincronizarVentasPendientes();
+    }
+    function alPerderConexion() {
+      setEnLinea(false);
+    }
+    setEnLinea(navigator.onLine);
+    window.addEventListener('online', alVolverConexion);
+    window.addEventListener('offline', alPerderConexion);
+
+    // Además de reaccionar al evento "online" (que no siempre dispara en
+    // todos los navegadores/routers), se revisa cada 45 segundos si ya hay
+    // ventas pendientes por mandar.
+    const intervalo = setInterval(() => {
+      sincronizarVentasPendientes();
+    }, 45000);
+
+    return () => {
+      window.removeEventListener('online', alVolverConexion);
+      window.removeEventListener('offline', alPerderConexion);
+      clearInterval(intervalo);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Manda al servidor, una por una y en orden, las ventas guardadas sin
+  // conexión. Se detiene apenas una falla:
+  // - Si falla por falta de conexión, no tiene sentido seguir intentando las
+  //   demás en este momento (se reintentará solo, más adelante).
+  // - Si el SERVIDOR la rechaza (por ejemplo ya no hay stock suficiente, o
+  //   sí hay internet pero el turno se cerró mientras tanto), esa venta
+  //   puntual se marca con el error para revisarla a mano — y se detiene ahí
+  //   para no desordenar las ventas que quedan detrás de esa.
+  async function sincronizarVentasPendientes() {
+    if (sincronizando) return;
+    setSincronizando(true);
+    try {
+      const pendientes = await listarVentasPendientes();
+      for (const venta of pendientes) {
+        if (venta.error) continue; // ya se marcó para revisión manual, no se reintenta sola
+        let res;
+        try {
+          res = await fetch('/api/ventas', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              medio_pago: venta.medio_pago,
+              pagos: venta.pagos,
+              vendedor_id: venta.vendedor_id,
+              items: venta.items,
+              fecha_offline: venta.creadoEnISO,
+            }),
+          });
+        } catch (e) {
+          setEnLinea(false);
+          break; // sigue sin internet — se reintenta en el próximo ciclo
+        }
+        const data = await res.json();
+        if (data.ok) {
+          await eliminarVentaPendiente(venta.idLocal);
+        } else {
+          await actualizarVentaPendiente({ ...venta, error: data.error || 'El servidor rechazó la venta' });
+          break;
+        }
+      }
+    } finally {
+      await cargarVentasPendientes();
+      cargarTodo();
+      setSincronizando(false);
+    }
+  }
 
   async function abrirTurno() {
     setErrorTurno('');
@@ -335,7 +505,7 @@ export default function VentasPage() {
   // el mismo diálogo de impresión de Windows/Chrome), pero no se abre ninguna
   // ventana nueva que haya que acordarse de cerrar, y el iframe se borra
   // solo apenas termina.
-  function imprimirTicket({ ventaId, items, totalVenta, pagos, vendedorNombre, listaUsada, fecha }) {
+  function imprimirTicket({ ventaId, items, totalVenta, pagos, vendedorNombre, listaUsada, fecha, sinConexion }) {
     const filasHtml = items
       .map((i) => {
         const desc = Number(i.descuento_porcentaje) || 0;
@@ -401,6 +571,11 @@ export default function VentasPage() {
       </head>
       <body>
         <h1>GEEK STORE</h1>
+        ${
+          sinConexion
+            ? '<p class="centro" style="border:1px solid #000;padding:3px;">*** SIN CONEXIÓN - PENDIENTE DE SINCRONIZAR ***</p>'
+            : ''
+        }
         <p class="centro">Venta #${ventaId}</p>
         <p class="centro">${fecha}</p>
         <hr />
@@ -504,44 +679,24 @@ export default function VentasPage() {
     const itemsVendidos = pestanaVenta.carrito;
     const totalVendido = total;
     const vendedorNombre = vendedores.find((v) => String(v.id) === String(pestanaVenta.vendedorId))?.nombre || '';
-    const res = await fetch('/api/ventas', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        medio_pago: pagosBody ? undefined : pestanaVenta.medioPago,
-        pagos: pagosBody || undefined,
-        vendedor_id: pestanaVenta.vendedorId ? Number(pestanaVenta.vendedorId) : null,
-        items: pestanaVenta.carrito.map((i) => ({
-          producto_id: i.producto_id,
-          cantidad: i.cantidad,
-          precio_unitario: i.precio_unitario,
-          descuento_porcentaje: i.descuento_porcentaje || 0,
-        })),
-      }),
-    });
-    const data = await res.json();
-    setGuardando(false);
+    const itemsBody = pestanaVenta.carrito.map((i) => ({
+      producto_id: i.producto_id,
+      cantidad: i.cantidad,
+      precio_unitario: i.precio_unitario,
+      descuento_porcentaje: i.descuento_porcentaje || 0,
+    }));
+    const cuerpoVenta = {
+      medio_pago: pagosBody ? undefined : pestanaVenta.medioPago,
+      pagos: pagosBody || undefined,
+      vendedor_id: pestanaVenta.vendedorId ? Number(pestanaVenta.vendedorId) : null,
+      items: itemsBody,
+    };
+    const pagosParaTicket = pagosBody || [{ medio_pago: pestanaVenta.medioPago, monto: totalVendido }];
 
-    if (data.ok) {
-      const fecha = new Date().toLocaleString('es-CO', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-      const datosTicket = {
-        ventaId: data.ventaId,
-        items: itemsVendidos,
-        totalVenta: totalVendido,
-        pagos: data.pagos || (pagosBody || [{ medio_pago: pestanaVenta.medioPago, monto: totalVendido }]),
-        vendedorNombre,
-        listaUsada: pestanaVenta.lista,
-        fecha,
-      };
+    function limpiarCarritoYAvisar(datosTicket, mensajeExito) {
       imprimirTicket(datosTicket);
       setUltimaVenta(datosTicket);
-      setMensaje('Venta registrada.');
+      setMensaje(mensajeExito);
       actualizarPestana(pestanaVenta.id, (p) => ({
         ...p,
         carrito: [],
@@ -553,9 +708,92 @@ export default function VentasPage() {
           { medio: 'Tarjeta', monto: '' },
         ],
       }));
+    }
+
+    // Sin internet: ni siquiera se intenta la petición (fetch puede demorar
+    // varios segundos en fallar) — se guarda de una vez en este computador
+    // (IndexedDB, sobrevive aunque se apague el PC) y se sigue como si la
+    // venta hubiera quedado registrada, dejando claro en el ticket y en el
+    // mensaje que todavía falta sincronizarla.
+    if (!navigator.onLine) {
+      await guardarVentaComoPendiente();
+      return;
+    }
+
+    let res;
+    try {
+      res = await fetch('/api/ventas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cuerpoVenta),
+      });
+    } catch (e) {
+      // Se creía que había internet pero la petición falló de todas formas
+      // (por ejemplo se cortó justo en ese momento) — incluso el mismo
+      // camino de "sin conexión".
+      setEnLinea(false);
+      await guardarVentaComoPendiente();
+      return;
+    }
+    const data = await res.json();
+    setGuardando(false);
+
+    if (data.ok) {
+      const fecha = new Date().toLocaleString('es-CO', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      limpiarCarritoYAvisar(
+        {
+          ventaId: data.ventaId,
+          items: itemsVendidos,
+          totalVenta: totalVendido,
+          pagos: data.pagos || pagosParaTicket,
+          vendedorNombre,
+          listaUsada: pestanaVenta.lista,
+          fecha,
+        },
+        'Venta registrada.'
+      );
       cargarTodo();
     } else {
       setError(data.error || 'No se pudo registrar la venta');
+    }
+
+    async function guardarVentaComoPendiente() {
+      const ahora = new Date();
+      const fecha = ahora.toLocaleString('es-CO', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      const idLocal = generarIdLocal();
+      await guardarVentaPendiente({
+        idLocal,
+        ...cuerpoVenta,
+        creadoEn: ahora.getTime(),
+        creadoEnISO: ahora.toISOString(),
+      });
+      setGuardando(false);
+      await cargarVentasPendientes();
+      limpiarCarritoYAvisar(
+        {
+          ventaId: `Pendiente (sin internet)`,
+          items: itemsVendidos,
+          totalVenta: totalVendido,
+          pagos: pagosParaTicket,
+          vendedorNombre,
+          listaUsada: pestanaVenta.lista,
+          fecha,
+          sinConexion: true,
+        },
+        'Sin conexión: la venta se guardó en este computador y se enviará sola cuando vuelva el internet.'
+      );
     }
   }
 
@@ -564,8 +802,41 @@ export default function VentasPage() {
     imprimirTicket(ultimaVenta);
   }
 
+  const ventaConError = ventasPendientes.find((v) => v.error);
+
   return (
     <Shell title="Vender">
+      {!enLinea && (
+        <div style={styles.bannerOffline}>
+          🔴 Sin conexión — se sigue pudiendo vender con la última información guardada en este computador. Las
+          ventas quedan guardadas acá y se envían solas apenas vuelva el internet.
+        </div>
+      )}
+      {enLinea && ventasPendientes.length > 0 && !ventaConError && (
+        <div style={styles.bannerPendiente}>
+          {sincronizando
+            ? `Sincronizando ${ventasPendientes.length} venta(s) hecha(s) sin conexión...`
+            : `${ventasPendientes.length} venta(s) hecha(s) sin conexión, pendientes de enviar.`}
+          <button onClick={sincronizarVentasPendientes} disabled={sincronizando} style={styles.btnSincronizar}>
+            Sincronizar ahora
+          </button>
+        </div>
+      )}
+      {ventaConError && (
+        <div style={styles.bannerError}>
+          Una venta guardada sin conexión no pudo sincronizarse: <strong>{ventaConError.error}</strong>. Las ventas
+          pendientes después de esa quedaron en espera para no desordenarlas. Revisa el stock/turno y reintenta.
+          <button
+            onClick={() => {
+              const { error, ...ventaSinError } = ventaConError;
+              actualizarVentaPendiente(ventaSinError).then(sincronizarVentasPendientes);
+            }}
+            style={styles.btnSincronizar}
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
       <div className="pos-stack-900" style={styles.layout}>
         <div style={styles.columnaProductos}>
           <div style={styles.barraSuperior}>
@@ -996,6 +1267,50 @@ const styles = {
     fontSize: '12px',
     color: 'var(--text-secondary)',
     marginBottom: '6px',
+  },
+  bannerOffline: {
+    background: '#fdecea',
+    color: '#7a1f14',
+    border: '1px solid #f3b7ac',
+    borderRadius: 'var(--radius)',
+    padding: '10px 16px',
+    fontSize: '13px',
+    marginBottom: '12px',
+  },
+  bannerPendiente: {
+    background: '#fff8e1',
+    color: '#7a5c00',
+    border: '1px solid #f0d98c',
+    borderRadius: 'var(--radius)',
+    padding: '10px 16px',
+    fontSize: '13px',
+    marginBottom: '12px',
+    display: 'flex',
+    gap: '12px',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  bannerError: {
+    background: '#fdecea',
+    color: '#7a1f14',
+    border: '1px solid #f3b7ac',
+    borderRadius: 'var(--radius)',
+    padding: '10px 16px',
+    fontSize: '13px',
+    marginBottom: '12px',
+    display: 'flex',
+    gap: '12px',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  btnSincronizar: {
+    padding: '6px 12px',
+    borderRadius: '8px',
+    border: '1px solid currentColor',
+    background: '#fff',
+    cursor: 'pointer',
+    fontWeight: 600,
+    fontSize: '12px',
   },
   linkTurno: {
     border: 'none',
