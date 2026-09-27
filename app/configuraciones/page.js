@@ -9,6 +9,7 @@ const SECCIONES = [
   { id: 'etiquetas', label: 'Etiquetas de producto', descripcion: 'Logo que se imprime en las etiquetas' },
   { id: 'caja', label: 'Caja', descripcion: 'Hora del arqueo de caja' },
   { id: 'ia', label: 'Inteligencia artificial', descripcion: 'Modelo y prompt de "Nuevo producto"' },
+  { id: 'empresa', label: 'Datos de la empresa', descripcion: 'Razón social y NIT para certificados' },
   { id: 'seguridad', label: 'Seguridad', descripcion: 'Clave de administrador' },
 ];
 
@@ -64,6 +65,18 @@ export default function ConfiguracionesPage() {
   const [guardandoIA, setGuardandoIA] = useState(false);
   const [mensajeIA, setMensajeIA] = useState('');
   const [errorIA, setErrorIA] = useState('');
+
+  // Datos de la empresa: razón social/NIT/dirección para el encabezado del
+  // certificado de retención de ReteICA (Certificados ReteICA)
+  const [razonSocialEmpresa, setRazonSocialEmpresa] = useState('');
+  const [nitEmpresa, setNitEmpresa] = useState('');
+  const [direccionEmpresa, setDireccionEmpresa] = useState('');
+  const [ciudadEmpresa, setCiudadEmpresa] = useState('Bogotá D.C.');
+  const [telefonoEmpresa, setTelefonoEmpresa] = useState('');
+  const [cargandoEmpresa, setCargandoEmpresa] = useState(true);
+  const [guardandoEmpresa, setGuardandoEmpresa] = useState(false);
+  const [mensajeEmpresa, setMensajeEmpresa] = useState('');
+  const [errorEmpresa, setErrorEmpresa] = useState('');
 
   // Seguridad: clave de administrador
   const [claveConfigurada, setClaveConfigurada] = useState(null);
@@ -201,6 +214,53 @@ export default function ConfiguracionesPage() {
     }
   }
 
+  async function cargarDatosEmpresa() {
+    setCargandoEmpresa(true);
+    try {
+      const res = await fetch('/api/configuracion/datos-empresa');
+      const data = await res.json();
+      if (data.ok) {
+        setRazonSocialEmpresa(data.razonSocial || '');
+        setNitEmpresa(data.nit || '');
+        setDireccionEmpresa(data.direccion || '');
+        setCiudadEmpresa(data.ciudad || 'Bogotá D.C.');
+        setTelefonoEmpresa(data.telefono || '');
+      }
+    } finally {
+      setCargandoEmpresa(false);
+    }
+  }
+
+  async function guardarDatosEmpresa(e) {
+    e.preventDefault();
+    setErrorEmpresa('');
+    setMensajeEmpresa('');
+    setGuardandoEmpresa(true);
+    try {
+      const res = await fetch('/api/configuracion/datos-empresa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          razonSocial: razonSocialEmpresa,
+          nit: nitEmpresa,
+          direccion: direccionEmpresa,
+          ciudad: ciudadEmpresa,
+          telefono: telefonoEmpresa,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setMensajeEmpresa('Guardado. Se usa en el encabezado de Certificados ReteICA.');
+      } else {
+        setErrorEmpresa(data.error || 'No se pudo guardar');
+      }
+    } catch {
+      setErrorEmpresa('No se pudo guardar');
+    } finally {
+      setGuardandoEmpresa(false);
+    }
+  }
+
   useEffect(() => {
     cargar();
     cargarCategorias();
@@ -209,6 +269,7 @@ export default function ConfiguracionesPage() {
     cargarTamanoEtiqueta();
     cargarHoraArqueo();
     cargarConfigIA();
+    cargarDatosEmpresa();
   }, []);
 
   useEffect(() => {
@@ -802,6 +863,49 @@ export default function ConfiguracionesPage() {
                   {mensajeIA && <p style={{ color: 'var(--teal-dark)' }}>{mensajeIA}</p>}
                   <button type="submit" disabled={guardandoIA} style={styles.btnPrimario}>
                     {guardandoIA ? 'Guardando...' : 'Guardar configuración de la IA'}
+                  </button>
+                </form>
+              )}
+            </>
+          )}
+
+          {seccionActiva === 'empresa' && (
+            <>
+              <h2 style={{ marginTop: 0 }}>Datos de la empresa</h2>
+              <p style={{ color: 'var(--text-secondary)', marginTop: '-8px' }}>
+                Razón social, NIT y dirección de Geek Store. Por ahora se usan en el encabezado del certificado de
+                retención de ReteICA (menú &quot;Certificados ReteICA&quot;) — más adelante se pueden reutilizar en otros
+                documentos.
+              </p>
+
+              {cargandoEmpresa ? (
+                <p>Cargando...</p>
+              ) : (
+                <form onSubmit={guardarDatosEmpresa} style={{ ...styles.formCard, maxWidth: '480px' }}>
+                  <label style={{ display: 'block', marginBottom: '10px' }}>
+                    Razón social
+                    <input value={razonSocialEmpresa} onChange={(e) => setRazonSocialEmpresa(e.target.value)} style={styles.input} />
+                  </label>
+                  <label style={{ display: 'block', marginBottom: '10px' }}>
+                    NIT
+                    <input value={nitEmpresa} onChange={(e) => setNitEmpresa(e.target.value)} style={styles.input} />
+                  </label>
+                  <label style={{ display: 'block', marginBottom: '10px' }}>
+                    Dirección
+                    <input value={direccionEmpresa} onChange={(e) => setDireccionEmpresa(e.target.value)} style={styles.input} />
+                  </label>
+                  <label style={{ display: 'block', marginBottom: '10px' }}>
+                    Ciudad
+                    <input value={ciudadEmpresa} onChange={(e) => setCiudadEmpresa(e.target.value)} style={styles.input} />
+                  </label>
+                  <label style={{ display: 'block', marginBottom: '10px' }}>
+                    Teléfono
+                    <input value={telefonoEmpresa} onChange={(e) => setTelefonoEmpresa(e.target.value)} style={styles.input} />
+                  </label>
+                  {errorEmpresa && <p style={{ color: 'var(--danger)' }}>{errorEmpresa}</p>}
+                  {mensajeEmpresa && <p style={{ color: 'var(--teal-dark)' }}>{mensajeEmpresa}</p>}
+                  <button type="submit" disabled={guardandoEmpresa} style={styles.btnPrimario}>
+                    {guardandoEmpresa ? 'Guardando...' : 'Guardar'}
                   </button>
                 </form>
               )}
