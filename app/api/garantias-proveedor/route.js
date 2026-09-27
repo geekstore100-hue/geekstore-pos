@@ -42,6 +42,9 @@ export async function GET() {
       FROM garantias_proveedor g
       LEFT JOIN proveedores p ON p.id = g.proveedor_id
       LEFT JOIN garantia_proveedor_items i ON i.garantia_id = g.id
+      -- Las eliminadas (creadas por error) no se muestran, aunque el
+      -- registro se conserva para no perder el rastro del stock.
+      WHERE g.estado != 'eliminada'
       GROUP BY g.id, p.nombre
       -- Primero lo que falta entregar, luego lo que está donde el proveedor,
       -- al final lo resuelto.

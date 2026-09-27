@@ -12,7 +12,7 @@ export async function PATCH(request, { params }) {
       return NextResponse.json({ ok: false, error: 'Ítem inválido' }, { status: 400 });
     }
 
-    const [item] = await sql`SELECT id FROM lista_compras_items WHERE id = ${itemId}`;
+    const [item] = await sql`SELECT id, producto_id FROM lista_compras_items WHERE id = ${itemId}`;
     if (!item) {
       return NextResponse.json({ ok: false, error: 'El ítem no existe' }, { status: 404 });
     }
@@ -32,7 +32,32 @@ export async function PATCH(request, { params }) {
           return NextResponse.json({ ok: false, error: 'El proveedor ya no existe' }, { status: 404 });
         }
       }
-      await sql`UPDATE lista_compras_items SET proveedor_id = ${proveedor_id} WHERE id = ${itemId}`;
+
+      // Al asignar (o cambiar) el proveedor, se actualiza también el precio
+      // de referencia al ÚLTIMO precio que se le pagó a ese proveedor por
+      // este producto — así el precio que se ve siempre corresponde al
+      // proveedor elegido, no se queda con el de otro.
+      let precioReferencia = null;
+      if (proveedor_id) {
+        const [ultimaCompra] = await sql`
+          SELECT m.precio_unitario
+          FROM movimientos_stock m
+          JOIN facturas_compra f ON f.id = m.factura_compra_id
+          WHERE m.tipo = 'factura_compra' AND m.producto_id = ${item.producto_id} AND f.proveedor_id = ${proveedor_id}
+          ORDER BY f.fecha_creacion DESC, m.id DESC
+          LIMIT 1
+        `;
+        if (ultimaCompra) precioReferencia = Number(ultimaCompra.precio_unitario);
+      }
+
+      if (precioReferencia !== null) {
+        await sql`
+          UPDATE lista_compras_items SET proveedor_id = ${proveedor_id}, precio_referencia = ${precioReferencia}
+          WHERE id = ${itemId}
+        `;
+      } else {
+        await sql`UPDATE lista_compras_items SET proveedor_id = ${proveedor_id} WHERE id = ${itemId}`;
+      }
     }
 
     if (body.cantidad !== undefined) {

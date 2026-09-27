@@ -68,6 +68,7 @@ export default function GarantiasProveedorPage() {
   const [guardandoResolucion, setGuardandoResolucion] = useState(false);
   const [errorResolucion, setErrorResolucion] = useState('');
   const [entregandoId, setEntregandoId] = useState(null);
+  const [eliminandoId, setEliminandoId] = useState(null);
   const [filtro, setFiltro] = useState('todas');
 
   // Asignar proveedor desde el detalle, para los casos que se crearon sin
@@ -381,6 +382,31 @@ export default function GarantiasProveedorPage() {
       if (detalle?.id === id) abrirDetalle(id);
     } finally {
       setEntregandoId(null);
+    }
+  }
+
+  // Para cuando se agregó una garantía por error: devuelve el stock
+  // separado a Principal y la quita de la lista (el registro queda guardado
+  // en la base, marcado como eliminada, para no perder el rastro).
+  async function eliminarGarantia(id) {
+    if (!window.confirm('¿Eliminar esta garantía? El stock que se había separado vuelve a la bodega Principal. No se puede deshacer.')) {
+      return;
+    }
+    setEliminandoId(id);
+    try {
+      const res = await fetch(`/api/garantias-proveedor/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!data.ok) {
+        window.alert(data.error || 'No se pudo eliminar');
+        return;
+      }
+      cerrarDetalle();
+      cargarGarantias();
+      cargarProductos();
+    } catch {
+      window.alert('No se pudo eliminar');
+    } finally {
+      setEliminandoId(null);
     }
   }
 
@@ -739,7 +765,18 @@ export default function GarantiasProveedorPage() {
           <div style={styles.modalDetalle} onMouseDown={(e) => e.stopPropagation()}>
             <div style={styles.header}>
               <h3 style={{ margin: 0 }}>Garantía #{detalle.id}</h3>
-              <button onClick={cerrarDetalle} style={styles.btnCerrarModal}>✕</button>
+              <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
+                {detalle.garantia && detalle.garantia.estado !== 'resuelta' && (
+                  <button
+                    onClick={() => eliminarGarantia(detalle.id)}
+                    disabled={eliminandoId === detalle.id}
+                    style={styles.btnEliminarTexto}
+                  >
+                    {eliminandoId === detalle.id ? 'Eliminando...' : 'Eliminar (la agregué por error)'}
+                  </button>
+                )}
+                <button onClick={cerrarDetalle} style={styles.btnCerrarModal}>✕</button>
+              </div>
             </div>
             {cargandoDetalle ? (
               <p>Cargando...</p>
@@ -987,5 +1024,6 @@ const styles = {
     boxShadow: '0 12px 40px rgba(0,0,0,0.2)',
   },
   btnCerrarModal: { border: 'none', background: 'none', cursor: 'pointer', fontSize: '16px', color: 'var(--text-secondary)' },
+  btnEliminarTexto: { border: 'none', background: 'none', cursor: 'pointer', fontSize: '12px', color: 'var(--danger)', fontWeight: 600, padding: 0 },
   filaDetalle: { display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: '14px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap', gap: '8px' },
 };

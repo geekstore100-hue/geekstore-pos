@@ -130,31 +130,32 @@ export async function GET() {
       });
 
     // Para los que hay que comprar (no alcanza con trasladar de
-    // Distribuidor), se busca de una sola vez cuál proveedor se los ha
-    // vendido más barato, con base en el historial de facturas de compra.
-    // Esto es lo que permite saber "dónde me sale más barato comprarlo" sin
-    // tener que abrir cada producto uno por uno.
+    // Distribuidor), se busca de una sola vez cuál proveedor sale más
+    // barato, con base en el ÚLTIMO precio que se le pagó a cada uno (no el
+    // mínimo histórico — un precio de hace 2 años ya no sirve para decidir
+    // hoy). Esto es lo que permite saber "dónde me sale más barato
+    // comprarlo ahora mismo" sin tener que abrir cada producto uno por uno.
     const idsParaComprar = alertas.filter((a) => a.accion === 'comprar').map((a) => a.id);
     if (idsParaComprar.length > 0) {
       const mejores = await sql`
         WITH compras AS (
-          SELECT m.producto_id, f.proveedor_id, pr.nombre AS proveedor_nombre,
+          SELECT m.id, m.producto_id, f.proveedor_id, pr.nombre AS proveedor_nombre,
                  m.precio_unitario, f.fecha_creacion
           FROM movimientos_stock m
           JOIN facturas_compra f ON f.id = m.factura_compra_id
           JOIN proveedores pr ON pr.id = f.proveedor_id
           WHERE m.tipo = 'factura_compra' AND m.producto_id = ANY(${idsParaComprar})
         ),
-        resumen AS (
-          SELECT producto_id, proveedor_id, proveedor_nombre,
-                 MIN(precio_unitario) AS precio_minimo,
-                 MAX(fecha_creacion) AS ultima_compra
+        ultimo_por_proveedor AS (
+          SELECT DISTINCT ON (producto_id, proveedor_id)
+            producto_id, proveedor_id, proveedor_nombre,
+            precio_unitario AS ultimo_precio, fecha_creacion AS ultima_compra
           FROM compras
-          GROUP BY producto_id, proveedor_id, proveedor_nombre
+          ORDER BY producto_id, proveedor_id, fecha_creacion DESC, id DESC
         )
-        SELECT DISTINCT ON (producto_id) producto_id, proveedor_id, proveedor_nombre, precio_minimo, ultima_compra
-        FROM resumen
-        ORDER BY producto_id, precio_minimo ASC, ultima_compra DESC
+        SELECT DISTINCT ON (producto_id) producto_id, proveedor_id, proveedor_nombre, ultimo_precio, ultima_compra
+        FROM ultimo_por_proveedor
+        ORDER BY producto_id, ultimo_precio ASC, ultima_compra DESC
       `;
       const mejorPorProducto = new Map(mejores.map((m) => [m.producto_id, m]));
       for (const alerta of alertas) {
@@ -164,7 +165,7 @@ export async function GET() {
             ? {
                 proveedor_id: mejor.proveedor_id,
                 proveedor_nombre: mejor.proveedor_nombre,
-                precio: Number(mejor.precio_minimo),
+                precio: Number(mejor.ultimo_precio),
                 ultima_compra: mejor.ultima_compra,
               }
             : null;

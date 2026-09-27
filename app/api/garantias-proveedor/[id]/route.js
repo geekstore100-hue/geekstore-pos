@@ -47,7 +47,7 @@ export async function GET(request, { params }) {
       ORDER BY id ASC
     `;
 
-    return NextResponse.json({ ok: true, garantia, items });
+    return NextResponse.json({ ok: true, id, garantia, items });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
@@ -175,6 +175,76 @@ export async function PATCH(request, { params }) {
     if (Number(pendientes) === 0) {
       await sql`UPDATE garantias_proveedor SET estado = 'resuelta', resuelto_en = now() WHERE id = ${id}`;
     }
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
+}
+
+// Elimina un caso creado por error, antes de que se haya resuelto. No se
+// borra de la base de datos (para no perder el rastro de qué pasó con ese
+// stock): se devuelve el stock separado a la bodega Principal, con sus
+// propios movimientos de auditoría, y el caso queda marcado como
+// "eliminada" — por eso desaparece de la lista aunque técnicamente el
+// registro sigue existiendo. Una vez resuelta (nota crédito, reemplazo,
+// etc.) ya no se puede eliminar: hay que dejar ese historial tal cual.
+export async function DELETE(request, { params }) {
+  try {
+    const id = Number(params.id);
+    if (!id) {
+      return NextResponse.json({ ok: false, error: 'Garantía inválida' }, { status: 400 });
+    }
+
+    const [garantia] = await sql`SELECT id, estado FROM garantias_proveedor WHERE id = ${id}`;
+    if (!garantia) {
+      return NextResponse.json({ ok: false, error: 'Garantía no encontrada' }, { status: 404 });
+    }
+    if (garantia.estado === 'resuelta') {
+      return NextResponse.json(
+        { ok: false, error: 'Esta garantía ya está resuelta y no se puede eliminar' },
+        { status: 409 }
+      );
+    }
+    if (garantia.estado === 'eliminada') {
+      return NextResponse.json({ ok: false, error: 'Esta garantía ya estaba eliminada' }, { status: 409 });
+    }
+
+    const bodegaPrincipal = await bodegaPrincipalId();
+    const bodegaGarantias = await bodegaGarantiasId();
+    if (!bodegaPrincipal || !bodegaGarantias) {
+      return NextResponse.json({ ok: false, error: 'Faltan las bodegas necesarias' }, { status: 500 });
+    }
+
+    const items = await sql`
+      SELECT producto_id, cantidad, precio_costo FROM garantia_proveedor_items WHERE garantia_id = ${id}
+    `;
+
+    for (const it of items) {
+      // Si el producto ya no existe en el catálogo no hay a dónde devolver
+      // el stock; se deja como está (caso muy raro) y se sigue con el resto.
+      if (!it.producto_id) continue;
+
+      await sql`
+        UPDATE stock SET cantidad = cantidad - ${it.cantidad}
+        WHERE producto_id = ${it.producto_id} AND bodega_id = ${bodegaGarantias}
+      `;
+      await sql`
+        INSERT INTO stock (producto_id, bodega_id, cantidad)
+        VALUES (${it.producto_id}, ${bodegaPrincipal}, ${it.cantidad})
+        ON CONFLICT (producto_id, bodega_id) DO UPDATE SET cantidad = stock.cantidad + EXCLUDED.cantidad
+      `;
+      await sql`
+        INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, garantia_id)
+        VALUES (${it.producto_id}, ${bodegaGarantias}, 'garantia_eliminada', ${it.cantidad}, ${it.precio_costo}, ${id})
+      `;
+      await sql`
+        INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, garantia_id)
+        VALUES (${it.producto_id}, ${bodegaPrincipal}, 'garantia_eliminada_entrada', ${it.cantidad}, ${it.precio_costo}, ${id})
+      `;
+    }
+
+    await sql`UPDATE garantias_proveedor SET estado = 'eliminada' WHERE id = ${id}`;
 
     return NextResponse.json({ ok: true });
   } catch (error) {

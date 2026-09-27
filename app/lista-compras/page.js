@@ -154,11 +154,23 @@ export default function ListaComprasPage() {
 
   return (
     <Shell title="Lista de compras">
-      <p style={{ color: 'var(--text-secondary)', marginTop: 0 }}>
-        Productos por resurtir, agrupados por proveedor. Se va llenando sola desde Reabastecimiento (con el proveedor
-        más barato ya sugerido) y también puedes agregar productos a mano acá. Cuando hagas el pedido, marca el
-        producto (o todo el grupo) como comprado.
-      </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+        <p style={{ color: 'var(--text-secondary)', marginTop: 0, flex: 1, minWidth: '260px' }}>
+          Productos por resurtir, agrupados por proveedor. Se va llenando sola desde Reabastecimiento (con el proveedor
+          más barato ya sugerido) y también puedes agregar productos a mano acá. Cuando hagas el pedido, marca el
+          producto (o todo el grupo) como comprado.
+        </p>
+        {grupos.length > 0 && (
+          <a
+            href="/lista-compras/imprimir"
+            target="_blank"
+            rel="noreferrer"
+            style={{ ...styles.btnSecundario, textDecoration: 'none', whiteSpace: 'nowrap' }}
+          >
+            Imprimir todo
+          </a>
+        )}
+      </div>
 
       <div style={{ position: 'relative', marginBottom: '20px', maxWidth: '420px' }}>
         <input
@@ -196,6 +208,14 @@ export default function ListaComprasPage() {
                 </strong>
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                   {grupo.total > 0 && <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Total aprox: {moneda(grupo.total)}</span>}
+                  <a
+                    href={`/lista-compras/imprimir${grupo.proveedor_id ? `?proveedor_id=${grupo.proveedor_id}` : ''}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ ...styles.btnSecundario, textDecoration: 'none', display: 'inline-block' }}
+                  >
+                    Imprimir
+                  </a>
                   <button
                     onClick={() => marcarGrupoComprado(grupo)}
                     disabled={guardandoId === `grupo-${grupo.proveedor_id || 'sin_proveedor'}`}
