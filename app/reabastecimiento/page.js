@@ -382,13 +382,13 @@ export default function ReabastecimientoPage() {
       ) : (
         <>
           <h3 style={{ marginTop: '20px' }}>Agotados en Principal ({agotados.length})</h3>
-          <div style={styles.tableCard}>
+          <div className="pos-tabla-scroll" style={styles.tableCard}>
             {agotados.length === 0 && <p style={{ color: 'var(--text-secondary)' }}>No hay productos agotados en Principal. 🎉</p>}
             {agotados.map(renderFilaAlerta)}
           </div>
 
           <h3 style={{ marginTop: '28px' }}>Por agotarse pronto ({porAgotarse.length})</h3>
-          <div style={styles.tableCard}>
+          <div className="pos-tabla-scroll" style={styles.tableCard}>
             {porAgotarse.length === 0 && (
               <p style={{ color: 'var(--text-secondary)' }}>Ningún producto está por agotarse según su ritmo de venta.</p>
             )}
@@ -398,7 +398,7 @@ export default function ReabastecimientoPage() {
       )}
 
       <h3 style={{ marginTop: '28px' }}>Traspaso en curso</h3>
-      <div style={styles.tableCard}>
+      <div className="pos-tabla-scroll" style={styles.tableCard}>
         <div style={styles.filaBodegas}>
           <div>
             <label style={styles.etiquetaChica}>De</label>
@@ -524,7 +524,7 @@ export default function ReabastecimientoPage() {
 
       <h3 style={{ marginTop: '28px' }}>Traspasos recientes</h3>
       {errorEtiquetas && <p style={{ color: 'var(--danger)' }}>{errorEtiquetas}</p>}
-      <div style={styles.tableCard}>
+      <div className="pos-tabla-scroll" style={styles.tableCard}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
@@ -555,7 +555,7 @@ export default function ReabastecimientoPage() {
                   )}
                 </td>
                 <td style={styles.td}>
-                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                     <a href={`/traspasos/${t.id}/imprimir`} target="_blank" rel="noreferrer" style={styles.linkVer}>
                       Ver / imprimir
                     </a>
@@ -742,6 +742,7 @@ const styles = {
   },
   flotantePanel: {
     width: '320px',
+    maxWidth: 'calc(100vw - 40px)',
     maxHeight: '70vh',
     display: 'flex',
     flexDirection: 'column',

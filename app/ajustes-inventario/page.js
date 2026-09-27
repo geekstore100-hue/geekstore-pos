@@ -369,7 +369,7 @@ export default function AjustesInventarioPage() {
           </div>
         )}
 
-        <div style={styles.grid2}>
+        <div className="pos-grid2" style={styles.grid2}>
           <label style={styles.labelCampo}>
             Bodega *
             <select value={bodegaId} onChange={(e) => setBodegaId(e.target.value)} style={styles.inputCampo}>
@@ -496,7 +496,7 @@ export default function AjustesInventarioPage() {
       </div>
 
       <h3 style={{ marginBottom: '10px' }}>Ajustes recientes</h3>
-      <div style={styles.tableCard}>
+      <div className="pos-tabla-scroll" style={styles.tableCard}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
@@ -523,7 +523,7 @@ export default function AjustesInventarioPage() {
                 <td style={styles.td}>{moneda(a.total)}</td>
                 <td style={styles.td}>
                   {a.traspaso_id && (
-                    <div style={{ display: 'flex', gap: '10px' }}>
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                       <a href={`/traspasos/${a.traspaso_id}/imprimir`} target="_blank" rel="noreferrer" style={{ color: 'var(--teal-dark)', fontSize: '13px', fontWeight: 600, textDecoration: 'none' }}>
                         Ver / imprimir
                       </a>
@@ -567,7 +567,9 @@ const styles = {
     fontSize: '13px',
     marginBottom: '16px',
   },
-  grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '4px', maxWidth: '600px' },
+  // gridTemplateColumns se quitó de acá: ahora viene de la clase CSS
+  // "pos-grid2" (globals.css), que en celular cambia a una sola columna.
+  grid2: { gap: '16px', marginBottom: '4px', maxWidth: '600px' },
   labelCampo: { display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' },
   inputCampo: {
     display: 'block',
@@ -616,7 +618,7 @@ const styles = {
   },
   itemResultado: { padding: '8px 10px', cursor: 'pointer', borderBottom: '1px solid var(--border)', fontSize: '13px' },
   btnQuitar: { border: 'none', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '16px' },
-  filaInferior: { display: 'flex', gap: '24px', marginTop: '24px', alignItems: 'flex-start' },
+  filaInferior: { display: 'flex', gap: '24px', marginTop: '24px', alignItems: 'flex-start', flexWrap: 'wrap' },
   resumen: { width: '280px', flexShrink: 0, background: 'var(--bg)', borderRadius: 'var(--radius)', padding: '16px' },
   filaResumen: { display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '14px' },
   filaBotones: { display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '16px' },

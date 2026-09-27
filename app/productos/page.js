@@ -302,7 +302,7 @@ export default function ProductosPage() {
               : 'No maneja stock ni precio de compra, y nunca bloquea la venta por falta de existencias (por ejemplo servicio técnico o servicio de envío).'}
           </p>
 
-          <div style={styles.grid2}>
+          <div className="pos-grid2" style={styles.grid2}>
             <label>
               Referencia
               <input required value={form.referencia} onChange={(e) => setForm({ ...form, referencia: e.target.value })} style={styles.input} />
@@ -478,7 +478,7 @@ export default function ProductosPage() {
         </label>
       </div>
 
-      <div style={styles.tableCard}>
+      <div className="pos-tabla-scroll" style={styles.tableCard}>
         {cargando ? (
           <p>Cargando...</p>
         ) : (
@@ -550,7 +550,7 @@ export default function ProductosPage() {
             <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
               {productosFiltrados.length} producto(s) · página {paginaSegura} de {totalPaginas}
             </span>
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               <button
                 onClick={() => setPagina((n) => Math.max(1, n - 1))}
                 disabled={paginaSegura <= 1}
@@ -801,8 +801,10 @@ const styles = {
   paginacion: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 4px' },
   tableCard: { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '8px 16px' },
   input: { display: 'block', width: '100%', padding: '9px', marginTop: '4px', borderRadius: '8px', border: '1px solid var(--border)', boxSizing: 'border-box' },
-  grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },
-  tipoSelector: { display: 'flex', gap: '10px', marginBottom: '4px' },
+  // gridTemplateColumns viene de la clase CSS "pos-grid2" (globals.css),
+  // que en celular pasa a una sola columna.
+  grid2: { gap: '12px' },
+  tipoSelector: { display: 'flex', gap: '10px', marginBottom: '4px', flexWrap: 'wrap' },
   btnTipo: {
     flex: 1,
     padding: '12px',
@@ -847,7 +849,7 @@ const styles = {
     borderRadius: '999px',
     padding: '2px 8px',
   },
-  tabsFacturas: { display: 'flex', gap: '6px', borderBottom: '1px solid var(--border)' },
+  tabsFacturas: { display: 'flex', gap: '6px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' },
   tabFactura: {
     padding: '8px 14px',
     border: 'none',

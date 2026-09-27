@@ -566,7 +566,7 @@ export default function VentasPage() {
 
   return (
     <Shell title="Vender">
-      <div style={styles.layout}>
+      <div className="pos-stack-900" style={styles.layout}>
         <div style={styles.columnaProductos}>
           <div style={styles.barraSuperior}>
             <div style={styles.bannerTurno}>
@@ -648,7 +648,7 @@ export default function VentasPage() {
           </div>
         </div>
 
-        <div style={styles.columnaCarrito}>
+        <div className="pos-panel-lateral" style={styles.columnaCarrito}>
           <div style={styles.listaPrecios}>
             <button
               type="button"
@@ -822,7 +822,7 @@ export default function VentasPage() {
 
             <div style={styles.piePagina}>
               <span>{activa.carrito.length} producto(s)</span>
-              <div style={{ display: 'flex', gap: '12px' }}>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
                 {ultimaVenta && (
                   <button
                     onClick={reimprimirUltimaFactura}
@@ -840,7 +840,7 @@ export default function VentasPage() {
         </div>
       </div>
 
-      <div style={styles.pestanasBar}>
+      <div className="pos-pestanas-bar" style={styles.pestanasBar}>
         {pestanas.map((p) => (
           <div
             key={p.id}
@@ -886,7 +886,7 @@ export default function VentasPage() {
 
             {errorTurno && <p style={{ color: 'var(--danger)' }}>{errorTurno}</p>}
 
-            <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '16px', flexWrap: 'wrap' }}>
               <button onClick={abrirTurno} disabled={guardandoTurno} style={styles.btnPrimario}>
                 {guardandoTurno ? 'Abriendo...' : 'Guardar'}
               </button>
@@ -966,7 +966,7 @@ export default function VentasPage() {
 
             {errorTurno && <p style={{ color: 'var(--danger)' }}>{errorTurno}</p>}
 
-            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
               <button onClick={confirmarCierreTurno} disabled={cerrandoTurno} style={styles.btnPrimario}>
                 {cerrandoTurno ? 'Cerrando...' : 'Guardar'}
               </button>
@@ -1074,7 +1074,7 @@ const styles = {
     display: 'inline-block',
   },
   precio: { fontSize: '17px', fontWeight: 700, color: 'var(--text)' },
-  listaPrecios: { display: 'flex', gap: '8px', marginBottom: '12px' },
+  listaPrecios: { display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' },
   btnLista: {
     flex: 1,
     padding: '8px',
@@ -1108,11 +1108,11 @@ const styles = {
   itemControles: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' },
   stepper: { display: 'flex', alignItems: 'center', gap: '10px' },
   stepperBtn: { width: '24px', height: '24px', borderRadius: '6px', border: '1px solid var(--border)', background: '#fff', cursor: 'pointer' },
-  edicion: { display: 'flex', gap: '10px', marginTop: '8px' },
+  edicion: { display: 'flex', gap: '10px', marginTop: '8px', flexWrap: 'wrap' },
   labelEdicion: { fontSize: '12px', color: 'var(--text-secondary)', flex: 1 },
   inputEdicion: { display: 'block', width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', marginTop: '2px' },
   piePanel: { flexShrink: 0, borderTop: '1px solid var(--border)', paddingTop: '12px' },
-  filaDosCampos: { display: 'flex', gap: '10px' },
+  filaDosCampos: { display: 'flex', gap: '10px', flexWrap: 'wrap' },
   linkPagoCombinado: {
     border: 'none',
     background: 'none',
@@ -1129,7 +1129,7 @@ const styles = {
     padding: '10px',
     marginBottom: '8px',
   },
-  filaPagoCombinado: { display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '8px' },
+  filaPagoCombinado: { display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap' },
   btnMiniLink: {
     border: 'none',
     background: 'none',

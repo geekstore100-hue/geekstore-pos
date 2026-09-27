@@ -57,11 +57,25 @@ export default function Sidebar() {
   const pathname = usePathname();
   const [expandido, setExpandido] = useState(false);
 
+  // En celular no existe el "hover" (mouseenter/mouseleave nunca disparan al
+  // tocar con el dedo), así que antes el menú expandido era imposible de
+  // abrir ahí — solo se veían los iconos, sin los nombres, y sin forma de
+  // saber cuál era cuál. matchMedia('(hover: none)') detecta ese caso y deja
+  // que el toque abra/cierre el menú; en un mouse normal esto no hace nada
+  // (el hover ya se encarga), así que no cambia el comportamiento de
+  // escritorio.
+  function alternarPorToque() {
+    if (typeof window !== 'undefined' && window.matchMedia('(hover: none)').matches) {
+      setExpandido((actual) => !actual);
+    }
+  }
+
   return (
     <div
       style={{ position: 'relative' }}
       onMouseEnter={() => setExpandido(true)}
       onMouseLeave={() => setExpandido(false)}
+      onClick={alternarPorToque}
     >
       <nav style={styles.nav}>
         <div style={styles.logo}>P</div>

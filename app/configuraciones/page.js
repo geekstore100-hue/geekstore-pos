@@ -310,8 +310,8 @@ export default function ConfiguracionesPage() {
 
   return (
     <Shell title="Configuraciones">
-      <div style={styles.layout}>
-        <div style={styles.menu}>
+      <div className="pos-stack-900" style={styles.layout}>
+        <div className="pos-panel-lateral" style={styles.menu}>
           {SECCIONES.map((s) => (
             <div
               key={s.id}
@@ -348,7 +348,7 @@ export default function ConfiguracionesPage() {
                 </button>
               </form>
 
-              <div style={styles.tableCard}>
+              <div className="pos-tabla-scroll" style={styles.tableCard}>
                 {cargando ? (
                   <p>Cargando...</p>
                 ) : (
@@ -412,7 +412,7 @@ export default function ConfiguracionesPage() {
                 Las opciones que aparecen en el campo "Categoría" de la ficha de un producto.
               </p>
 
-              <div style={styles.grid2Cat}>
+              <div className="pos-grid2" style={styles.grid2Cat}>
                 <div>
                   <form onSubmit={crearCategoria} style={styles.formCard}>
                     <label style={{ display: 'block', marginBottom: '10px' }}>
@@ -430,7 +430,7 @@ export default function ConfiguracionesPage() {
                     </button>
                   </form>
 
-                  <div style={styles.tableCard}>
+                  <div className="pos-tabla-scroll" style={styles.tableCard}>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead>
                         <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
@@ -478,7 +478,7 @@ export default function ConfiguracionesPage() {
                     </button>
                   </form>
 
-                  <div style={styles.tableCard}>
+                  <div className="pos-tabla-scroll" style={styles.tableCard}>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead>
                         <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
@@ -565,7 +565,7 @@ export default function ConfiguracionesPage() {
                   <p>Cargando...</p>
                 ) : (
                   <form onSubmit={guardarTamanoEtiqueta}>
-                    <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end' }}>
+                    <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                       <label style={{ flex: 1 }}>
                         Ancho (mm)
                         <input
@@ -692,7 +692,9 @@ const styles = {
   td: { padding: '10px 8px', fontSize: '14px' },
   btnPrimario: { padding: '9px 16px', borderRadius: '8px', border: 'none', background: 'var(--teal)', color: '#fff', cursor: 'pointer', fontWeight: 600 },
   btnSecundario: { padding: '7px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: '#fff', marginLeft: '8px', cursor: 'pointer', fontSize: '13px' },
-  grid2Cat: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', alignItems: 'start' },
+  // gridTemplateColumns viene de la clase CSS "pos-grid2" (globals.css),
+  // que en celular pasa a una sola columna.
+  grid2Cat: { gap: '24px', alignItems: 'start' },
   filaClickeable: { borderBottom: '1px solid var(--border)', cursor: 'pointer' },
   previewLogo: {
     display: 'flex',

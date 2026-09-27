@@ -43,7 +43,7 @@ export default function CotizacionDistribuidorPage({ params }) {
   return (
     <Shell title={`Cotización ${cotizacion.numero}`}>
       <div style={{ maxWidth: 640 }}>
-        <div className="pos-no-imprimir" style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <div className="pos-no-imprimir" style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
           <Link href="/cotizaciones-distribuidor" style={styles.botonSecundario}>← Volver</Link>
           <button onClick={() => window.print()} style={styles.boton}>🖨️ Imprimir</button>
           {cotizacion.estado === 'pendiente' ? (

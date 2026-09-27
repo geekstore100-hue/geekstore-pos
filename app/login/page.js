@@ -59,6 +59,8 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     background: 'var(--bg)',
+    padding: '16px',
+    boxSizing: 'border-box',
   },
   form: {
     background: '#fff',
@@ -66,6 +68,8 @@ const styles = {
     borderRadius: '16px',
     boxShadow: '0 4px 20px rgba(0,0,0,0.06)',
     width: '300px',
+    maxWidth: '100%',
+    boxSizing: 'border-box',
     textAlign: 'center',
   },
   logo: {

@@ -51,3 +51,70 @@ input[type='number']::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
+
+/* --- Utilidades para que el sistema se vea bien en celular --- */
+
+/* Las tablas (Productos, Ventas, Historial, etc.) tienen varias columnas y
+   no caben en la pantalla de un celular. En vez de dejar que se aprieten o
+   se corten, esta clase hace que la tarjeta que envuelve la tabla se pueda
+   deslizar horizontalmente con el dedo, mientras el resto de la página
+   (buscador, botones) se queda fijo y usable. */
+.pos-tabla-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Formularios de 2 columnas (Productos, Ajustes de inventario, Gastos...):
+   en pantalla de celular una sola columna se lee mucho mejor que dos
+   columnas apretadas. */
+.pos-grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 640px) {
+  .pos-grid2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  /* Letra un poco más chica dentro de las tablas para que se lean más
+     columnas antes de tener que deslizar. */
+  .pos-tabla-scroll table {
+    font-size: 13px;
+  }
+  /* Que los botones de las barras de acciones (buscar + imprimir + etc.)
+     ocupen todo el ancho en vez de quedar en una fila apretadísima. */
+  .pos-full-mobil {
+    width: 100%;
+  }
+}
+
+/* Pantallas de dos columnas lado a lado (Vender: productos + carrito de
+   340px; Configuraciones: menú de 240px + contenido) — con un ancho fijo en
+   la columna angosta, en celular no cabe ninguna de las dos. Se apilan una
+   sobre otra y la columna de ancho fijo pasa a ocupar todo el ancho. Se
+   necesita !important porque esos anchos fijos vienen en el style inline de
+   cada página, que si no le gana a cualquier regla de una hoja de estilos
+   normal. */
+@media (max-width: 900px) {
+  .pos-stack-900 {
+    flex-direction: column !important;
+  }
+  .pos-stack-900 > .pos-panel-lateral {
+    width: 100% !important;
+  }
+}
+
+/* Barra flotante de "pestañas" de venta (Vender, abajo a la izquierda): en
+   escritorio deja libres los 380px del carrito que flota a la derecha. En
+   celular el carrito ya no flota ahí (se apiló debajo, ver .pos-stack-900),
+   así que ese hueco de 380px sobraba y además "100vw - 380px" da un ancho
+   NEGATIVO en pantallas angostas, lo que la hacía desaparecer. */
+@media (max-width: 900px) {
+  .pos-pestanas-bar {
+    max-width: none !important;
+    right: 8px;
+  }
+}

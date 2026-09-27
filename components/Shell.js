@@ -25,31 +25,44 @@ export default function Shell({ title, children }) {
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
       {/* pos-no-imprimir: se oculta al imprimir (ver cotizaciones de
-          distribuidor) — a nadie le sirve la barra lateral en el papel. */}
-      <style>{'@media print { .pos-no-imprimir { display: none !important; } }'}</style>
+          distribuidor) — a nadie le sirve la barra lateral en el papel.
+          pos-topbar/pos-main: mismos estilos de antes, pero movidos a clases
+          (en vez de puro inline) para poder achicar el padding en celular
+          con una media query — un style inline no se puede sobrescribir con
+          @media. */}
+      <style>{`
+        @media print { .pos-no-imprimir { display: none !important; } }
+        .pos-topbar {
+          height: 56px;
+          background: #fff;
+          border-bottom: 1px solid var(--border);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 0 24px;
+          flex-shrink: 0;
+        }
+        .pos-main { flex: 1; padding: 24px; min-width: 0; }
+        @media (max-width: 640px) {
+          .pos-topbar { padding: 0 12px; }
+          .pos-topbar .pos-title { font-size: 14px; }
+          .pos-topbar .pos-badge { display: none; }
+          .pos-main { padding: 12px; }
+        }
+      `}</style>
       <div className="pos-no-imprimir"><Sidebar /></div>
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-        <header className="pos-no-imprimir" style={styles.topbar}>
-          <span style={styles.title}>{title}</span>
-          <span style={styles.badge}>Geek Store</span>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <header className="pos-no-imprimir pos-topbar">
+          <span className="pos-title" style={styles.title}>{title}</span>
+          <span className="pos-badge" style={styles.badge}>Geek Store</span>
         </header>
-        <main style={styles.main}>{children}</main>
+        <main className="pos-main">{children}</main>
       </div>
     </div>
   );
 }
 
 const styles = {
-  topbar: {
-    height: '56px',
-    background: '#fff',
-    borderBottom: '1px solid var(--border)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '0 24px',
-    flexShrink: 0,
-  },
   title: { fontWeight: 600, fontSize: '16px' },
   badge: {
     background: '#111827',
@@ -58,5 +71,4 @@ const styles = {
     padding: '6px 12px',
     borderRadius: '999px',
   },
-  main: { flex: 1, padding: '24px', minWidth: 0 },
 };

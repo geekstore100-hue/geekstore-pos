@@ -53,7 +53,7 @@ export default function ReportesPage() {
   return (
     <Shell title="Reportes">
       <h3 style={{ marginTop: 0 }}>Valor de inventario actual</h3>
-      <div style={styles.tableCard}>
+      <div className="pos-tabla-scroll" style={styles.tableCard}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
@@ -91,7 +91,7 @@ export default function ReportesPage() {
       </div>
 
       <h3>Ventas por ítem</h3>
-      <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', marginBottom: '16px' }}>
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', marginBottom: '16px', flexWrap: 'wrap' }}>
         <label>
           Desde
           <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} style={styles.input} />
@@ -103,7 +103,7 @@ export default function ReportesPage() {
         <button onClick={cargar} style={styles.btnPrimario}>Consultar</button>
       </div>
 
-      <div style={styles.tableCard}>
+      <div className="pos-tabla-scroll" style={styles.tableCard}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
@@ -139,7 +139,7 @@ export default function ReportesPage() {
       </div>
 
       <h3>Ventas por vendedor</h3>
-      <div style={styles.tableCard}>
+      <div className="pos-tabla-scroll" style={styles.tableCard}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>

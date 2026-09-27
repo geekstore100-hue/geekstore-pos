@@ -359,7 +359,7 @@ export default function FacturasCompraPage() {
       ) : error ? (
         <p style={{ color: 'var(--danger)' }}>{error}</p>
       ) : (
-        <div style={styles.tableCard}>
+        <div className="pos-tabla-scroll" style={styles.tableCard}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
@@ -422,7 +422,7 @@ export default function FacturasCompraPage() {
               <button onClick={cerrarForm} style={styles.btnCerrarModal}>✕</button>
             </div>
 
-            <div style={styles.grid2}>
+            <div className="pos-grid2" style={styles.grid2}>
               <div>
                 <label style={styles.etiquetaChica}>Bodega que recibe *</label>
                 <select
@@ -450,7 +450,7 @@ export default function FacturasCompraPage() {
             <div style={{ marginTop: '12px' }}>
               <label style={styles.etiquetaChica}>Proveedor *</label>
               {!mostrarNuevoProveedor ? (
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <select
                     value={form.proveedor_id}
                     onChange={(e) => setForm({ ...form, proveedor_id: e.target.value })}
@@ -473,7 +473,7 @@ export default function FacturasCompraPage() {
                     placeholder="Nombre del proveedor *"
                     style={{ ...styles.select, width: '100%', marginBottom: '8px' }}
                   />
-                  <div style={styles.grid2}>
+                  <div className="pos-grid2" style={styles.grid2}>
                     <input
                       value={nuevoProveedor.identificacion}
                       onChange={(e) => setNuevoProveedor({ ...nuevoProveedor, identificacion: e.target.value })}
@@ -499,7 +499,7 @@ export default function FacturasCompraPage() {
               )}
             </div>
 
-            <div style={{ ...styles.grid2, marginTop: '12px' }}>
+            <div className="pos-grid2" style={{ ...styles.grid2, marginTop: '12px' }}>
               <div>
                 <label style={styles.etiquetaChica}>Creación *</label>
                 <input
@@ -732,7 +732,7 @@ export default function FacturasCompraPage() {
                       <option value={1.1}>ReteICA 1.1%</option>
                       <option value={0.41}>ReteICA 0.41%</option>
                     </select>
-                    <div style={styles.grid2}>
+                    <div className="pos-grid2" style={styles.grid2}>
                       <div>
                         <label style={styles.etiquetaChica}>Base</label>
                         <input
@@ -793,7 +793,9 @@ const styles = {
   etiquetaChica: { display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' },
   select: { padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '14px', boxSizing: 'border-box' },
   selectChico: { padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '13px' },
-  grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },
+  // gridTemplateColumns viene de la clase CSS "pos-grid2" (globals.css),
+  // que en celular pasa a una sola columna.
+  grid2: { gap: '12px' },
   inputCantidad: { width: '80px', padding: '7px', borderRadius: '6px', border: '1px solid var(--border)' },
   cajaNuevoProveedor: { border: '1px dashed var(--border)', borderRadius: '8px', padding: '10px', marginTop: '4px' },
   dropdownBusqueda: {

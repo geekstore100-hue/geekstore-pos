@@ -47,7 +47,7 @@ export default function TurnosHistorialPage() {
 
   return (
     <Shell title="Historial de turnos">
-      <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', marginBottom: '16px' }}>
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', marginBottom: '16px', flexWrap: 'wrap' }}>
         <label>
           Desde
           <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} style={styles.input} />
@@ -59,7 +59,7 @@ export default function TurnosHistorialPage() {
         <button onClick={cargar} style={styles.btnPrimario}>Consultar</button>
       </div>
 
-      <div style={styles.tableCard}>
+      <div className="pos-tabla-scroll" style={styles.tableCard}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>

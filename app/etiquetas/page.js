@@ -188,6 +188,7 @@ export default function EtiquetasPage() {
         )}
 
         {cola.length > 0 && (
+          <div className="pos-tabla-scroll">
           <table style={{ width: '100%', borderCollapse: 'collapse', margin: '18px 0 16px' }}>
             <thead>
               <tr style={{ textAlign: 'left', borderBottom: '1px solid #ddd' }}>
@@ -241,6 +242,7 @@ export default function EtiquetasPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
 
         <button onClick={() => window.print()} disabled={cola.length === 0} style={styles.btnImprimir}>
@@ -298,6 +300,7 @@ const styles = {
   resultadoFila: {
     display: 'flex',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: '12px',
     padding: '8px 12px',
     borderBottom: '1px solid #f0f0f0',

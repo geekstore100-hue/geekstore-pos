@@ -92,7 +92,7 @@ export default function HistorialPage() {
 
   return (
     <Shell title="Historial">
-      <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', marginBottom: '16px' }}>
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', marginBottom: '16px', flexWrap: 'wrap' }}>
         <label>
           Desde
           <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} style={styles.input} />
@@ -106,7 +106,7 @@ export default function HistorialPage() {
 
       {errorAnular && <p style={{ color: 'var(--danger)' }}>{errorAnular}</p>}
 
-      <div style={styles.tableCard}>
+      <div className="pos-tabla-scroll" style={styles.tableCard}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>

@@ -295,7 +295,7 @@ export default function EditarTraspasoPage() {
 
         <div style={styles.resumen}>
           <div>Nuevo valor total: <strong>${moneda0(totalCalculado)}</strong></div>
-          <div style={{ display: 'flex', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             <a href="/reabastecimiento" style={styles.btnSecundario}>Cancelar</a>
             <button onClick={guardar} disabled={guardando} style={styles.btnPrimario}>
               {guardando ? 'Guardando...' : 'Guardar cambios e imprimir'}

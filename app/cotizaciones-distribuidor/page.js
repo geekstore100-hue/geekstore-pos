@@ -30,7 +30,7 @@ export default function CotizacionesDistribuidorPage() {
 
   return (
     <Shell title="Pedidos de distribuidores">
-      <div style={{ marginBottom: 16, display: 'flex', gap: 8 }}>
+      <div style={{ marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {['pendiente', 'facturada', 'todas'].map((f) => (
           <button
             key={f}

@@ -139,7 +139,7 @@ export default function DistribuidoresPage() {
 }
 
 const styles = {
-  form: { display: 'flex', gap: 8, marginBottom: 12 },
+  form: { display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' },
   input: { padding: '8px 10px', borderRadius: 6, border: '1px solid #ddd', fontSize: '0.9rem' },
   boton: {
     padding: '8px 14px', borderRadius: 6, border: 'none',
