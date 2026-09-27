@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import Sidebar from './Sidebar';
+import PanicoBoton from './PanicoBoton';
 
 export default function Shell({ title, children }) {
   // Evita el problema clásico de los navegadores: si el mouse queda sobre un
@@ -58,6 +59,10 @@ export default function Shell({ title, children }) {
         </header>
         <main className="pos-main">{children}</main>
       </div>
+      {/* Ver components/PanicoBoton.js — vive acá para que esté disponible
+          en cualquier pantalla que use Shell (prácticamente todo el
+          sistema), sin tener que acordarse de agregarlo página por página. */}
+      <PanicoBoton />
     </div>
   );
 }

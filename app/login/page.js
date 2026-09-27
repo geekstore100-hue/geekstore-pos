@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
@@ -8,6 +8,19 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
   const router = useRouter();
+
+  // Si el botón de pánico (ver components/PanicoBoton.js) había quedado
+  // "activo" de una sesión anterior (por ejemplo, se cerró sesión sin
+  // desbloquearlo antes), acá se limpia solo: si ya se llegó hasta la
+  // pantalla de login es porque de todos modos hay que volver a entrar con
+  // la clave de acceso, así que no tiene sentido seguir tapando nada.
+  useEffect(() => {
+    try {
+      localStorage.removeItem('geekstore_panico_activo');
+    } catch {
+      // Sin acceso a localStorage no hay nada que limpiar.
+    }
+  }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();
