@@ -42,6 +42,7 @@ const links = [
     icon: IconGastos,
     children: [
       { href: '/gastos/facturas-compra', label: 'Facturas de compra', icon: IconGastos },
+      { href: '/garantias-proveedor', label: 'Garantías a proveedor', icon: IconGarantia },
     ],
   },
   { href: '/reportes', label: 'Reportes', icon: IconChart },
@@ -56,6 +57,32 @@ function esActivo(pathname, item) {
 export default function Sidebar() {
   const pathname = usePathname();
   const [expandido, setExpandido] = useState(false);
+
+  // Antes, al abrir el menú lateral, TODAS las subcategorías de TODOS los
+  // grupos (Inventario, Distribuidores, Historial, Gastos) aparecían
+  // desplegadas de una vez, así que el menú quedaba larguísimo y era difícil
+  // encontrar la categoría principal que se buscaba. Ahora arrancan
+  // plegadas — solo se ven los nombres de las categorías principales, con un
+  // "+" al lado — y cada una se despliega por separado al tocarla. La
+  // categoría del grupo donde ya se está parado arranca abierta, para no
+  // esconder de una vez la página activa.
+  const [gruposAbiertos, setGruposAbiertos] = useState(() => {
+    const grupoActivo = links.find((item) => item.children && esActivo(pathname, item));
+    return new Set(grupoActivo ? [grupoActivo.href] : []);
+  });
+
+  function alternarGrupo(e, href) {
+    // Sin esto, en celular (donde el toque abre/cierra todo el menú, ver
+    // alternarPorToque más abajo) tocar el "+" de un grupo cerraría de
+    // inmediato el menú completo en vez de solo desplegar ese grupo.
+    e.stopPropagation();
+    setGruposAbiertos((actual) => {
+      const siguiente = new Set(actual);
+      if (siguiente.has(href)) siguiente.delete(href);
+      else siguiente.add(href);
+      return siguiente;
+    });
+  }
 
   // En celular no existe el "hover" (mouseenter/mouseleave nunca disparan al
   // tocar con el dedo), así que antes el menú expandido era imposible de
@@ -106,28 +133,35 @@ export default function Sidebar() {
             const Icon = item.icon;
 
             if (item.children) {
+              const abierto = gruposAbiertos.has(item.href);
               return (
                 <div key={item.href} style={{ marginBottom: '4px' }}>
-                  <div style={{ ...styles.flyoutGrupoTitulo, ...(activo ? styles.flyoutLinkActivo : {}) }}>
+                  <div
+                    onClick={(e) => alternarGrupo(e, item.href)}
+                    style={{ ...styles.flyoutGrupoTitulo, ...(activo ? styles.flyoutLinkActivo : {}) }}
+                  >
                     <Icon />
-                    <span>{item.label}</span>
+                    <span style={{ flex: 1 }}>{item.label}</span>
+                    <span style={styles.flyoutToggle}>{abierto ? '−' : '+'}</span>
                   </div>
-                  <div style={styles.flyoutSubgrupo}>
-                    {item.children.map((child) => {
-                      const childActivo = pathname === child.href;
-                      const ChildIcon = child.icon;
-                      return (
-                        <Link
-                          key={child.href}
-                          href={child.href}
-                          style={{ ...styles.flyoutLink, ...styles.flyoutLinkHijo, ...(childActivo ? styles.flyoutLinkActivo : {}) }}
-                        >
-                          <ChildIcon />
-                          <span>{child.label}</span>
-                        </Link>
-                      );
-                    })}
-                  </div>
+                  {abierto && (
+                    <div style={styles.flyoutSubgrupo}>
+                      {item.children.map((child) => {
+                        const childActivo = pathname === child.href;
+                        const ChildIcon = child.icon;
+                        return (
+                          <Link
+                            key={child.href}
+                            href={child.href}
+                            style={{ ...styles.flyoutLink, ...styles.flyoutLinkHijo, ...(childActivo ? styles.flyoutLinkActivo : {}) }}
+                          >
+                            <ChildIcon />
+                            <span>{child.label}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             }
@@ -235,6 +269,20 @@ const styles = {
     borderRadius: '8px',
     color: '#6b7280',
     fontSize: '14px',
+    cursor: 'pointer',
+    userSelect: 'none',
+  },
+  flyoutToggle: {
+    width: '18px',
+    height: '18px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: '5px',
+    background: 'var(--bg)',
+    fontSize: '14px',
+    fontWeight: 700,
+    flexShrink: 0,
   },
   flyoutSubgrupo: {
     display: 'flex',
@@ -373,6 +421,14 @@ function IconTag() {
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <path d="M20.59 13.41L11 3.83A2 2 0 009.59 3.24L3 3v6.59a2 2 0 00.59 1.41l9.59 9.59a2 2 0 002.82 0l4.59-4.59a2 2 0 000-2.82z" strokeLinecap="round" strokeLinejoin="round" />
       <circle cx="7.5" cy="7.5" r="1.2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+function IconGarantia() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M9 12l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

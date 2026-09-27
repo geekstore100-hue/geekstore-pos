@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Shell from '../../components/Shell';
 
 let contadorKey = 0;
@@ -178,9 +178,30 @@ export default function AjustesInventarioPage() {
     setFilas((prev) => prev.map((f) => (f._key === key ? { ...f, [campo]: valor } : f)));
   }
 
+  // La tabla de productos ahora se puede deslizar horizontalmente en celular
+  // (className "pos-tabla-scroll" más abajo), pero eso trae un efecto
+  // secundario: el navegador, apenas un contenedor puede deslizarse en un
+  // eje, recorta cualquier cosa que se salga de él también en el otro eje —
+  // así que la lista de resultados (que antes "flotaba" libremente debajo
+  // del campo de búsqueda con position:absolute) quedaba cortada a la mitad.
+  // La solución es calcular la posición real del campo en la pantalla
+  // (getBoundingClientRect) y dibujar la lista con position:fixed en esas
+  // coordenadas — así ya no depende del contenedor que se puede deslizar y
+  // no se corta.
+  const inputsBusqueda = useRef({});
+  const [posicionDropdown, setPosicionDropdown] = useState(null);
+
+  function actualizarPosicionDropdown(key) {
+    const el = inputsBusqueda.current[key];
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setPosicionDropdown({ top: rect.bottom, left: rect.left, width: rect.width });
+  }
+
   function buscarEnFila(key, texto) {
     setFilas((prev) => prev.map((f) => (f._key === key ? { ...f, busquedaProducto: texto, producto_id: '' } : f)));
     setFilaBuscando(key);
+    actualizarPosicionDropdown(key);
   }
 
   function resultadosPara(texto) {
@@ -397,7 +418,10 @@ export default function AjustesInventarioPage() {
         </label>
 
         <h3 style={styles.subtitulo}>Productos a ajustar</h3>
-        <div>
+        <div
+          className="pos-tabla-scroll"
+          onScroll={() => { if (filaBuscando) actualizarPosicionDropdown(filaBuscando); }}
+        >
           <table style={styles.tabla}>
             <thead>
               <tr style={{ background: 'var(--bg)' }}>
@@ -417,16 +441,26 @@ export default function AjustesInventarioPage() {
                 <tr key={f._key} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={{ ...styles.td, minWidth: '220px', position: 'relative' }}>
                     <input
+                      ref={(el) => { inputsBusqueda.current[f._key] = el; }}
                       value={f.busquedaProducto}
                       onChange={(e) => buscarEnFila(f._key, e.target.value)}
-                      onFocus={() => setFilaBuscando(f._key)}
+                      onFocus={() => { setFilaBuscando(f._key); actualizarPosicionDropdown(f._key); }}
                       onBlur={() => setTimeout(() => setFilaBuscando((actual) => (actual === f._key ? null : actual)), 150)}
                       placeholder="Escribe referencia o nombre..."
                       style={styles.inputCampo}
                       disabled={!bodegaId}
                     />
-                    {filaBuscando === f._key && (
-                      <div style={styles.listaResultados}>
+                    {filaBuscando === f._key && posicionDropdown && (
+                      <div
+                        style={{
+                          ...styles.listaResultados,
+                          position: 'fixed',
+                          top: posicionDropdown.top,
+                          left: posicionDropdown.left,
+                          width: posicionDropdown.width,
+                          right: 'auto',
+                        }}
+                      >
                         {resultadosPara(f.busquedaProducto).map((p) => (
                           <div key={p.id} onMouseDown={() => seleccionarProducto(f._key, p)} style={styles.itemResultado}>
                             {p.referencia} — {p.nombre}
@@ -619,9 +653,12 @@ const styles = {
   itemResultado: { padding: '8px 10px', cursor: 'pointer', borderBottom: '1px solid var(--border)', fontSize: '13px' },
   btnQuitar: { border: 'none', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '16px' },
   filaInferior: { display: 'flex', gap: '24px', marginTop: '24px', alignItems: 'flex-start', flexWrap: 'wrap' },
-  resumen: { width: '280px', flexShrink: 0, background: 'var(--bg)', borderRadius: 'var(--radius)', padding: '16px' },
+  // Antes era un ancho fijo (280px) que en un celular angosto podía
+  // desbordar un poco el contenedor; con width 100% + maxWidth se ve igual
+  // en escritorio pero se encoge si hace falta en pantallas chiquitas.
+  resumen: { width: '100%', maxWidth: '280px', flexShrink: 0, background: 'var(--bg)', borderRadius: 'var(--radius)', padding: '16px', boxSizing: 'border-box' },
   filaResumen: { display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '14px' },
-  filaBotones: { display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '16px' },
+  filaBotones: { display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '16px', flexWrap: 'wrap' },
   btnSecundario: { padding: '10px 20px', borderRadius: '8px', border: '1px solid var(--border)', background: '#fff', cursor: 'pointer' },
   btnPrimario: { padding: '10px 20px', borderRadius: '8px', border: 'none', background: 'var(--teal)', color: '#fff', cursor: 'pointer', fontWeight: 600 },
   tableCard: { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '8px 16px' },
