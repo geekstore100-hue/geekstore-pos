@@ -38,9 +38,15 @@ export async function GET(request) {
       FROM productos p
       LEFT JOIN categorias c ON c.id = p.categoria_id
       LEFT JOIN (
-        SELECT producto_id, SUM(cantidad) AS stock_total
-        FROM stock
-        GROUP BY producto_id
+        -- Se excluye la bodega "Garantías con Proveedor": esas unidades
+        -- están físicamente donde el proveedor (en trámite de garantía), no
+        -- se pueden vender ni despachar, así que no deben contar como
+        -- disponibles hacia afuera.
+        SELECT s.producto_id, SUM(s.cantidad) AS stock_total
+        FROM stock s
+        JOIN bodegas b ON b.id = s.bodega_id
+        WHERE b.nombre <> 'Garantías con Proveedor'
+        GROUP BY s.producto_id
       ) st ON st.producto_id = p.id
       WHERE p.activo = true AND p.precio_distribuidor IS NOT NULL AND p.precio_distribuidor > 0
       ORDER BY p.nombre ASC

@@ -63,9 +63,15 @@ export async function GET(request) {
       LEFT JOIN categorias c ON c.id = p.categoria_id
       LEFT JOIN subcategorias sc ON sc.id = p.subcategoria_id
       LEFT JOIN (
-        SELECT producto_id, SUM(cantidad) AS stock_total
-        FROM stock
-        GROUP BY producto_id
+        -- Se excluye la bodega "Garantías con Proveedor": esas unidades
+        -- están físicamente donde el proveedor (en trámite de garantía), no
+        -- se pueden vender ni despachar, así que no deben contar como
+        -- disponibles hacia afuera.
+        SELECT s.producto_id, SUM(s.cantidad) AS stock_total
+        FROM stock s
+        JOIN bodegas b ON b.id = s.bodega_id
+        WHERE b.nombre <> 'Garantías con Proveedor'
+        GROUP BY s.producto_id
       ) st ON st.producto_id = p.id
       -- mostrar_en_tienda: lo desmarca Nelson desde Productos cuando no
       -- quiere que un artículo aparezca en geekstore.com.co (sigue
@@ -79,7 +85,7 @@ export async function GET(request) {
       SELECT s.producto_id, b.nombre AS bodega_nombre, s.cantidad
       FROM stock s
       JOIN bodegas b ON b.id = s.bodega_id
-      WHERE s.cantidad > 0
+      WHERE s.cantidad > 0 AND b.nombre <> 'Garantías con Proveedor'
     `;
     const bodegasPorProducto = new Map();
     for (const fila of stockPorBodega) {
