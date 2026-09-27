@@ -8,6 +8,7 @@ const SECCIONES = [
   { id: 'categorias', label: 'Categorías y subcategorías', descripcion: 'Cómo se organiza el inventario' },
   { id: 'etiquetas', label: 'Etiquetas de producto', descripcion: 'Logo que se imprime en las etiquetas' },
   { id: 'caja', label: 'Caja', descripcion: 'Hora del arqueo de caja' },
+  { id: 'ia', label: 'Inteligencia artificial', descripcion: 'Modelo y prompt de "Nuevo producto"' },
   { id: 'seguridad', label: 'Seguridad', descripcion: 'Clave de administrador' },
 ];
 
@@ -53,6 +54,16 @@ export default function ConfiguracionesPage() {
   const [guardandoTamano, setGuardandoTamano] = useState(false);
   const [errorTamano, setErrorTamano] = useState('');
   const [mensajeTamano, setMensajeTamano] = useState('');
+
+  // Inteligencia artificial: modelo y prompt para "Nuevo producto"
+  const [modeloIA, setModeloIA] = useState('');
+  const [modeloGeminiIA, setModeloGeminiIA] = useState('');
+  const [proveedorIA, setProveedorIA] = useState('mistral');
+  const [promptIA, setPromptIA] = useState('');
+  const [cargandoIA, setCargandoIA] = useState(true);
+  const [guardandoIA, setGuardandoIA] = useState(false);
+  const [mensajeIA, setMensajeIA] = useState('');
+  const [errorIA, setErrorIA] = useState('');
 
   // Seguridad: clave de administrador
   const [claveConfigurada, setClaveConfigurada] = useState(null);
@@ -146,6 +157,50 @@ export default function ConfiguracionesPage() {
     }
   }
 
+  async function cargarConfigIA() {
+    setCargandoIA(true);
+    try {
+      const res = await fetch('/api/productos/ia-config');
+      const data = await res.json();
+      if (data.ok) {
+        setModeloIA(data.modelo || '');
+        setModeloGeminiIA(data.modeloGemini || '');
+        setProveedorIA(data.proveedor || 'mistral');
+        setPromptIA(data.prompt || '');
+      }
+    } finally {
+      setCargandoIA(false);
+    }
+  }
+
+  async function guardarConfigIA(e) {
+    e.preventDefault();
+    setErrorIA('');
+    setMensajeIA('');
+    setGuardandoIA(true);
+    try {
+      const res = await fetch('/api/productos/ia-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelo: modeloIA, modeloGemini: modeloGeminiIA, proveedor: proveedorIA, prompt: promptIA }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setModeloIA(data.modelo);
+        setModeloGeminiIA(data.modeloGemini);
+        setProveedorIA(data.proveedor);
+        setPromptIA(data.prompt);
+        setMensajeIA('Guardado. Se usa desde el próximo análisis en "Nuevo producto".');
+      } else {
+        setErrorIA(data.error || 'No se pudo guardar');
+      }
+    } catch {
+      setErrorIA('No se pudo guardar');
+    } finally {
+      setGuardandoIA(false);
+    }
+  }
+
   useEffect(() => {
     cargar();
     cargarCategorias();
@@ -153,6 +208,7 @@ export default function ConfiguracionesPage() {
     cargarLogoEtiqueta();
     cargarTamanoEtiqueta();
     cargarHoraArqueo();
+    cargarConfigIA();
   }, []);
 
   useEffect(() => {
@@ -687,6 +743,68 @@ export default function ConfiguracionesPage() {
                 Además, en cualquier momento se puede hacer un arqueo con el botón &quot;Arqueo&quot; que aparece junto al turno
                 en la pantalla de Vender.
               </p>
+            </>
+          )}
+
+          {seccionActiva === 'ia' && (
+            <>
+              <h2 style={{ marginTop: 0 }}>Inteligencia artificial</h2>
+              <p style={{ color: 'var(--text-secondary)', marginTop: '-8px' }}>
+                En Productos &gt; Nuevo producto se puede subir una foto para que la IA sugiera el nombre y la
+                descripción. Acá se configura qué modelo usa y las instrucciones (prompt) que sigue. Necesita que
+                hayas configurado la variable de entorno MISTRAL_API_KEY (y opcionalmente GEMINI_API_KEY como
+                respaldo) en Netlify, en el proyecto de este POS.
+              </p>
+
+              {cargandoIA ? (
+                <p>Cargando...</p>
+              ) : (
+                <form onSubmit={guardarConfigIA} style={{ ...styles.formCard, maxWidth: '640px' }}>
+                  <label style={{ display: 'block', marginBottom: '10px' }}>Proveedor de IA</label>
+                  <div style={{ display: 'flex', gap: '16px', marginBottom: '14px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                      <input type="radio" name="proveedor-ia" checked={proveedorIA === 'mistral'} onChange={() => setProveedorIA('mistral')} />
+                      Mistral
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                      <input type="radio" name="proveedor-ia" checked={proveedorIA === 'gemini'} onChange={() => setProveedorIA('gemini')} />
+                      Google Gemini (respaldo)
+                    </label>
+                  </div>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '-10px', marginBottom: '14px' }}>
+                    Si se te acaban los créditos de uno, cambia acá al otro — usan el mismo prompt de abajo.
+                  </p>
+
+                  <label style={{ display: 'block', marginBottom: '10px' }}>
+                    Modelo de Mistral
+                    <input value={modeloIA} onChange={(e) => setModeloIA(e.target.value)} style={styles.input} />
+                    <small style={{ color: 'var(--text-secondary)' }}>Ej. mistral-small-latest — tiene que ser un modelo con visión.</small>
+                  </label>
+                  <label style={{ display: 'block', marginBottom: '10px' }}>
+                    Modelo de Gemini
+                    <input value={modeloGeminiIA} onChange={(e) => setModeloGeminiIA(e.target.value)} style={styles.input} />
+                    <small style={{ color: 'var(--text-secondary)' }}>Ej. gemini-2.5-flash.</small>
+                  </label>
+                  <label style={{ display: 'block', marginBottom: '10px' }}>
+                    Prompt (instrucciones para la IA)
+                    <textarea
+                      value={promptIA}
+                      onChange={(e) => setPromptIA(e.target.value)}
+                      rows={14}
+                      style={{ ...styles.input, width: '100%', fontFamily: 'monospace', fontSize: '12px' }}
+                    />
+                    <small style={{ color: 'var(--text-secondary)' }}>
+                      Tiene que seguir pidiendo la respuesta en JSON con las claves &quot;nombre&quot;, &quot;descripcion&quot; y
+                      &quot;categoria&quot; — si cambias eso, la IA puede dejar de funcionar bien en Productos.
+                    </small>
+                  </label>
+                  {errorIA && <p style={{ color: 'var(--danger)' }}>{errorIA}</p>}
+                  {mensajeIA && <p style={{ color: 'var(--teal-dark)' }}>{mensajeIA}</p>}
+                  <button type="submit" disabled={guardandoIA} style={styles.btnPrimario}>
+                    {guardandoIA ? 'Guardando...' : 'Guardar configuración de la IA'}
+                  </button>
+                </form>
+              )}
             </>
           )}
 

@@ -36,6 +36,22 @@ export default function ProductosPage() {
   const [procesandoImagenId, setProcesandoImagenId] = useState(null);
   const [portadaActual, setPortadaActual] = useState(null);
 
+  // "Nuevo producto" con ayuda de IA: una foto para que la IA sugiera
+  // nombre/descripción (puede ser la caja con las especificaciones, nunca
+  // se guarda como foto del producto) y, por separado, la foto real que sí
+  // va a quedar como portada. Solo aplica al crear (no al editar): se sube
+  // apenas se guarda el producto, ya con su id.
+  const [imagenAnalisis, setImagenAnalisis] = useState(null);
+  const [infoAdicionalIA, setInfoAdicionalIA] = useState('');
+  const [analizandoIA, setAnalizandoIA] = useState(false);
+  const [mensajeIA, setMensajeIA] = useState('');
+  const [categoriaSugeridaIA, setCategoriaSugeridaIA] = useState('');
+  const [imagenProductoNueva, setImagenProductoNueva] = useState(null);
+  const [recortarActivo, setRecortarActivo] = useState(true);
+  const [arrastrandoAnalisis, setArrastrandoAnalisis] = useState(false);
+  const [arrastrandoProductoNueva, setArrastrandoProductoNueva] = useState(false);
+  const [errorReferenciaSugerida, setErrorReferenciaSugerida] = useState('');
+
   // Búsqueda y paginación de la lista: antes se mostraban todos los
   // productos de una sola vez, lo que hacía la página larguísima y además
   // escondía el formulario de edición (que aparece arriba de la tabla) si
@@ -96,7 +112,200 @@ export default function ProductosPage() {
     setImagenes([]);
     setErrorImagen('');
     setError('');
+    setImagenAnalisis(null);
+    setInfoAdicionalIA('');
+    setMensajeIA('');
+    setCategoriaSugeridaIA('');
+    setImagenProductoNueva(null);
+    setRecortarActivo(true);
     setMostrarForm(true);
+
+    // Sugiere la siguiente referencia disponible (a partir del catálogo
+    // actual); se puede cambiar a mano si no sirve.
+    setErrorReferenciaSugerida('');
+    fetch('/api/productos/siguiente-referencia')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.ok) setForm((f) => (f.id ? f : { ...f, referencia: d.siguiente }));
+        else setErrorReferenciaSugerida(d.error || 'No se pudo sugerir sola');
+      })
+      .catch(() => setErrorReferenciaSugerida('No se pudo sugerir sola'));
+  }
+
+  // Lee un archivo de imagen como data URI (base64).
+  function leerArchivoComoDataUri(file, setter) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setter(reader.result);
+    reader.readAsDataURL(file);
+  }
+
+  // Recorta la imagen hasta el borde de donde empieza el contenido real,
+  // sacando el espacio en blanco alrededor (típico de fotos de proveedor
+  // con el producto chiquito en el centro de un fondo blanco enorme). No
+  // cambia nada dentro del recorte, solo achica el lienzo.
+  function recortarEspaciosBlancos(dataUri) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const { width, height } = canvas;
+        let datos;
+        try {
+          datos = ctx.getImageData(0, 0, width, height).data;
+        } catch {
+          resolve(dataUri); // por si el navegador bloquea el canvas
+          return;
+        }
+
+        const esBlanco = (r, g, b) => r > 245 && g > 245 && b > 245;
+
+        let minX = width, minY = height, maxX = 0, maxY = 0, encontrado = false;
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const i = (y * width + x) * 4;
+            if (!esBlanco(datos[i], datos[i + 1], datos[i + 2])) {
+              encontrado = true;
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (y < minY) minY = y;
+              if (y > maxY) maxY = y;
+            }
+          }
+        }
+
+        if (!encontrado) {
+          resolve(dataUri); // la foto es toda blanca, no hay nada que recortar
+          return;
+        }
+
+        const margen = Math.round(Math.max(width, height) * 0.02);
+        minX = Math.max(0, minX - margen);
+        minY = Math.max(0, minY - margen);
+        maxX = Math.min(width - 1, maxX + margen);
+        maxY = Math.min(height - 1, maxY + margen);
+
+        const anchoRecorte = maxX - minX + 1;
+        const altoRecorte = maxY - minY + 1;
+
+        const canvasRecorte = document.createElement('canvas');
+        canvasRecorte.width = anchoRecorte;
+        canvasRecorte.height = altoRecorte;
+        canvasRecorte.getContext('2d').drawImage(
+          canvas, minX, minY, anchoRecorte, altoRecorte, 0, 0, anchoRecorte, altoRecorte
+        );
+        resolve(canvasRecorte.toDataURL('image/jpeg', 0.92));
+      };
+      img.onerror = () => resolve(dataUri);
+      img.src = dataUri;
+    });
+  }
+
+  function onSeleccionarAnalisis(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    setMensajeIA('');
+    setCategoriaSugeridaIA('');
+    leerArchivoComoDataUri(file, setImagenAnalisis);
+  }
+
+  function onSoltarAnalisis(e) {
+    e.preventDefault();
+    setArrastrandoAnalisis(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    setMensajeIA('');
+    setCategoriaSugeridaIA('');
+    leerArchivoComoDataUri(file, setImagenAnalisis);
+  }
+
+  async function procesarFotoProductoNueva(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const original = reader.result;
+      if (recortarActivo) {
+        const recortada = await recortarEspaciosBlancos(original);
+        setImagenProductoNueva(recortada);
+      } else {
+        setImagenProductoNueva(original);
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function onSeleccionarProductoNueva(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    procesarFotoProductoNueva(file);
+  }
+
+  function onSoltarProductoNueva(e) {
+    e.preventDefault();
+    setArrastrandoProductoNueva(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    procesarFotoProductoNueva(file);
+  }
+
+  async function analizarConIA() {
+    if (!imagenAnalisis) {
+      setMensajeIA('Primero sube una foto para analizar (puede ser la caja con las especificaciones).');
+      return;
+    }
+    setAnalizandoIA(true);
+    setMensajeIA('');
+    setCategoriaSugeridaIA('');
+    try {
+      const res = await fetch('/api/productos/analizar-foto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imagenBase64: imagenAnalisis, infoAdicional: infoAdicionalIA }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        setMensajeIA(data.error || 'No se pudo analizar la foto');
+      } else {
+        setForm((f) => ({ ...f, nombre: data.nombre || f.nombre, descripcion: (data.descripcion || '').slice(0, 600) }));
+        setCategoriaSugeridaIA(data.categoria || '');
+        setMensajeIA(`Listo, revisa y ajusta lo que sugirió la IA (usando ${data.proveedorUsado === 'gemini' ? 'Gemini' : 'Mistral'}) antes de guardar.`);
+      }
+    } catch {
+      setMensajeIA('Error de conexión al analizar la foto');
+    }
+    setAnalizandoIA(false);
+  }
+
+  // Pegar una captura de pantalla con Ctrl+V (ej. copiada de la página de
+  // un proveedor) va directo a la foto de análisis — no hace falta
+  // guardarla como archivo primero. Solo mientras el formulario de "Nuevo
+  // producto" está abierto.
+  useEffect(() => {
+    if (!mostrarForm || form.id) return undefined;
+    function onPaste(e) {
+      const item = [...(e.clipboardData?.items || [])].find((it) => it.type.startsWith('image/'));
+      if (!item) return;
+      const file = item.getAsFile();
+      if (!file) return;
+      e.preventDefault();
+      setMensajeIA('Captura pegada como foto de análisis.');
+      setCategoriaSugeridaIA('');
+      leerArchivoComoDataUri(file, setImagenAnalisis);
+    }
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [mostrarForm, form.id]);
+
+  // Convierte un data URI en un File para poder subirlo con el mismo
+  // endpoint que ya usa la galería de fotos (espera multipart/form-data).
+  async function dataUriAFile(dataUri, nombreArchivo) {
+    const res = await fetch(dataUri);
+    const blob = await res.blob();
+    return new File([blob], nombreArchivo, { type: blob.type || 'image/jpeg' });
   }
 
   async function cargarImagenes(productoId) {
@@ -249,9 +458,35 @@ export default function ProductosPage() {
     });
 
     const data = await res.json();
+
+    let fotoFallo = '';
+    if (data.ok && !form.id && imagenProductoNueva) {
+      // Recién creado y con una foto elegida antes de guardar: se sube
+      // ahora que ya existe el id.
+      try {
+        const archivo = await dataUriAFile(imagenProductoNueva, `${form.referencia || 'producto'}.jpg`);
+        const cuerpo = new FormData();
+        cuerpo.append('imagen', archivo);
+        const resFoto = await fetch(`/api/productos/${data.producto.id}/imagenes`, { method: 'POST', body: cuerpo });
+        const dataFoto = await resFoto.json();
+        if (!dataFoto.ok) fotoFallo = dataFoto.error || 'error desconocido';
+      } catch {
+        fotoFallo = 'error de conexión';
+      }
+    }
+
     setGuardando(false);
 
-    if (data.ok) {
+    if (data.ok && fotoFallo) {
+      // El producto sí quedó creado; solo la foto falló. En vez de cerrar
+      // el formulario, se pasa a modo "editar" sobre el producto recién
+      // creado para que la foto se pueda reintentar ahí mismo. (Se llama
+      // primero para que su propio setError('') no borre el mensaje de
+      // abajo, que debe quedar visible.)
+      cargarProductos();
+      editarProducto({ ...form, id: data.producto.id });
+      setError(`El producto se creó, pero la foto no se pudo guardar (${fotoFallo}). Puedes intentar subirla de nuevo aquí abajo.`);
+    } else if (data.ok) {
       setMostrarForm(false);
       cargarProductos();
     } else {
@@ -302,10 +537,73 @@ export default function ProductosPage() {
               : 'No maneja stock ni precio de compra, y nunca bloquea la venta por falta de existencias (por ejemplo servicio técnico o servicio de envío).'}
           </p>
 
+          {!form.id && (
+            <div style={styles.tarjetaIA}>
+              <p style={{ margin: '0 0 4px', fontWeight: 600 }}>🪄 Ayuda de IA (opcional)</p>
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 10px' }}>
+                Sube una foto para que la IA te sugiera nombre y descripción — puede ser la caja con las
+                especificaciones (esa foto no queda guardada, solo la mira la IA).
+              </p>
+              <div
+                onDragOver={(e) => { e.preventDefault(); setArrastrandoAnalisis(true); }}
+                onDragLeave={() => setArrastrandoAnalisis(false)}
+                onDrop={onSoltarAnalisis}
+                style={{ ...styles.dropzone, ...(arrastrandoAnalisis ? styles.dropzoneActiva : {}) }}
+              >
+                Arrastra, pega (Ctrl+V) o elige un archivo
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
+                <input type="file" accept="image/*" onChange={onSeleccionarAnalisis} />
+                <input
+                  id="foto-analisis-camara"
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={onSeleccionarAnalisis}
+                  style={{ display: 'none' }}
+                />
+                <button type="button" onClick={() => document.getElementById('foto-analisis-camara').click()} style={styles.btnSecundario}>
+                  📷 Cámara
+                </button>
+              </div>
+              {imagenAnalisis && (
+                <img src={imagenAnalisis} alt="Vista previa análisis" style={styles.previewIA} />
+              )}
+              <label style={{ display: 'block', marginTop: '10px' }}>
+                Información adicional para la IA (opcional)
+                <textarea
+                  value={infoAdicionalIA}
+                  onChange={(e) => setInfoAdicionalIA(e.target.value)}
+                  placeholder="Ej: es un mouse inalámbrico, marca Redragon, batería recargable de 500mAh"
+                  style={{ ...styles.input, width: '100%', minHeight: '40px' }}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={analizarConIA}
+                disabled={!imagenAnalisis || analizandoIA}
+                style={{ ...styles.btnPrimario, marginTop: '10px' }}
+              >
+                {analizandoIA ? 'Analizando...' : '🪄 Analizar con IA'}
+              </button>
+              {categoriaSugeridaIA && (
+                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                  Categoría sugerida: <strong>{categoriaSugeridaIA}</strong> (elígela abajo si aplica, no se pone sola).
+                </p>
+              )}
+              {mensajeIA && <p style={{ fontSize: '13px', marginTop: '8px' }}>{mensajeIA}</p>}
+            </div>
+          )}
+
           <div className="pos-grid2" style={styles.grid2}>
             <label>
               Referencia
               <input required value={form.referencia} onChange={(e) => setForm({ ...form, referencia: e.target.value })} style={styles.input} />
+              {errorReferenciaSugerida && !form.id && (
+                <small style={{ display: 'block', color: '#b45309', fontWeight: 400 }}>
+                  No se pudo sugerir sola ({errorReferenciaSugerida}) — escríbela a mano.
+                </small>
+              )}
             </label>
             <label>
               Nombre
@@ -388,15 +686,54 @@ export default function ProductosPage() {
           </p>
           <label style={{ display: 'block', marginTop: '10px' }}>
             Descripción
-            <textarea value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} style={{ ...styles.input, width: '100%', minHeight: '60px' }} />
+            <textarea
+              value={form.descripcion}
+              maxLength={600}
+              onChange={(e) => setForm({ ...form, descripcion: e.target.value.slice(0, 600) })}
+              style={{ ...styles.input, width: '100%', minHeight: '60px' }}
+            />
+            <small style={{ color: form.descripcion.length >= 600 ? 'var(--danger)' : 'var(--text-secondary)' }}>
+              {form.descripcion.length} / 600 caracteres
+            </small>
           </label>
 
           <div style={{ marginTop: '16px' }}>
             <label style={{ display: 'block', marginBottom: '8px' }}>Fotos</label>
             {!form.id ? (
-              <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                Guarda el producto primero para poder agregarle fotos.
-              </p>
+              <div>
+                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: 0 }}>
+                  Esta foto queda como portada del producto (se sube apenas lo guardes).
+                </p>
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setArrastrandoProductoNueva(true); }}
+                  onDragLeave={() => setArrastrandoProductoNueva(false)}
+                  onDrop={onSoltarProductoNueva}
+                  style={{ ...styles.dropzone, ...(arrastrandoProductoNueva ? styles.dropzoneActiva : {}) }}
+                >
+                  Arrastra, pega o elige un archivo
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
+                  <input type="file" accept="image/*" onChange={onSeleccionarProductoNueva} />
+                  <input
+                    id="foto-producto-nueva-camara"
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={onSeleccionarProductoNueva}
+                    style={{ display: 'none' }}
+                  />
+                  <button type="button" onClick={() => document.getElementById('foto-producto-nueva-camara').click()} style={styles.btnSecundario}>
+                    📷 Cámara
+                  </button>
+                </div>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '8px', fontSize: '13px', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={recortarActivo} onChange={(e) => setRecortarActivo(e.target.checked)} />
+                  Recortar espacios en blanco alrededor
+                </label>
+                {imagenProductoNueva && (
+                  <img src={imagenProductoNueva} alt="Vista previa producto" style={styles.previewIA} />
+                )}
+              </div>
             ) : (
               <>
                 {cargandoImagenes ? (
@@ -741,6 +1078,25 @@ export default function ProductosPage() {
 }
 
 const styles = {
+  tarjetaIA: {
+    background: '#faf5ff',
+    border: '1px solid #e9d5ff',
+    borderRadius: '10px',
+    padding: '14px',
+    marginBottom: '18px',
+  },
+  dropzone: {
+    border: '2px dashed var(--border)',
+    borderRadius: '8px',
+    padding: '14px',
+    textAlign: 'center',
+    fontSize: '13px',
+    color: 'var(--text-secondary)',
+    background: '#fff',
+    cursor: 'default',
+  },
+  dropzoneActiva: { borderColor: 'var(--teal)', background: 'var(--teal-light)' },
+  previewIA: { display: 'block', maxWidth: '160px', maxHeight: '160px', objectFit: 'contain', marginTop: '10px', borderRadius: '6px', border: '1px solid var(--border)', background: '#fff' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' },
   formCard: { background: '#fff', border: '1px solid var(--border)', padding: '20px', borderRadius: 'var(--radius)', marginBottom: '24px' },
   // El formulario de nuevo/editar producto y la ficha de detalle se muestran

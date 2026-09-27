@@ -63,6 +63,9 @@ export async function POST(request) {
     if (!nombre || !nombre.trim()) {
       return NextResponse.json({ ok: false, error: 'El nombre es obligatorio' }, { status: 400 });
     }
+    if (descripcion && descripcion.length > 600) {
+      return NextResponse.json({ ok: false, error: 'La descripción no puede pasar de 600 caracteres' }, { status: 400 });
+    }
 
     const inventariable = es_inventariable === undefined ? true : Boolean(es_inventariable);
     // El precio de costo es obligatorio para productos inventariables (para
