@@ -31,11 +31,19 @@ export default function ConfiguracionesPage() {
   const [guardandoCategoria, setGuardandoCategoria] = useState(false);
   const [guardandoSubcategoria, setGuardandoSubcategoria] = useState(false);
 
-  // Etiquetas de producto: logo que se imprime en las etiquetas de 74x45mm
+  // Etiquetas de producto: logo y tamaño físico de la etiqueta que se
+  // imprime desde /etiquetas
   const [logoKey, setLogoKey] = useState(null);
   const [cargandoLogo, setCargandoLogo] = useState(true);
   const [subiendoLogo, setSubiendoLogo] = useState(false);
   const [errorLogo, setErrorLogo] = useState('');
+
+  const [anchoEtiqueta, setAnchoEtiqueta] = useState(74);
+  const [altoEtiqueta, setAltoEtiqueta] = useState(45);
+  const [cargandoTamano, setCargandoTamano] = useState(true);
+  const [guardandoTamano, setGuardandoTamano] = useState(false);
+  const [errorTamano, setErrorTamano] = useState('');
+  const [mensajeTamano, setMensajeTamano] = useState('');
 
   // Seguridad: clave de administrador
   const [claveConfigurada, setClaveConfigurada] = useState(null);
@@ -80,11 +88,23 @@ export default function ConfiguracionesPage() {
     setCargandoLogo(false);
   }
 
+  async function cargarTamanoEtiqueta() {
+    setCargandoTamano(true);
+    const res = await fetch('/api/configuracion/tamano-etiqueta');
+    const data = await res.json();
+    if (data.ok) {
+      setAnchoEtiqueta(data.ancho_mm);
+      setAltoEtiqueta(data.alto_mm);
+    }
+    setCargandoTamano(false);
+  }
+
   useEffect(() => {
     cargar();
     cargarCategorias();
     cargarClaveConfigurada();
     cargarLogoEtiqueta();
+    cargarTamanoEtiqueta();
   }, []);
 
   useEffect(() => {
@@ -227,6 +247,30 @@ export default function ConfiguracionesPage() {
       }
     } finally {
       setSubiendoLogo(false);
+    }
+  }
+
+  async function guardarTamanoEtiqueta(e) {
+    e.preventDefault();
+    setErrorTamano('');
+    setMensajeTamano('');
+    setGuardandoTamano(true);
+    try {
+      const res = await fetch('/api/configuracion/tamano-etiqueta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ancho_mm: Number(anchoEtiqueta), alto_mm: Number(altoEtiqueta) }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setAnchoEtiqueta(data.ancho_mm);
+        setAltoEtiqueta(data.alto_mm);
+        setMensajeTamano('Tamaño guardado.');
+      } else {
+        setErrorTamano(data.error || 'No se pudo guardar el tamaño');
+      }
+    } finally {
+      setGuardandoTamano(false);
     }
   }
 
@@ -469,8 +513,8 @@ export default function ConfiguracionesPage() {
             <>
               <h2 style={{ marginTop: 0 }}>Etiquetas de producto</h2>
               <p style={{ color: 'var(--text-secondary)', marginTop: '-8px' }}>
-                Logo que aparece arriba en las etiquetas de 74mm x 45mm que se imprimen desde Productos
-                (botón "Imprimir etiquetas"). Cámbialo aquí cuando quieras, sin tocar código.
+                Logo y tamaño de las etiquetas que se imprimen desde "Etiquetas" (menú de Inventario). Cámbialos
+                aquí cuando quieras, sin tocar código.
               </p>
 
               <div style={{ ...styles.formCard, maxWidth: '420px' }}>
@@ -509,6 +553,48 @@ export default function ConfiguracionesPage() {
                     )}
                     {errorLogo && <p style={{ color: 'var(--danger)', marginTop: '10px' }}>{errorLogo}</p>}
                   </>
+                )}
+              </div>
+
+              <h3 style={{ marginBottom: '4px' }}>Tamaño de la etiqueta</h3>
+              <p style={{ color: 'var(--text-secondary)', marginTop: 0, fontSize: '13px' }}>
+                Por si cambias de hojas de etiquetas. El valor de fábrica es 74mm x 45mm.
+              </p>
+              <div style={{ ...styles.formCard, maxWidth: '420px' }}>
+                {cargandoTamano ? (
+                  <p>Cargando...</p>
+                ) : (
+                  <form onSubmit={guardarTamanoEtiqueta}>
+                    <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end' }}>
+                      <label style={{ flex: 1 }}>
+                        Ancho (mm)
+                        <input
+                          type="number"
+                          min={10}
+                          max={300}
+                          value={anchoEtiqueta}
+                          onChange={(e) => setAnchoEtiqueta(e.target.value)}
+                          style={styles.input}
+                        />
+                      </label>
+                      <label style={{ flex: 1 }}>
+                        Alto (mm)
+                        <input
+                          type="number"
+                          min={10}
+                          max={300}
+                          value={altoEtiqueta}
+                          onChange={(e) => setAltoEtiqueta(e.target.value)}
+                          style={styles.input}
+                        />
+                      </label>
+                    </div>
+                    <button type="submit" disabled={guardandoTamano} style={{ ...styles.btnPrimario, marginTop: '12px' }}>
+                      {guardandoTamano ? 'Guardando...' : 'Guardar tamaño'}
+                    </button>
+                    {mensajeTamano && <p style={{ color: 'var(--teal-dark)', marginTop: '10px' }}>{mensajeTamano}</p>}
+                    {errorTamano && <p style={{ color: 'var(--danger)', marginTop: '10px' }}>{errorTamano}</p>}
+                  </form>
                 )}
               </div>
             </>

@@ -20,6 +20,8 @@ export default function EtiquetasPage() {
   const [productos, setProductos] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [logoKey, setLogoKey] = useState(null);
+  const [anchoMM, setAnchoMM] = useState(74);
+  const [altoMM, setAltoMM] = useState(45);
   const [error, setError] = useState('');
 
   const [busqueda, setBusqueda] = useState('');
@@ -28,18 +30,24 @@ export default function EtiquetasPage() {
   useEffect(() => {
     async function cargar() {
       try {
-        const [rProd, rLogo] = await Promise.all([
+        const [rProd, rLogo, rTamano] = await Promise.all([
           fetch('/api/productos'),
           fetch('/api/configuracion/logo-etiqueta'),
+          fetch('/api/configuracion/tamano-etiqueta'),
         ]);
         const dProd = await rProd.json();
         const dLogo = await rLogo.json();
+        const dTamano = await rTamano.json();
         if (!dProd.ok) {
           setError(dProd.error || 'No se pudieron cargar los productos');
         } else {
           setProductos(dProd.productos);
         }
         if (dLogo.ok) setLogoKey(dLogo.imagen_key);
+        if (dTamano.ok) {
+          setAnchoMM(dTamano.ancho_mm);
+          setAltoMM(dTamano.alto_mm);
+        }
       } catch (e) {
         setError('No se pudo conectar con el servidor');
       } finally {
@@ -145,7 +153,8 @@ export default function EtiquetasPage() {
         <p style={{ color: '#555', marginTop: 0 }}>
           Busca los artículos, agrégalos a la lista y ajusta cantidad o texto adicional (por ejemplo, las
           características del equipo) antes de imprimir. Las etiquetas salen en cuadrícula sobre hojas tamaño Carta,
-          varias por hoja, con un borde delgado para recortarlas. Antes de imprimir, en el diálogo de impresión abre
+          varias por hoja de {anchoMM}mm x {altoMM}mm cada una, con un borde delgado para recortarlas (el tamaño se
+          cambia en Configuraciones &gt; Etiquetas de producto). Antes de imprimir, en el diálogo de impresión abre
           "Más ajustes" y desmarca "Encabezados y pies de página" (si no, Chrome agrega la fecha y la URL en cada
           hoja) — Chrome recuerda esa opción para la próxima vez.
         </p>
@@ -247,7 +256,11 @@ export default function EtiquetasPage() {
 
       <div className="hoja-etiquetas">
         {etiquetas.map(({ producto, nombreEtiqueta, nota, copia }) => (
-          <div key={`${producto.id}-${copia}`} className="etiqueta" style={styles.etiqueta}>
+          <div
+            key={`${producto.id}-${copia}`}
+            className="etiqueta"
+            style={{ ...styles.etiqueta, width: `${anchoMM}mm`, height: `${altoMM}mm` }}
+          >
             <div style={styles.logoContenedor}>
               {logoUrl && <img src={logoUrl} alt="" style={styles.logo} />}
             </div>
