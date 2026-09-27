@@ -8,7 +8,7 @@ import sql from '../../../lib/db';
 export async function GET() {
   try {
     const distribuidores = await sql`
-      SELECT id, cedula, nombre, activo, creado_en
+      SELECT id, cedula, nombre, telefono, direccion, email, activo, creado_en
       FROM distribuidores
       ORDER BY nombre ASC
     `;
@@ -20,7 +20,7 @@ export async function GET() {
 
 export async function POST(request) {
   try {
-    const { cedula, nombre } = await request.json();
+    const { cedula, nombre, telefono, direccion, email } = await request.json();
     if (!cedula || !String(cedula).trim()) {
       return NextResponse.json({ ok: false, error: 'La cédula es obligatoria' }, { status: 400 });
     }
@@ -28,9 +28,9 @@ export async function POST(request) {
       return NextResponse.json({ ok: false, error: 'El nombre es obligatorio' }, { status: 400 });
     }
     const [distribuidor] = await sql`
-      INSERT INTO distribuidores (cedula, nombre)
-      VALUES (${String(cedula).trim()}, ${nombre.trim()})
-      RETURNING id, cedula, nombre, activo, creado_en
+      INSERT INTO distribuidores (cedula, nombre, telefono, direccion, email)
+      VALUES (${String(cedula).trim()}, ${nombre.trim()}, ${telefono?.trim() || null}, ${direccion?.trim() || null}, ${email?.trim() || null})
+      RETURNING id, cedula, nombre, telefono, direccion, email, activo, creado_en
     `;
     return NextResponse.json({ ok: true, distribuidor });
   } catch (error) {

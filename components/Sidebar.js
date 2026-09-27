@@ -37,15 +37,8 @@ const links = [
     ],
   },
   { href: '/devoluciones', label: 'Devoluciones', icon: IconDevolucion },
-  {
-    href: '/gastos/facturas-compra',
-    label: 'Gastos',
-    icon: IconGastos,
-    children: [
-      { href: '/gastos/facturas-compra', label: 'Facturas de compra', icon: IconGastos },
-      { href: '/garantias-proveedor', label: 'Garantías a proveedor', icon: IconGarantia },
-    ],
-  },
+  { href: '/gastos/facturas-compra', label: 'Gastos', icon: IconGastos },
+  { href: '/garantias-proveedor', label: 'Garantías a proveedor', icon: IconGarantia },
   { href: '/reportes', label: 'Reportes', icon: IconChart },
   { href: '/configuraciones', label: 'Configuraciones', icon: IconSettings },
 ];

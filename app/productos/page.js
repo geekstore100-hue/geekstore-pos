@@ -46,6 +46,7 @@ export default function ProductosPage() {
   const [analizandoIA, setAnalizandoIA] = useState(false);
   const [mensajeIA, setMensajeIA] = useState('');
   const [categoriaSugeridaIA, setCategoriaSugeridaIA] = useState('');
+  const [subcategoriaSugeridaIA, setSubcategoriaSugeridaIA] = useState('');
   const [imagenProductoNueva, setImagenProductoNueva] = useState(null);
   const [recortarActivo, setRecortarActivo] = useState(true);
   const [arrastrandoAnalisis, setArrastrandoAnalisis] = useState(false);
@@ -86,11 +87,15 @@ export default function ProductosPage() {
   async function cargarSubcategorias(categoriaId) {
     if (!categoriaId) {
       setSubcategorias([]);
-      return;
+      return [];
     }
     const res = await fetch(`/api/subcategorias?categoria_id=${categoriaId}`);
     const data = await res.json();
-    if (data.ok) setSubcategorias(data.subcategorias);
+    if (data.ok) {
+      setSubcategorias(data.subcategorias);
+      return data.subcategorias;
+    }
+    return [];
   }
 
   useEffect(() => {
@@ -116,6 +121,7 @@ export default function ProductosPage() {
     setInfoAdicionalIA('');
     setMensajeIA('');
     setCategoriaSugeridaIA('');
+    setSubcategoriaSugeridaIA('');
     setImagenProductoNueva(null);
     setRecortarActivo(true);
     setMostrarForm(true);
@@ -252,6 +258,31 @@ export default function ProductosPage() {
     procesarFotoProductoNueva(file);
   }
 
+  // Quita tildes y pasa a minúsculas, para comparar nombres sin que un
+  // acento o mayúscula de más impida encontrar la coincidencia.
+  function normalizarTexto(s) {
+    return String(s || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .trim();
+  }
+
+  // Busca en una lista (categorías o subcategorías) algo cuyo nombre
+  // coincida, exacto o como parte del texto sugerido por la IA, en
+  // cualquiera de los dos sentidos (ej. IA dice "Mouse" y existe
+  // "Mouse y teclados", o al revés).
+  function buscarCoincidencia(lista, texto) {
+    const t = normalizarTexto(texto);
+    if (!t) return null;
+    return (
+      lista.find((x) => {
+        const n = normalizarTexto(x.nombre);
+        return n && (n === t || n.includes(t) || t.includes(n));
+      }) || null
+    );
+  }
+
   async function analizarConIA() {
     if (!imagenAnalisis) {
       setMensajeIA('Primero sube una foto para analizar (puede ser la caja con las especificaciones).');
@@ -260,6 +291,7 @@ export default function ProductosPage() {
     setAnalizandoIA(true);
     setMensajeIA('');
     setCategoriaSugeridaIA('');
+    setSubcategoriaSugeridaIA('');
     try {
       const res = await fetch('/api/productos/analizar-foto', {
         method: 'POST',
@@ -271,7 +303,26 @@ export default function ProductosPage() {
         setMensajeIA(data.error || 'No se pudo analizar la foto');
       } else {
         setForm((f) => ({ ...f, nombre: data.nombre || f.nombre, descripcion: (data.descripcion || '').slice(0, 600) }));
-        setCategoriaSugeridaIA(data.categoria || '');
+
+        // Si el nombre que sugirió la IA coincide con una categoría (y
+        // subcategoría) que ya existe en el catálogo, se selecciona sola;
+        // si no encuentra nada parecido, se deja solo como pista de texto
+        // para que la elijas a mano.
+        const catMatch = buscarCoincidencia(categorias, data.categoria);
+        if (catMatch) {
+          setForm((f) => ({ ...f, categoria_id: catMatch.id, subcategoria_id: '' }));
+          const listaSubcategorias = await cargarSubcategorias(catMatch.id);
+          const subMatch = buscarCoincidencia(listaSubcategorias, data.subcategoria);
+          if (subMatch) {
+            setForm((f) => ({ ...f, subcategoria_id: subMatch.id }));
+          } else if (data.subcategoria) {
+            setSubcategoriaSugeridaIA(data.subcategoria);
+          }
+        } else {
+          setCategoriaSugeridaIA(data.categoria || '');
+          setSubcategoriaSugeridaIA(data.subcategoria || '');
+        }
+
         setMensajeIA(`Listo, revisa y ajusta lo que sugirió la IA (usando ${data.proveedorUsado === 'gemini' ? 'Gemini' : 'Mistral'}) antes de guardar.`);
       }
     } catch {
@@ -586,9 +637,11 @@ export default function ProductosPage() {
               >
                 {analizandoIA ? 'Analizando...' : '🪄 Analizar con IA'}
               </button>
-              {categoriaSugeridaIA && (
+              {(categoriaSugeridaIA || subcategoriaSugeridaIA) && (
                 <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '8px' }}>
-                  Categoría sugerida: <strong>{categoriaSugeridaIA}</strong> (elígela abajo si aplica, no se pone sola).
+                  {categoriaSugeridaIA && <>Categoría sugerida: <strong>{categoriaSugeridaIA}</strong>. </>}
+                  {subcategoriaSugeridaIA && <>Subcategoría sugerida: <strong>{subcategoriaSugeridaIA}</strong>. </>}
+                  No se encontró una igual en tu catálogo — elígela abajo si aplica, o créala en Configuraciones.
                 </p>
               )}
               {mensajeIA && <p style={{ fontSize: '13px', marginTop: '8px' }}>{mensajeIA}</p>}
@@ -658,7 +711,15 @@ export default function ProductosPage() {
               <input type="checkbox" checked={form.activo} onChange={(e) => setForm({ ...form, activo: e.target.checked })} />
               Activo
             </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '20px' }}>
+          </div>
+
+          {/* Estos dos se sacaron de la grilla de 2 columnas: sus textos de
+              ayuda son largos y quedaban ambiguos al lado de otro checkbox
+              en la misma fila (no se notaba a cuál de los dos aplicaba cada
+              explicación). Ahora cada uno va en su propia fila, de ancho
+              completo, con su explicación justo debajo. */}
+          <div style={styles.bloqueCheckbox}>
+            <label style={styles.filaCheckbox}>
               <input
                 type="checkbox"
                 checked={form.mostrar_en_tienda}
@@ -666,7 +727,14 @@ export default function ProductosPage() {
               />
               Mostrar en la tienda (geekstore.com.co)
             </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '20px' }}>
+            <p style={styles.ayudaCheckbox}>
+              Desmárcalo para productos que quieras manejar solo aquí en el POS (o solo con
+              distribuidores) sin que aparezcan en la página pública — no afecta el portal de
+              distribuidores, que sigue su propio filtro de precio de distribuidor.
+            </p>
+          </div>
+          <div style={styles.bloqueCheckbox}>
+            <label style={styles.filaCheckbox}>
               <input
                 type="checkbox"
                 checked={form.es_gamer}
@@ -674,23 +742,19 @@ export default function ProductosPage() {
               />
               Es artículo gamer (Zona Gamer)
             </label>
+            <p style={styles.ayudaCheckbox}>
+              Márcalo si además de su categoría normal (por ejemplo, Accesorios PC &gt; Mouse) quieres
+              que el producto también se pueda encontrar como artículo de Zona Gamer.
+            </p>
           </div>
-          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '-8px', marginBottom: '10px' }}>
-            Márcalo si además de su categoría normal (por ejemplo, Accesorios PC &gt; Mouse) quieres
-            que el producto también se pueda encontrar como artículo de Zona Gamer.
-          </p>
-          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '-8px', marginBottom: '10px' }}>
-            Desmárcalo para productos que quieras manejar solo aquí en el POS (o solo con
-            distribuidores) sin que aparezcan en la página pública — no afecta el portal de
-            distribuidores, que sigue su propio filtro de precio de distribuidor.
-          </p>
+
           <label style={{ display: 'block', marginTop: '10px' }}>
             Descripción
             <textarea
               value={form.descripcion}
               maxLength={600}
               onChange={(e) => setForm({ ...form, descripcion: e.target.value.slice(0, 600) })}
-              style={{ ...styles.input, width: '100%', minHeight: '60px' }}
+              style={{ ...styles.input, width: '100%', minHeight: '160px' }}
             />
             <small style={{ color: form.descripcion.length >= 600 ? 'var(--danger)' : 'var(--text-secondary)' }}>
               {form.descripcion.length} / 600 caracteres
@@ -1113,12 +1177,15 @@ const styles = {
   },
   formModal: {
     marginBottom: 0,
-    width: '640px',
+    width: '980px',
     maxWidth: '100%',
     maxHeight: '90vh',
     overflowY: 'auto',
     boxShadow: '0 12px 40px rgba(0,0,0,0.2)',
   },
+  bloqueCheckbox: { marginTop: '14px' },
+  filaCheckbox: { display: 'flex', alignItems: 'center', gap: '8px' },
+  ayudaCheckbox: { fontSize: '13px', color: 'var(--text-secondary)', margin: '4px 0 0 24px' },
   modalDetalle: {
     background: '#fff',
     border: '1px solid var(--border)',

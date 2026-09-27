@@ -686,6 +686,125 @@ export default function VentasPage() {
     return String(texto || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
+  // Imprime el resumen de cierre de turno en el mismo formato térmico de
+  // 80mm que los tickets de venta (ver imprimirTicket arriba para las notas
+  // sobre por qué el ancho es 68mm sin centrar). Es un ticket aparte, no
+  // uno de venta: se usa para dejar constancia en papel de cuánto dio el
+  // turno y si la caja cuadró, por si se necesita archivar o mostrarlo.
+  function imprimirCierreTurno(c) {
+    if (!c) return;
+    const r = c.resumen || {};
+    const diferencia = c.dineroReal !== null && c.dineroReal !== undefined ? c.dineroReal - Number(r.dineroEsperado || 0) : null;
+    const cuadra = diferencia !== null && Math.abs(diferencia) < 1;
+
+    const filaResumen = (etiqueta, valor) => `
+      <tr><td>${escaparHtml(etiqueta)}</td><td style="text-align:right;">${valor}</td></tr>`;
+
+    const filasResumen = [
+      filaResumen('Efectivo', moneda(r.ventasEfectivo)),
+      filaResumen('Tarjeta', moneda(r.ventasTarjeta)),
+      filaResumen('Transferencia', moneda(r.ventasTransferencia)),
+      Number(r.ventasOtro) > 0 ? filaResumen('Otros medios', moneda(r.ventasOtro)) : '',
+      Number(r.devolucionDinero) > 0 ? filaResumen('Devoluciones', `-${moneda(r.devolucionDinero)}`) : '',
+    ].join('');
+
+    const html = `<!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Cierre de turno</title>
+        <style>
+          @page { size: 80mm auto; margin: 0; }
+          * { box-sizing: border-box; }
+          body {
+            width: 68mm;
+            margin: 0;
+            padding: 4px 0 10px;
+            font-family: Arial, Helvetica, sans-serif;
+            font-weight: 600;
+            font-size: 13px;
+            color: #000;
+          }
+          h1 { font-size: 17px; text-align: center; margin: 0 0 2px; letter-spacing: 1px; }
+          h2 { font-size: 14px; text-align: center; margin: 0 0 6px; }
+          p { margin: 3px 0; }
+          .centro { text-align: center; }
+          table { width: 100%; border-collapse: collapse; }
+          hr { border: none; border-top: 1px dashed #000; margin: 8px 0; }
+          .total-fila td { font-size: 15px; font-weight: 700; padding-top: 6px; }
+        </style>
+      </head>
+      <body>
+        <h1>GEEK STORE</h1>
+        <h2>Cierre de turno</h2>
+        <p class="centro">
+          ${c.abiertoEn ? `${new Date(c.abiertoEn).toLocaleString('es-CO', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} — ` : ''}
+          ${new Date(c.cerradoEn).toLocaleString('es-CO', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+        </p>
+        <hr />
+        <table>
+          <tr class="total-fila"><td>TOTAL VENTAS</td><td style="text-align:right;">${moneda(r.totalVentas)}</td></tr>
+        </table>
+        ${r.cantidadVentas !== undefined ? `<p class="centro">${r.cantidadVentas} venta${r.cantidadVentas === 1 ? '' : 's'}</p>` : ''}
+        <hr />
+        <table>${filasResumen}</table>
+        <hr />
+        <table>
+          <tr><td>Dinero esperado</td><td style="text-align:right;">${moneda(r.dineroEsperado)}</td></tr>
+          ${c.dineroReal !== null && c.dineroReal !== undefined ? `<tr><td>Dinero contado</td><td style="text-align:right;">${moneda(c.dineroReal)}</td></tr>` : ''}
+        </table>
+        ${
+          diferencia !== null
+            ? `<p class="centro" style="margin-top:6px;">${cuadra ? 'La caja cuadró.' : `Diferencia: ${diferencia > 0 ? '+' : ''}${moneda(diferencia)}`}</p>`
+            : ''
+        }
+      </body>
+      </html>`;
+
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = 'none';
+    iframe.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(iframe);
+
+    let limpiado = false;
+    const limpiar = () => {
+      if (limpiado) return;
+      limpiado = true;
+      if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+    };
+
+    const doc = iframe.contentWindow.document;
+    doc.open();
+    doc.write(html);
+    doc.close();
+
+    let terminado = false;
+    const terminarImpresion = () => {
+      if (terminado) return;
+      terminado = true;
+      limpiar();
+    };
+
+    const ventanaIframe = iframe.contentWindow;
+    ventanaIframe.addEventListener('afterprint', terminarImpresion);
+    setTimeout(limpiar, 30000);
+
+    setTimeout(() => {
+      try {
+        ventanaIframe.focus();
+        ventanaIframe.print();
+        terminarImpresion();
+      } catch {
+        terminarImpresion();
+      }
+    }, 200);
+  }
+
   async function confirmarVenta() {
     setError('');
     setMensaje('');
@@ -1262,6 +1381,9 @@ export default function VentasPage() {
 
             <div style={{ marginTop: '16px' }}>
               <button onClick={() => setCierreTurno(null)} style={styles.btnPrimario}>Aceptar</button>
+              <button onClick={() => imprimirCierreTurno(cierreTurno)} style={styles.btnSecundarioModal}>
+                🖨️ Imprimir (80mm)
+              </button>
             </div>
           </div>
         </div>
