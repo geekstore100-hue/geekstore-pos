@@ -17,6 +17,7 @@ const vacio = {
   es_inventariable: true,
   mostrar_en_tienda: true,
   es_gamer: false,
+  video_youtube: '',
 };
 
 export default function ProductosPage() {
@@ -137,6 +138,20 @@ export default function ProductosPage() {
       })
       .catch(() => setErrorReferenciaSugerida('No se pudo sugerir sola'));
   }
+
+  // El menú lateral (Inventario > Nuevo producto) enlaza a
+  // /productos?nuevo=1 para abrir este formulario directamente, sin tener
+  // que entrar primero a la lista y darle clic a "+ Nuevo producto". Se
+  // limpia la URL después de abrirlo para que un refresh de la página no
+  // lo vuelva a abrir solo.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (new URLSearchParams(window.location.search).get('nuevo') === '1') {
+      nuevoProducto();
+      window.history.replaceState({}, '', '/productos');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Lee un archivo de imagen como data URI (base64).
   function leerArchivoComoDataUri(file, setter) {
@@ -382,6 +397,7 @@ export default function ProductosPage() {
       es_inventariable: p.es_inventariable === undefined || p.es_inventariable === null ? true : p.es_inventariable,
       mostrar_en_tienda: p.mostrar_en_tienda === undefined || p.mostrar_en_tienda === null ? true : p.mostrar_en_tienda,
       es_gamer: Boolean(p.es_gamer),
+      video_youtube: p.video_youtube || '',
     });
     setError('');
     setErrorImagen('');
@@ -848,6 +864,21 @@ export default function ProductosPage() {
               </>
             )}
           </div>
+
+          <label style={{ display: 'block', marginTop: '16px' }}>
+            Video de YouTube (opcional)
+            <input
+              type="url"
+              value={form.video_youtube}
+              onChange={(e) => setForm({ ...form, video_youtube: e.target.value })}
+              placeholder="https://www.youtube.com/watch?v=..."
+              style={styles.input}
+            />
+            <small style={{ color: 'var(--text-secondary)' }}>
+              Pega el enlace del video (de youtube.com o youtu.be) — se muestra en la ficha del producto en la tienda
+              online, además de las fotos.
+            </small>
+          </label>
 
           {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
 

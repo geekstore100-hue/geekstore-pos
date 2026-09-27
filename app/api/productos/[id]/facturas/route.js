@@ -43,6 +43,7 @@ export async function GET(request, { params }) {
         (f.total - f.retencion_valor) AS por_pagar,
         f.estado_pago,
         f.pagado_en,
+        p.id AS proveedor_id,
         p.nombre AS proveedor_nombre,
         m.cantidad,
         m.precio_unitario,

@@ -49,6 +49,15 @@ export default function FacturasCompraPage() {
   const [guardandoRetencion, setGuardandoRetencion] = useState(false);
   const [errorRetencion, setErrorRetencion] = useState('');
 
+  // Manifiestos de importación adjuntos a la factura de compra que está
+  // abierta en el detalle — para que, si aduana pide el manifiesto de algo
+  // que se importó, esté guardado junto con la factura y no perdido en
+  // otro lado.
+  const [manifiestos, setManifiestos] = useState([]);
+  const [cargandoManifiestos, setCargandoManifiestos] = useState(false);
+  const [subiendoManifiesto, setSubiendoManifiesto] = useState(false);
+  const [errorManifiesto, setErrorManifiesto] = useState('');
+
   async function cargarFacturas() {
     setCargando(true);
     try {
@@ -258,6 +267,7 @@ export default function FacturasCompraPage() {
     setDetalleFactura({ id });
     setEditandoRetencion(false);
     setErrorRetencion('');
+    setErrorManifiesto('');
     try {
       const res = await fetch(`/api/facturas-compra/${id}`);
       const data = await res.json();
@@ -268,11 +278,57 @@ export default function FacturasCompraPage() {
     } finally {
       setCargandoDetalle(false);
     }
+    cargarManifiestos(id);
+  }
+
+  async function cargarManifiestos(facturaId) {
+    setCargandoManifiestos(true);
+    try {
+      const res = await fetch(`/api/facturas-compra/${facturaId}/manifiestos`);
+      const data = await res.json();
+      if (data.ok) setManifiestos(data.manifiestos);
+    } finally {
+      setCargandoManifiestos(false);
+    }
+  }
+
+  async function subirManifiesto(e) {
+    const archivo = e.target.files?.[0];
+    e.target.value = '';
+    if (!archivo || !detalleFactura?.id) return;
+    setErrorManifiesto('');
+    setSubiendoManifiesto(true);
+    try {
+      const formData = new FormData();
+      formData.append('archivo', archivo);
+      const res = await fetch(`/api/facturas-compra/${detalleFactura.id}/manifiestos`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setManifiestos((actual) => [...actual, data.manifiesto]);
+      } else {
+        setErrorManifiesto(data.error || 'No se pudo subir el manifiesto');
+      }
+    } catch {
+      setErrorManifiesto('No se pudo subir el manifiesto');
+    } finally {
+      setSubiendoManifiesto(false);
+    }
+  }
+
+  async function eliminarManifiesto(manifiestoId) {
+    if (!detalleFactura?.id) return;
+    if (!confirm('¿Eliminar este manifiesto?')) return;
+    await fetch(`/api/facturas-compra/${detalleFactura.id}/manifiestos/${manifiestoId}`, { method: 'DELETE' });
+    setManifiestos((actual) => actual.filter((m) => m.id !== manifiestoId));
   }
 
   function cerrarDetalle() {
     setDetalleFactura(null);
     setEditandoRetencion(false);
+    setManifiestos([]);
   }
 
   // Abre el formulario de "Agregar/editar retención" (como en Alegra:
@@ -769,6 +825,44 @@ export default function FacturasCompraPage() {
                 {detalleFactura.factura.notas && (
                   <p style={{ marginTop: '10px', fontSize: '13px', color: 'var(--text-secondary)' }}>{detalleFactura.factura.notas}</p>
                 )}
+
+                <div style={{ marginTop: '16px', borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
+                  <label style={styles.etiquetaChica}>Manifiestos de importación</label>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '2px 0 8px' }}>
+                    El documento de aduana que vino con esta factura (PDF o foto) — guárdalo acá para encontrarlo
+                    rápido si te lo piden después.
+                  </p>
+                  {cargandoManifiestos ? (
+                    <p style={{ fontSize: '13px' }}>Cargando...</p>
+                  ) : (
+                    <>
+                      {manifiestos.length === 0 && (
+                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Todavía no hay ningún manifiesto adjunto.</p>
+                      )}
+                      {manifiestos.map((m) => (
+                        <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 0' }}>
+                          <a href={`/api/manifiestos/${m.archivo_key}`} target="_blank" rel="noopener noreferrer" style={{ flex: 1, fontSize: '13px' }}>
+                            📄 {m.nombre_original || m.archivo_key}
+                          </a>
+                          <button type="button" onClick={() => eliminarManifiesto(m.id)} style={{ ...styles.btnMiniLink, color: 'var(--danger)' }}>
+                            Eliminar
+                          </button>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  <label style={{ ...styles.btnSecundario, display: 'inline-block', marginTop: '8px', cursor: 'pointer' }}>
+                    {subiendoManifiesto ? 'Subiendo...' : '+ Adjuntar manifiesto'}
+                    <input
+                      type="file"
+                      accept="application/pdf,image/*"
+                      onChange={subirManifiesto}
+                      disabled={subiendoManifiesto}
+                      style={{ display: 'none' }}
+                    />
+                  </label>
+                  {errorManifiesto && <p style={{ color: 'var(--danger)', fontSize: '13px' }}>{errorManifiesto}</p>}
+                </div>
               </>
             )}
           </div>

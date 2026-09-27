@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../lib/db';
+import { esUrlYoutubeValida } from '../../../lib/youtube';
 
 export async function GET() {
   try {
@@ -18,6 +19,7 @@ export async function GET() {
         p.precio_costo,
         p.precio_distribuidor,
         p.imagen_key,
+        p.video_youtube,
         p.activo,
         p.es_inventariable,
         p.mostrar_en_tienda,
@@ -55,6 +57,7 @@ export async function POST(request) {
       es_inventariable,
       mostrar_en_tienda,
       es_gamer,
+      video_youtube,
     } = body;
 
     if (!referencia || !referencia.trim()) {
@@ -65,6 +68,9 @@ export async function POST(request) {
     }
     if (descripcion && descripcion.length > 600) {
       return NextResponse.json({ ok: false, error: 'La descripción no puede pasar de 600 caracteres' }, { status: 400 });
+    }
+    if (!esUrlYoutubeValida(video_youtube)) {
+      return NextResponse.json({ ok: false, error: 'Pon un enlace válido de YouTube (youtube.com o youtu.be)' }, { status: 400 });
     }
 
     const inventariable = es_inventariable === undefined ? true : Boolean(es_inventariable);
@@ -83,7 +89,7 @@ export async function POST(request) {
       INSERT INTO productos (
         referencia, nombre, descripcion, categoria_id, subcategoria_id,
         precio_venta, precio_costo, precio_distribuidor, activo, es_inventariable,
-        mostrar_en_tienda, es_gamer
+        mostrar_en_tienda, es_gamer, video_youtube
       )
       VALUES (
         ${referencia.trim()}, ${nombre.trim()}, ${descripcion || null},
@@ -91,7 +97,7 @@ export async function POST(request) {
         ${precio_venta || null}, ${precioCostoFinal}, ${precio_distribuidor || null},
         ${activo === undefined ? true : activo}, ${inventariable},
         ${mostrar_en_tienda === undefined ? true : Boolean(mostrar_en_tienda)},
-        ${Boolean(es_gamer)}
+        ${Boolean(es_gamer)}, ${video_youtube?.trim() || null}
       )
       RETURNING id
     `;

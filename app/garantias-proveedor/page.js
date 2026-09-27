@@ -55,6 +55,13 @@ export default function GarantiasProveedorPage() {
   const [nuevoProveedor, setNuevoProveedor] = useState(proveedorVacio);
   const [guardandoProveedor, setGuardandoProveedor] = useState(false);
 
+  // El vendedor que arma la garantía casi nunca sabe de qué proveedor se
+  // compró el producto. Al agregar el primer ítem (si todavía no se ha
+  // elegido proveedor a mano), se busca la última factura de compra de ese
+  // producto y se sugiere sola — queda seleccionada pero se puede cambiar.
+  const [sugerenciaProveedor, setSugerenciaProveedor] = useState('');
+  const [buscandoProveedorSugerido, setBuscandoProveedorSugerido] = useState(false);
+
   const [detalle, setDetalle] = useState(null); // { id, garantia, items }
   const [cargandoDetalle, setCargandoDetalle] = useState(false);
   const [resolucionesPorItem, setResolucionesPorItem] = useState({});
@@ -111,6 +118,7 @@ export default function GarantiasProveedorPage() {
     setErrorForm('');
     setMostrarNuevoProveedor(false);
     setNuevoProveedor(proveedorVacio);
+    setSugerenciaProveedor('');
     setMostrarForm(true);
   }
 
@@ -118,7 +126,8 @@ export default function GarantiasProveedorPage() {
     setMostrarForm(false);
   }
 
-  function agregarItem(producto) {
+  async function agregarItem(producto) {
+    const esPrimerItem = items.length === 0;
     setItems((actual) => {
       const yaEsta = actual.find((it) => it.producto_id === producto.id);
       if (yaEsta) {
@@ -137,6 +146,24 @@ export default function GarantiasProveedorPage() {
       ];
     });
     setBuscarTexto('');
+
+    // Solo se sugiere con el primer ítem, y solo si el vendedor no ha
+    // elegido proveedor todavía a mano — no se le pisa una elección ya hecha.
+    if (esPrimerItem && !form.proveedor_id) {
+      setBuscandoProveedorSugerido(true);
+      try {
+        const res = await fetch(`/api/productos/${producto.id}/ultimo-proveedor`);
+        const data = await res.json();
+        if (data.ok && data.proveedor) {
+          setForm((f) => (f.proveedor_id ? f : { ...f, proveedor_id: String(data.proveedor.proveedor_id) }));
+          setSugerenciaProveedor(data.proveedor.proveedor_nombre);
+        }
+      } catch {
+        // Si falla la sugerencia, el vendedor igual puede elegir el proveedor a mano.
+      } finally {
+        setBuscandoProveedorSugerido(false);
+      }
+    }
   }
 
   function actualizarItem(productoId, campo, valor) {
@@ -494,10 +521,12 @@ export default function GarantiasProveedorPage() {
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <select
                     value={form.proveedor_id}
-                    onChange={(e) => setForm({ ...form, proveedor_id: e.target.value })}
+                    onChange={(e) => { setForm({ ...form, proveedor_id: e.target.value }); setSugerenciaProveedor(''); }}
                     style={{ ...styles.select, flex: 1 }}
                   >
-                    <option value="">Selecciona...</option>
+                    <option value="">
+                      {buscandoProveedorSugerido ? 'Buscando proveedor...' : 'Selecciona...'}
+                    </option>
                     {proveedores.map((p) => (
                       <option key={p.id} value={p.id}>{p.nombre}</option>
                     ))}
@@ -506,7 +535,13 @@ export default function GarantiasProveedorPage() {
                     + Nuevo proveedor
                   </button>
                 </div>
-              ) : (
+              ) : null}
+              {!mostrarNuevoProveedor && sugerenciaProveedor && (
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', marginBottom: 0 }}>
+                  Sugerido según la última factura de compra de &quot;{items[0]?.nombre}&quot; — cámbialo si no es el correcto.
+                </p>
+              )}
+              {mostrarNuevoProveedor && (
                 <div style={styles.cajaNuevoProveedor}>
                   <input
                     value={nuevoProveedor.nombre}

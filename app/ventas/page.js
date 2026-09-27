@@ -864,6 +864,11 @@ export default function VentasPage() {
         carrito: [],
         editandoId: null,
         medioPago: '',
+        // Antes el vendedor quedaba seleccionado de la venta anterior, así que
+        // si se le olvidaba cambiarlo, la siguiente venta le quedaba mal
+        // atribuida a otro vendedor. Ahora, igual que el medio de pago, se
+        // limpia después de cada venta — toca elegirlo de nuevo cada vez.
+        vendedorId: '',
         pagoCombinado: false,
         pagosCombinados: [
           { medio: 'Efectivo', monto: '' },

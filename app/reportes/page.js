@@ -93,6 +93,10 @@ export default function ReportesPage() {
 
   const totalCosto = (inventario || []).reduce((acc, p) => acc + Number(p.valor_costo || 0), 0);
   const totalVenta = (inventario || []).reduce((acc, p) => acc + Number(p.valor_venta || 0), 0);
+  const totalCostoPrincipal = (inventario || []).reduce((acc, p) => acc + Number(p.valor_costo_principal || 0), 0);
+  const totalVentaPrincipal = (inventario || []).reduce((acc, p) => acc + Number(p.valor_venta_principal || 0), 0);
+  const totalCostoDistribuidor = (inventario || []).reduce((acc, p) => acc + Number(p.valor_costo_distribuidor || 0), 0);
+  const totalVentaDistribuidor = (inventario || []).reduce((acc, p) => acc + Number(p.valor_venta_distribuidor || 0), 0);
   const totalUnidadesVendidas = (ventasPorItem || []).reduce((acc, v) => acc + Number(v.unidades || 0), 0);
   const totalVendido = (ventasPorItem || []).reduce((acc, v) => acc + Number(v.total || 0), 0);
 
@@ -138,6 +142,26 @@ export default function ReportesPage() {
 
       {!reporteActivo && (
         <p style={{ color: 'var(--text-secondary)' }}>Selecciona un reporte arriba para empezar.</p>
+      )}
+
+      {reporteActivo === 'inventario' && inventario !== null && (
+        <div style={styles.resumenBodegas}>
+          <div style={styles.resumenTarjeta}>
+            <div style={styles.resumenTitulo}>Bodega Principal</div>
+            <div>Costo: <strong>{moneda(totalCostoPrincipal)}</strong></div>
+            <div>Venta: <strong>{moneda(totalVentaPrincipal)}</strong></div>
+          </div>
+          <div style={styles.resumenTarjeta}>
+            <div style={styles.resumenTitulo}>Bodega Distribuidor</div>
+            <div>Costo: <strong>{moneda(totalCostoDistribuidor)}</strong></div>
+            <div>Venta: <strong>{moneda(totalVentaDistribuidor)}</strong></div>
+          </div>
+          <div style={{ ...styles.resumenTarjeta, ...styles.resumenTarjetaTotal }}>
+            <div style={styles.resumenTitulo}>Total global</div>
+            <div>Costo: <strong>{moneda(totalCosto)}</strong></div>
+            <div>Venta: <strong>{moneda(totalVenta)}</strong></div>
+          </div>
+        </div>
       )}
 
       {reporteActivo === 'inventario' && inventario !== null && (
@@ -261,6 +285,18 @@ export default function ReportesPage() {
 }
 
 const styles = {
+  resumenBodegas: { display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '16px' },
+  resumenTarjeta: {
+    background: '#fff',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius)',
+    padding: '12px 16px',
+    minWidth: '200px',
+    flex: '1 1 200px',
+    fontSize: '14px',
+  },
+  resumenTarjetaTotal: { borderColor: 'var(--teal)', borderWidth: '2px' },
+  resumenTitulo: { fontSize: '13px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' },
   tabs: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' },
   tab: {
     padding: '9px 16px',

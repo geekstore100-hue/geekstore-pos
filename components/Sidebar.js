@@ -12,6 +12,7 @@ const links = [
     icon: IconBox,
     children: [
       { href: '/productos', label: 'Productos', icon: IconBox },
+      { href: '/productos?nuevo=1', label: 'Nuevo producto', icon: IconMas },
       { href: '/ajustes-inventario', label: 'Ajustes de inventario', icon: IconAdjust },
       { href: '/etiquetas', label: 'Etiquetas', icon: IconTag },
       { href: '/chequeos-inventario', label: 'Chequeo semanal', icon: IconChequeo },
@@ -40,6 +41,7 @@ const links = [
   { href: '/gastos/facturas-compra', label: 'Gastos', icon: IconGastos },
   { href: '/garantias-proveedor', label: 'Garantías a proveedor', icon: IconGarantia },
   { href: '/reteica', label: 'Certificados ReteICA', icon: IconCertificado },
+  { href: '/manifiestos', label: 'Manifiestos de importación', icon: IconManifiesto },
   { href: '/reportes', label: 'Reportes', icon: IconChart },
   { href: '/configuraciones', label: 'Configuraciones', icon: IconSettings },
 ];
@@ -433,6 +435,24 @@ function IconGarantia() {
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M9 12l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconManifiesto() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M14 3v5h5" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="11" cy="15" r="3" />
+      <path d="M13.2 17.2L16 20" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconMas() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v8M8 12h8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../../lib/db';
+import { esUrlYoutubeValida } from '../../../../lib/youtube';
 
 export async function PUT(request, { params }) {
   try {
@@ -18,6 +19,7 @@ export async function PUT(request, { params }) {
       es_inventariable,
       mostrar_en_tienda,
       es_gamer,
+      video_youtube,
     } = body;
 
     if (!referencia || !referencia.trim()) {
@@ -28,6 +30,9 @@ export async function PUT(request, { params }) {
     }
     if (descripcion && descripcion.length > 600) {
       return NextResponse.json({ ok: false, error: 'La descripción no puede pasar de 600 caracteres' }, { status: 400 });
+    }
+    if (!esUrlYoutubeValida(video_youtube)) {
+      return NextResponse.json({ ok: false, error: 'Pon un enlace válido de YouTube (youtube.com o youtu.be)' }, { status: 400 });
     }
 
     const inventariable = es_inventariable === undefined ? true : Boolean(es_inventariable);
@@ -57,6 +62,7 @@ export async function PUT(request, { params }) {
         es_inventariable = ${inventariable},
         mostrar_en_tienda = ${mostrar_en_tienda === undefined ? true : Boolean(mostrar_en_tienda)},
         es_gamer = ${Boolean(es_gamer)},
+        video_youtube = ${video_youtube?.trim() || null},
         actualizado_en = now()
       WHERE id = ${id}
       RETURNING id
