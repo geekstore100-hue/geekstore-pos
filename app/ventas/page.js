@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Shell from '../../components/Shell';
+import ChequeoSemanal from '../../components/ChequeoSemanal';
+import ArqueoCaja from '../../components/ArqueoCaja';
 import {
   generarIdLocal,
   guardarVentaPendiente,
@@ -878,6 +880,7 @@ export default function VentasPage() {
           </button>
         </div>
       )}
+      <ChequeoSemanal vendedores={vendedores} enLinea={enLinea} />
       <div className="pos-stack-900" style={styles.layout}>
         <div style={styles.columnaProductos}>
           <div style={styles.barraSuperior}>
@@ -891,6 +894,7 @@ export default function VentasPage() {
                     {new Date(turno.abierto_en).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
                   </span>
                   <button onClick={abrirModalCerrarTurno} style={styles.linkTurno}>Cerrar turno</button>
+                  <ArqueoCaja turno={turno} vendedores={vendedores} enLinea={enLinea} />
                 </>
               ) : (
                 <>

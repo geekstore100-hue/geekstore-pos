@@ -16,6 +16,26 @@ export default function TurnosHistorialPage() {
   const [turnos, setTurnos] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [expandidoId, setExpandidoId] = useState(null);
+  // Arqueos de caja de cada turno (se cargan al abrir el detalle).
+  const [arqueosPorTurno, setArqueosPorTurno] = useState({});
+
+  async function alternarDetalle(id) {
+    const abrir = expandidoId !== id;
+    setExpandidoId(abrir ? id : null);
+    if (abrir && !arqueosPorTurno[id]) {
+      try {
+        const res = await fetch(`/api/arqueos?turno_id=${id}`);
+        const data = await res.json();
+        setArqueosPorTurno((a) => ({ ...a, [id]: data.ok ? data.arqueos : [] }));
+      } catch {
+        setArqueosPorTurno((a) => ({ ...a, [id]: [] }));
+      }
+    }
+  }
+
+  function hora(iso) {
+    return new Date(iso).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+  }
 
   async function cargar() {
     setCargando(true);
@@ -78,7 +98,7 @@ export default function TurnosHistorialPage() {
               const coincide = t.diferencia !== null && Math.abs(t.diferencia) < 1;
               return (
                 <Fragment key={t.id}>
-                  <tr style={styles.filaClickeable} onClick={() => setExpandidoId(expandidoId === t.id ? null : t.id)}>
+                  <tr style={styles.filaClickeable} onClick={() => alternarDetalle(t.id)}>
                     <td style={styles.td}>{fechaHora(t.abierto_en)}</td>
                     <td style={styles.td}>{fechaHora(t.cerrado_en)}</td>
                     <td style={styles.td}>
@@ -115,6 +135,33 @@ export default function TurnosHistorialPage() {
                           <div style={styles.filaResumen}><span>Devolución de dinero</span><strong>{moneda(t.devolucion_dinero)}</strong></div>
                           {t.observaciones && (
                             <div style={styles.filaResumen}><span>Observaciones</span><span>{t.observaciones}</span></div>
+                          )}
+                        </div>
+                        <div style={{ ...styles.detalle, marginTop: '10px', maxWidth: '620px' }}>
+                          <strong style={{ fontSize: '13px' }}>Arqueos de caja del turno</strong>
+                          {!arqueosPorTurno[t.id] ? (
+                            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '6px 0 0' }}>Cargando...</p>
+                          ) : arqueosPorTurno[t.id].length === 0 ? (
+                            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '6px 0 0' }}>No se hizo ningún arqueo en este turno.</p>
+                          ) : (
+                            arqueosPorTurno[t.id].map((a) => {
+                              const dif = Number(a.diferencia);
+                              const cuadra = Math.abs(dif) < 1;
+                              return (
+                                <div key={a.id} style={{ ...styles.filaResumen, borderTop: '1px solid var(--border)', marginTop: '4px', paddingTop: '6px', flexWrap: 'wrap', gap: '6px' }}>
+                                  <span>
+                                    {hora(a.creado_en)} {a.programado ? '(programado)' : ''} — {a.vendedor_nombre || 'sin nombre'}
+                                    {a.observaciones && <span style={{ display: 'block', color: 'var(--text-secondary)' }}>{a.observaciones}</span>}
+                                  </span>
+                                  <span>
+                                    Contado {moneda(a.dinero_contado)} / esperado {moneda(a.dinero_esperado)}{' '}
+                                    <strong style={{ color: cuadra ? 'var(--teal-dark)' : 'var(--danger)' }}>
+                                      {cuadra ? 'Cuadra' : `${dif > 0 ? '+' : ''}${moneda(dif)}`}
+                                    </strong>
+                                  </span>
+                                </div>
+                              );
+                            })
                           )}
                         </div>
                       </td>

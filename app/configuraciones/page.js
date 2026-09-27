@@ -7,11 +7,20 @@ const SECCIONES = [
   { id: 'vendedores', label: 'Vendedores', descripcion: 'Quién vende' },
   { id: 'categorias', label: 'Categorías y subcategorías', descripcion: 'Cómo se organiza el inventario' },
   { id: 'etiquetas', label: 'Etiquetas de producto', descripcion: 'Logo que se imprime en las etiquetas' },
+  { id: 'caja', label: 'Caja', descripcion: 'Hora del arqueo de caja' },
   { id: 'seguridad', label: 'Seguridad', descripcion: 'Clave de administrador' },
 ];
 
 export default function ConfiguracionesPage() {
   const [seccionActiva, setSeccionActiva] = useState('vendedores');
+
+  // Arqueo de caja programado
+  const [arqueoActivo, setArqueoActivo] = useState(false);
+  const [horaArqueo, setHoraArqueo] = useState('14:00');
+  const [cargandoArqueo, setCargandoArqueo] = useState(true);
+  const [guardandoArqueo, setGuardandoArqueo] = useState(false);
+  const [mensajeArqueo, setMensajeArqueo] = useState('');
+  const [errorArqueo, setErrorArqueo] = useState('');
   const [vendedores, setVendedores] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [nombreNuevo, setNombreNuevo] = useState('');
@@ -99,12 +108,51 @@ export default function ConfiguracionesPage() {
     setCargandoTamano(false);
   }
 
+  async function cargarHoraArqueo() {
+    setCargandoArqueo(true);
+    try {
+      const res = await fetch('/api/configuracion/hora-arqueo');
+      const data = await res.json();
+      if (data.ok) {
+        setArqueoActivo(Boolean(data.activo));
+        setHoraArqueo(data.hora);
+      }
+    } finally {
+      setCargandoArqueo(false);
+    }
+  }
+
+  async function guardarHoraArqueo(e) {
+    e.preventDefault();
+    setErrorArqueo('');
+    setMensajeArqueo('');
+    setGuardandoArqueo(true);
+    try {
+      const res = await fetch('/api/configuracion/hora-arqueo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activo: arqueoActivo, hora: horaArqueo }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setMensajeArqueo(data.activo ? `Listo: el sistema pedirá el arqueo todos los días a las ${data.hora}.` : 'Arqueo programado desactivado.');
+      } else {
+        setErrorArqueo(data.error || 'No se pudo guardar');
+      }
+    } catch {
+      setErrorArqueo('No se pudo guardar');
+    } finally {
+      setGuardandoArqueo(false);
+    }
+  }
+
   useEffect(() => {
     cargar();
     cargarCategorias();
     cargarClaveConfigurada();
     cargarLogoEtiqueta();
     cargarTamanoEtiqueta();
+    cargarHoraArqueo();
   }, []);
 
   useEffect(() => {
@@ -597,6 +645,48 @@ export default function ConfiguracionesPage() {
                   </form>
                 )}
               </div>
+            </>
+          )}
+
+          {seccionActiva === 'caja' && (
+            <>
+              <h2 style={{ marginTop: 0 }}>Caja</h2>
+              <p style={{ color: 'var(--text-secondary)', marginTop: '-8px' }}>
+                Arqueo de caja programado: todos los días, a la hora que elijas, la pantalla de Vender le pedirá al
+                vendedor contar el efectivo de la caja. El sistema lo compara con lo que debería haber y lo deja
+                registrado en Historial &gt; Turnos. Solo se pide si hay un turno abierto desde antes de esa hora.
+              </p>
+              <div style={{ ...styles.formCard, maxWidth: '420px' }}>
+                {cargandoArqueo ? (
+                  <p>Cargando...</p>
+                ) : (
+                  <form onSubmit={guardarHoraArqueo}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={arqueoActivo} onChange={(e) => setArqueoActivo(e.target.checked)} />
+                      Pedir arqueo de caja todos los días
+                    </label>
+                    <label style={{ display: 'block', marginTop: '12px', opacity: arqueoActivo ? 1 : 0.5 }}>
+                      Hora del arqueo
+                      <input
+                        type="time"
+                        value={horaArqueo}
+                        onChange={(e) => setHoraArqueo(e.target.value)}
+                        disabled={!arqueoActivo}
+                        style={{ ...styles.input, maxWidth: '160px' }}
+                      />
+                    </label>
+                    <button type="submit" disabled={guardandoArqueo} style={{ ...styles.btnPrimario, marginTop: '12px' }}>
+                      {guardandoArqueo ? 'Guardando...' : 'Guardar'}
+                    </button>
+                    {mensajeArqueo && <p style={{ color: 'var(--teal-dark)', marginTop: '10px' }}>{mensajeArqueo}</p>}
+                    {errorArqueo && <p style={{ color: 'var(--danger)', marginTop: '10px' }}>{errorArqueo}</p>}
+                  </form>
+                )}
+              </div>
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                Además, en cualquier momento se puede hacer un arqueo con el botón &quot;Arqueo&quot; que aparece junto al turno
+                en la pantalla de Vender.
+              </p>
             </>
           )}
 

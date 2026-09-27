@@ -29,7 +29,7 @@ export async function GET(request, { params }) {
 
     const [garantia] = await sql`
       SELECT
-        g.id, g.motivo, g.observaciones, g.estado, g.total_costo, g.enviado_en, g.resuelto_en,
+        g.id, g.motivo, g.observaciones, g.estado, g.total_costo, g.enviado_en, g.resuelto_en, g.creado_en,
         g.proveedor_id, p.nombre AS proveedor_nombre, p.telefono AS proveedor_telefono
       FROM garantias_proveedor g
       JOIN proveedores p ON p.id = g.proveedor_id
@@ -72,9 +72,15 @@ export async function PATCH(request, { params }) {
       return NextResponse.json({ ok: false, error: 'No se indicó ninguna línea para resolver' }, { status: 400 });
     }
 
-    const [garantia] = await sql`SELECT id FROM garantias_proveedor WHERE id = ${id}`;
+    const [garantia] = await sql`SELECT id, estado FROM garantias_proveedor WHERE id = ${id}`;
     if (!garantia) {
       return NextResponse.json({ ok: false, error: 'Garantía no encontrada' }, { status: 404 });
+    }
+    if (garantia.estado === 'por_entregar') {
+      return NextResponse.json(
+        { ok: false, error: 'Primero marca esta garantía como entregada al proveedor' },
+        { status: 409 }
+      );
     }
 
     const bodegaPrincipal = await bodegaPrincipalId();

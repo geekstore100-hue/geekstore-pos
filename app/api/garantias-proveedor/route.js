@@ -34,6 +34,7 @@ export async function GET() {
         g.total_costo,
         g.enviado_en,
         g.resuelto_en,
+        g.creado_en,
         p.nombre AS proveedor_nombre,
         COUNT(i.id) AS items,
         COUNT(i.id) FILTER (WHERE i.resolucion IS NULL) AS items_pendientes,
@@ -42,7 +43,11 @@ export async function GET() {
       JOIN proveedores p ON p.id = g.proveedor_id
       LEFT JOIN garantia_proveedor_items i ON i.garantia_id = g.id
       GROUP BY g.id, p.nombre
-      ORDER BY (g.estado = 'enviada') DESC, g.enviado_en DESC
+      -- Primero lo que falta entregar, luego lo que está donde el proveedor,
+      -- al final lo resuelto.
+      ORDER BY
+        CASE g.estado WHEN 'por_entregar' THEN 0 WHEN 'enviada' THEN 1 ELSE 2 END,
+        g.creado_en DESC
       LIMIT 200
     `;
     return NextResponse.json({ ok: true, garantias });
@@ -61,6 +66,11 @@ export async function POST(request) {
     const body = await request.json();
     const proveedor_id = Number(body.proveedor_id);
     const itemsBody = Array.isArray(body.items) ? body.items : [];
+    // "por_entregar": ya separaste los productos malos (salen del stock
+    // vendible) pero todavía no se los has llevado al proveedor. Queda
+    // contado como pendiente por entregar hasta que lo marques como
+    // entregado (ver [id]/entregar). "enviada": ya se los entregaste.
+    const estadoInicial = body.entregada ? 'enviada' : 'por_entregar';
 
     if (!proveedor_id) {
       return NextResponse.json({ ok: false, error: 'Selecciona el proveedor' }, { status: 400 });
@@ -144,8 +154,8 @@ export async function POST(request) {
     }
 
     const [garantia] = await sql`
-      INSERT INTO garantias_proveedor (proveedor_id, total_costo)
-      VALUES (${proveedor_id}, ${totalCosto})
+      INSERT INTO garantias_proveedor (proveedor_id, total_costo, estado)
+      VALUES (${proveedor_id}, ${totalCosto}, ${estadoInicial})
       RETURNING id
     `;
 

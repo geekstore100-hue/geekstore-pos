@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from 'react';
 import Shell from '../../components/Shell';
 
 const proveedorVacio = { nombre: '', identificacion: '', telefono: '' };
-const formVacio = { proveedor_id: '' };
+// entregada: false = "por entregar" (ya separaste los productos malos pero
+// todavía no se los llevas al proveedor); true = ya se los entregaste.
+const formVacio = { proveedor_id: '', entregada: false };
 
 const ETIQUETAS_RESOLUCION = {
   nota_credito: 'Nota crédito',
@@ -18,6 +20,16 @@ const ETIQUETAS_RESOLUCION = {
 // abierto se resalta en la lista para que sea fácil ver a quién hay que
 // presionar.
 const DIAS_ALERTA = 15;
+// Igual para las que están listas pero todavía no se le han llevado al
+// proveedor: a partir de 7 días sin entregar, se resaltan.
+const DIAS_ALERTA_ENTREGA = 7;
+
+const FILTROS = [
+  { id: 'todas', label: 'Todas' },
+  { id: 'por_entregar', label: 'Por entregar' },
+  { id: 'enviada', label: 'En el proveedor' },
+  { id: 'resuelta', label: 'Resueltas' },
+];
 
 function diasDesde(iso) {
   const ms = Date.now() - new Date(iso).getTime();
@@ -48,6 +60,8 @@ export default function GarantiasProveedorPage() {
   const [resolucionesPorItem, setResolucionesPorItem] = useState({});
   const [guardandoResolucion, setGuardandoResolucion] = useState(false);
   const [errorResolucion, setErrorResolucion] = useState('');
+  const [entregandoId, setEntregandoId] = useState(null);
+  const [filtro, setFiltro] = useState('todas');
 
   async function cargarGarantias() {
     setCargando(true);
@@ -199,6 +213,7 @@ export default function GarantiasProveedorPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           proveedor_id: Number(form.proveedor_id),
+          entregada: Boolean(form.entregada),
           items: items.map((it) => ({
             producto_id: it.producto_id,
             cantidad: Number(it.cantidad),
@@ -293,6 +308,37 @@ export default function GarantiasProveedorPage() {
     }
   }
 
+  // Marca como entregada al proveedor una garantía que estaba "por entregar".
+  async function marcarEntregada(id) {
+    setEntregandoId(id);
+    try {
+      const res = await fetch(`/api/garantias-proveedor/${id}/entregar`, { method: 'POST' });
+      const data = await res.json();
+      if (!data.ok) {
+        window.alert(data.error || 'No se pudo marcar como entregada');
+        return;
+      }
+      cargarGarantias();
+      if (detalle?.id === id) abrirDetalle(id);
+    } finally {
+      setEntregandoId(null);
+    }
+  }
+
+  const conteo = useMemo(() => {
+    const c = { por_entregar: 0, enviada: 0, resuelta: 0, unidadesPorEntregar: 0 };
+    for (const g of garantias) {
+      if (c[g.estado] !== undefined) c[g.estado] += 1;
+      if (g.estado === 'por_entregar') c.unidadesPorEntregar += Number(g.unidades) || 0;
+    }
+    return c;
+  }, [garantias]);
+
+  const garantiasVisibles = useMemo(
+    () => (filtro === 'todas' ? garantias : garantias.filter((g) => g.estado === filtro)),
+    [garantias, filtro]
+  );
+
   function moneda(n) {
     return Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 });
   }
@@ -302,6 +348,7 @@ export default function GarantiasProveedorPage() {
   }
 
   function estadoDe(g) {
+    if (g.estado === 'por_entregar') return { texto: 'Por entregar', estilo: styles.chipPorEntregar };
     if (g.estado === 'resuelta') return { texto: 'Resuelta', estilo: styles.chipResuelta };
     if (Number(g.items_pendientes) < Number(g.items)) return { texto: 'Parcial', estilo: styles.chipParcial };
     return { texto: 'Enviada', estilo: styles.chipEnviada };
@@ -318,6 +365,41 @@ export default function GarantiasProveedorPage() {
         se resolvió cada uno (nota crédito, producto nuevo, reparado, o no aplica).
       </p>
 
+      {!cargando && !error && (
+        <div style={styles.resumenEstados}>
+          <div style={{ ...styles.tarjetaEstado, ...(conteo.por_entregar > 0 ? styles.tarjetaEstadoAlerta : {}) }}>
+            <strong style={{ fontSize: '22px' }}>{conteo.por_entregar}</strong>
+            <span>Por entregar al proveedor</span>
+            {conteo.por_entregar > 0 && (
+              <span style={{ fontSize: '12px' }}>{conteo.unidadesPorEntregar} unidad{conteo.unidadesPorEntregar === 1 ? '' : 'es'} separada{conteo.unidadesPorEntregar === 1 ? '' : 's'}</span>
+            )}
+          </div>
+          <div style={styles.tarjetaEstado}>
+            <strong style={{ fontSize: '22px' }}>{conteo.enviada}</strong>
+            <span>En el proveedor, sin resolver</span>
+          </div>
+          <div style={styles.tarjetaEstado}>
+            <strong style={{ fontSize: '22px' }}>{conteo.resuelta}</strong>
+            <span>Resueltas</span>
+          </div>
+        </div>
+      )}
+
+      {!cargando && !error && (
+        <div style={styles.filtros}>
+          {FILTROS.map((f) => (
+            <button
+              key={f.id}
+              onClick={() => setFiltro(f.id)}
+              style={{ ...styles.botonFiltro, ...(filtro === f.id ? styles.botonFiltroActivo : {}) }}
+            >
+              {f.label}
+              {f.id !== 'todas' && ` (${conteo[f.id]})`}
+            </button>
+          ))}
+        </div>
+      )}
+
       {cargando ? (
         <p>Cargando...</p>
       ) : error ? (
@@ -329,23 +411,27 @@ export default function GarantiasProveedorPage() {
               <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
                 <th style={styles.th}>Proveedor</th>
                 <th style={styles.th}>Motivo</th>
-                <th style={styles.th}>Enviado</th>
+                <th style={styles.th}>Fecha</th>
                 <th style={styles.th}>Ítems</th>
                 <th style={styles.th}>Estado</th>
                 <th style={styles.th}></th>
               </tr>
             </thead>
             <tbody>
-              {garantias.length === 0 && (
+              {garantiasVisibles.length === 0 && (
                 <tr>
                   <td colSpan={6} style={{ ...styles.td, color: 'var(--text-secondary)' }}>
-                    Todavía no has registrado ninguna garantía a proveedor.
+                    {garantias.length === 0 ? 'Todavía no has registrado ninguna garantía a proveedor.' : 'No hay garantías en este estado.'}
                   </td>
                 </tr>
               )}
-              {garantias.map((g) => {
-                const dias = diasDesde(g.enviado_en);
+              {garantiasVisibles.map((g) => {
+                const porEntregar = g.estado === 'por_entregar';
+                // Por entregar: se cuenta desde que se separaron los productos.
+                // En el proveedor: desde que se le entregaron.
+                const dias = diasDesde(porEntregar ? g.creado_en : g.enviado_en);
                 const abierta = g.estado !== 'resuelta';
+                const alerta = porEntregar ? dias >= DIAS_ALERTA_ENTREGA : abierta && dias >= DIAS_ALERTA;
                 const estado = estadoDe(g);
                 return (
                   <tr key={g.id} style={{ borderBottom: '1px solid var(--border)' }}>
@@ -354,9 +440,13 @@ export default function GarantiasProveedorPage() {
                     </td>
                     <td style={styles.td}>{g.motivo || '—'}</td>
                     <td style={styles.td}>
-                      {fecha(g.enviado_en)}
-                      <div style={{ fontSize: '12px', color: abierta && dias >= DIAS_ALERTA ? 'var(--danger)' : 'var(--text-secondary)', fontWeight: abierta && dias >= DIAS_ALERTA ? 700 : 400 }}>
-                        {abierta ? `Hace ${dias} día${dias === 1 ? '' : 's'}` : `Resuelta ${fecha(g.resuelto_en)}`}
+                      {porEntregar ? `Lista desde ${fecha(g.creado_en)}` : `Entregada ${fecha(g.enviado_en)}`}
+                      <div style={{ fontSize: '12px', color: alerta ? 'var(--danger)' : 'var(--text-secondary)', fontWeight: alerta ? 700 : 400 }}>
+                        {porEntregar
+                          ? `Sin entregar hace ${dias} día${dias === 1 ? '' : 's'}`
+                          : abierta
+                          ? `El proveedor la tiene hace ${dias} día${dias === 1 ? '' : 's'}`
+                          : `Resuelta ${fecha(g.resuelto_en)}`}
                       </div>
                     </td>
                     <td style={styles.td}>
@@ -368,10 +458,19 @@ export default function GarantiasProveedorPage() {
                     <td style={styles.td}>
                       <span style={estado.estilo}>{estado.texto}</span>
                     </td>
-                    <td style={styles.td}>
-                      <button onClick={() => abrirDetalle(g.id)} style={styles.btnSecundario}>
-                        {abierta ? 'Resolver' : 'Ver'}
-                      </button>
+                    <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
+                      {porEntregar ? (
+                        <>
+                          <button onClick={() => marcarEntregada(g.id)} disabled={entregandoId === g.id} style={styles.btnPrimarioChico}>
+                            {entregandoId === g.id ? 'Guardando...' : 'Marcar entregada'}
+                          </button>
+                          <button onClick={() => abrirDetalle(g.id)} style={styles.btnSecundario}>Ver</button>
+                        </>
+                      ) : (
+                        <button onClick={() => abrirDetalle(g.id)} style={styles.btnSecundario}>
+                          {abierta ? 'Resolver' : 'Ver'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -439,6 +538,30 @@ export default function GarantiasProveedorPage() {
                   </div>
                 </div>
               )}
+            </div>
+
+            <div style={{ marginTop: '14px' }}>
+              <label style={styles.etiquetaChica}>¿Ya se la entregaste al proveedor?</label>
+              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '14px' }}>
+                <label style={styles.opcionRadio}>
+                  <input
+                    type="radio"
+                    name="entregada"
+                    checked={!form.entregada}
+                    onChange={() => setForm({ ...form, entregada: false })}
+                  />
+                  Todavía no (queda pendiente por entregar)
+                </label>
+                <label style={styles.opcionRadio}>
+                  <input
+                    type="radio"
+                    name="entregada"
+                    checked={Boolean(form.entregada)}
+                    onChange={() => setForm({ ...form, entregada: true })}
+                  />
+                  Sí, ya se la entregué
+                </label>
+              </div>
             </div>
 
             <div style={{ position: 'relative', marginTop: '16px' }}>
@@ -552,7 +675,23 @@ export default function GarantiasProveedorPage() {
                 {detalle.garantia.proveedor_telefono && (
                   <div style={styles.filaDetalle}><span>Teléfono</span><strong>{detalle.garantia.proveedor_telefono}</strong></div>
                 )}
-                <div style={styles.filaDetalle}><span>Enviado</span><strong>{fecha(detalle.garantia.enviado_en)} (hace {diasDesde(detalle.garantia.enviado_en)} días)</strong></div>
+                {detalle.garantia.estado === 'por_entregar' ? (
+                  <div style={styles.filaDetalle}><span>Lista desde</span><strong>{fecha(detalle.garantia.creado_en)} (hace {diasDesde(detalle.garantia.creado_en)} días)</strong></div>
+                ) : (
+                  <div style={styles.filaDetalle}><span>Entregada al proveedor</span><strong>{fecha(detalle.garantia.enviado_en)} (hace {diasDesde(detalle.garantia.enviado_en)} días)</strong></div>
+                )}
+                {detalle.garantia.estado === 'por_entregar' && (
+                  <div style={styles.avisoPorEntregar}>
+                    Estos productos ya están separados (no se pueden vender), pero todavía no se los has entregado al
+                    proveedor. Cuando se los lleves, márcala como entregada para empezar a contar el tiempo de respuesta
+                    del proveedor y poder registrar cómo se resolvió.
+                    <div style={{ marginTop: '8px' }}>
+                      <button onClick={() => marcarEntregada(detalle.id)} disabled={entregandoId === detalle.id} style={styles.btnPrimario}>
+                        {entregandoId === detalle.id ? 'Guardando...' : 'Marcar como entregada al proveedor'}
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {detalle.garantia.motivo && (
                   <div style={styles.filaDetalle}><span>Motivo</span><strong>{detalle.garantia.motivo}</strong></div>
                 )}
@@ -585,7 +724,9 @@ export default function GarantiasProveedorPage() {
                             </td>
                             <td style={styles.td}>{it.cantidad}</td>
                             <td style={styles.td}>
-                              {it.resolucion ? (
+                              {detalle.garantia.estado === 'por_entregar' ? (
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Pendiente por entregar</span>
+                              ) : it.resolucion ? (
                                 <div>
                                   <span style={styles.chipResuelta}>{ETIQUETAS_RESOLUCION[it.resolucion] || it.resolucion}</span>
                                   {it.resolucion === 'nota_credito' && (
@@ -636,7 +777,7 @@ export default function GarantiasProveedorPage() {
                   </table>
                 </div>
 
-                {detalle.items?.some((it) => !it.resolucion) && (
+                {detalle.garantia.estado !== 'por_entregar' && detalle.items?.some((it) => !it.resolucion) && (
                   <>
                     {errorResolucion && <p style={{ color: 'var(--danger)', marginTop: '10px' }}>{errorResolucion}</p>}
                     <div style={{ marginTop: '12px' }}>
@@ -667,6 +808,27 @@ const styles = {
   clicable: { cursor: 'pointer', color: 'var(--teal-dark)', fontWeight: 600 },
   chipEnviada: { padding: '3px 10px', borderRadius: '999px', background: '#fef3c7', color: '#92400e', fontSize: '12px', fontWeight: 600 },
   chipParcial: { padding: '3px 10px', borderRadius: '999px', background: '#dbeafe', color: '#1e40af', fontSize: '12px', fontWeight: 600 },
+  chipPorEntregar: { padding: '3px 10px', borderRadius: '999px', background: '#ede9fe', color: '#5b21b6', fontSize: '12px', fontWeight: 600 },
+  resumenEstados: { display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '14px' },
+  tarjetaEstado: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+    background: '#fff',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius)',
+    padding: '12px 16px',
+    minWidth: '170px',
+    fontSize: '13px',
+    color: 'var(--text-secondary)',
+  },
+  tarjetaEstadoAlerta: { background: '#ede9fe', borderColor: '#c4b5fd', color: '#5b21b6' },
+  filtros: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' },
+  botonFiltro: { padding: '6px 12px', borderRadius: '999px', border: '1px solid var(--border)', background: '#fff', cursor: 'pointer', fontSize: '13px' },
+  botonFiltroActivo: { background: 'var(--teal-light)', borderColor: 'var(--teal)', color: 'var(--teal-dark)', fontWeight: 600 },
+  btnPrimarioChico: { padding: '7px 12px', borderRadius: '8px', border: 'none', background: 'var(--teal)', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '13px' },
+  opcionRadio: { display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' },
+  avisoPorEntregar: { background: '#ede9fe', color: '#4c1d95', borderRadius: '8px', padding: '10px 12px', fontSize: '13px', margin: '10px 0' },
   chipResuelta: { padding: '3px 10px', borderRadius: '999px', background: 'var(--teal-light)', color: 'var(--teal-dark)', fontSize: '12px', fontWeight: 600 },
   etiquetaChica: { display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' },
   select: { padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '14px', boxSizing: 'border-box' },

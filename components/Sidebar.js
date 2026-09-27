@@ -14,6 +14,7 @@ const links = [
       { href: '/productos', label: 'Productos', icon: IconBox },
       { href: '/ajustes-inventario', label: 'Ajustes de inventario', icon: IconAdjust },
       { href: '/etiquetas', label: 'Etiquetas', icon: IconTag },
+      { href: '/chequeos-inventario', label: 'Chequeo semanal', icon: IconChequeo },
     ],
   },
   { href: '/reabastecimiento', label: 'Reabastecimiento', icon: IconReabastecer },
@@ -421,6 +422,15 @@ function IconTag() {
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <path d="M20.59 13.41L11 3.83A2 2 0 009.59 3.24L3 3v6.59a2 2 0 00.59 1.41l9.59 9.59a2 2 0 002.82 0l4.59-4.59a2 2 0 000-2.82z" strokeLinecap="round" strokeLinejoin="round" />
       <circle cx="7.5" cy="7.5" r="1.2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+function IconChequeo() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="5" y="4" width="14" height="17" rx="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M9 4V3h6v1" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M9 12l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
