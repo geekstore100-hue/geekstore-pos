@@ -11,7 +11,25 @@ const SECCIONES = [
   { id: 'ia', label: 'Inteligencia artificial', descripcion: 'Modelo y prompt de "Nuevo producto"' },
   { id: 'empresa', label: 'Datos de la empresa', descripcion: 'Razón social y NIT para certificados' },
   { id: 'seguridad', label: 'Seguridad', descripcion: 'Clave de administrador' },
+  { id: 'respaldos', label: 'Respaldos', descripcion: 'Copias de la base de datos' },
 ];
+
+function formatearTamano(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatearFechaHora(iso) {
+  return new Date(iso).toLocaleString('es-CO', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 export default function ConfiguracionesPage() {
   const [seccionActiva, setSeccionActiva] = useState('vendedores');
@@ -86,6 +104,13 @@ export default function ConfiguracionesPage() {
   const [errorClave, setErrorClave] = useState('');
   const [mensajeClave, setMensajeClave] = useState('');
   const [guardandoClave, setGuardandoClave] = useState(false);
+
+  // Respaldos de la base de datos
+  const [respaldos, setRespaldos] = useState([]);
+  const [cargandoRespaldos, setCargandoRespaldos] = useState(true);
+  const [generandoRespaldo, setGenerandoRespaldo] = useState(false);
+  const [errorRespaldos, setErrorRespaldos] = useState('');
+  const [mensajeRespaldos, setMensajeRespaldos] = useState('');
 
   async function cargar() {
     setCargando(true);
@@ -261,6 +286,40 @@ export default function ConfiguracionesPage() {
     }
   }
 
+  async function cargarRespaldos() {
+    setCargandoRespaldos(true);
+    try {
+      const res = await fetch('/api/respaldos');
+      const data = await res.json();
+      if (data.ok) setRespaldos(data.respaldos);
+      else setErrorRespaldos(data.error || 'No se pudo cargar la lista de respaldos');
+    } catch {
+      setErrorRespaldos('No hay conexión con el servidor');
+    } finally {
+      setCargandoRespaldos(false);
+    }
+  }
+
+  async function generarRespaldoAhora() {
+    setErrorRespaldos('');
+    setMensajeRespaldos('');
+    setGenerandoRespaldo(true);
+    try {
+      const res = await fetch('/api/respaldos', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        setMensajeRespaldos(`Listo: respaldo generado (${data.respaldo.tablas} tablas, ${formatearTamano(data.respaldo.tamanoBytes)}).`);
+        cargarRespaldos();
+      } else {
+        setErrorRespaldos(data.error || 'No se pudo generar el respaldo');
+      }
+    } catch {
+      setErrorRespaldos('No hay conexión con el servidor');
+    } finally {
+      setGenerandoRespaldo(false);
+    }
+  }
+
   useEffect(() => {
     cargar();
     cargarCategorias();
@@ -270,6 +329,7 @@ export default function ConfiguracionesPage() {
     cargarHoraArqueo();
     cargarConfigIA();
     cargarDatosEmpresa();
+    cargarRespaldos();
   }, []);
 
   useEffect(() => {
@@ -962,6 +1022,66 @@ export default function ConfiguracionesPage() {
                   Todavía no has creado una clave de administrador: por ahora, cualquiera puede entrar a Ajustes de
                   inventario. En cuanto la crees, esa pantalla pedirá la clave antes de dejar entrar.
                 </p>
+              )}
+            </>
+          )}
+
+          {seccionActiva === 'respaldos' && (
+            <>
+              <h2 style={{ marginTop: 0 }}>Respaldos</h2>
+              <p style={{ color: 'var(--text-secondary)', marginTop: '-8px' }}>
+                Todos los días, solo, el sistema guarda una copia de todos los datos (productos, ventas, facturas de
+                compra, garantías, etc.) por si algo se borra o se daña por error. Se guardan los últimos 30 días —
+                los más viejos se van borrando solos. Esto es un respaldo de los DATOS, no reemplaza los archivos de
+                migración que ya se van guardando en el repositorio para la estructura de las tablas.
+              </p>
+
+              <div style={{ marginBottom: '16px' }}>
+                <button onClick={generarRespaldoAhora} disabled={generandoRespaldo} style={styles.btnPrimario}>
+                  {generandoRespaldo ? 'Generando...' : 'Generar respaldo ahora'}
+                </button>
+              </div>
+
+              {errorRespaldos && <p style={{ color: 'var(--danger)' }}>{errorRespaldos}</p>}
+              {mensajeRespaldos && <p style={{ color: 'var(--teal-dark)' }}>{mensajeRespaldos}</p>}
+
+              {cargandoRespaldos ? (
+                <p>Cargando...</p>
+              ) : respaldos.length === 0 ? (
+                <p style={{ color: 'var(--text-secondary)' }}>
+                  Todavía no hay ningún respaldo generado. El primero sale solo en la próxima madrugada, o puedes
+                  generar uno ahora mismo con el botón de arriba.
+                </p>
+              ) : (
+                <div style={styles.tableCard}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                        <th style={styles.th}>Fecha</th>
+                        <th style={styles.th}>Tablas</th>
+                        <th style={styles.th}>Tamaño</th>
+                        <th style={styles.th}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {respaldos.map((r) => (
+                        <tr key={r.key} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={styles.td}>{formatearFechaHora(r.creadoEn)}</td>
+                          <td style={styles.td}>{r.tablas}</td>
+                          <td style={styles.td}>{formatearTamano(r.tamanoBytes)}</td>
+                          <td style={styles.td}>
+                            <a
+                              href={`/api/respaldos/${r.key}`}
+                              style={{ ...styles.btnSecundario, marginLeft: 0, textDecoration: 'none', display: 'inline-block' }}
+                            >
+                              Descargar
+                            </a>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </>
           )}

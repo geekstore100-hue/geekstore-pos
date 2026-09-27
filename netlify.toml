@@ -1,0 +1,5 @@
+# Le dice a Netlify dónde buscar funciones propias (además de las que ya
+# genera solo el plugin de Next.js). Por ahora la única es el respaldo
+# automático diario — ver netlify/functions/respaldo-programado.js.
+[functions]
+  directory = "netlify/functions"
