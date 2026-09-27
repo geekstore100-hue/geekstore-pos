@@ -25,8 +25,11 @@ export async function GET() {
     const garantias = await sql`
       SELECT
         g.id,
-        g.motivo,
-        g.observaciones,
+        -- El motivo ahora va por producto: se muestran juntos los motivos de
+        -- todos los productos del caso. Los casos viejos (de antes de este
+        -- cambio) no tienen motivo por producto, así que muestran su motivo
+        -- general de siempre.
+        COALESCE(string_agg(DISTINCT i.motivo, ' · '), g.motivo) AS motivo,
         g.estado,
         g.total_costo,
         g.enviado_en,
@@ -57,8 +60,6 @@ export async function POST(request) {
   try {
     const body = await request.json();
     const proveedor_id = Number(body.proveedor_id);
-    const motivo = body.motivo || null;
-    const observaciones = body.observaciones || null;
     const itemsBody = Array.isArray(body.items) ? body.items : [];
 
     if (!proveedor_id) {
@@ -73,15 +74,25 @@ export async function POST(request) {
       return NextResponse.json({ ok: false, error: 'El proveedor ya no existe' }, { status: 404 });
     }
 
-    // Agrupa por producto por si el mismo producto quedó agregado dos veces.
+    // Agrupa por producto por si el mismo producto quedó agregado dos veces
+    // (sumando cantidades y juntando sus motivos). Cada producto debe traer
+    // su motivo: es lo que le vas a explicar al proveedor de ESE artículo.
     const cantidadesPorProducto = new Map();
+    const motivosPorProducto = new Map();
     for (const it of itemsBody) {
       const productoId = Number(it.producto_id);
       const cantidad = Number(it.cantidad);
+      const motivoItem = String(it.motivo || '').trim();
       if (!productoId || !cantidad || cantidad <= 0) {
         return NextResponse.json({ ok: false, error: 'Hay un producto con una cantidad inválida' }, { status: 400 });
       }
+      if (!motivoItem) {
+        return NextResponse.json({ ok: false, error: 'Escribe el motivo de cada producto' }, { status: 400 });
+      }
       cantidadesPorProducto.set(productoId, (cantidadesPorProducto.get(productoId) || 0) + cantidad);
+      const motivos = motivosPorProducto.get(productoId) || [];
+      if (!motivos.includes(motivoItem)) motivos.push(motivoItem);
+      motivosPorProducto.set(productoId, motivos);
     }
     const productoIds = [...cantidadesPorProducto.keys()];
 
@@ -133,8 +144,8 @@ export async function POST(request) {
     }
 
     const [garantia] = await sql`
-      INSERT INTO garantias_proveedor (proveedor_id, motivo, observaciones, total_costo)
-      VALUES (${proveedor_id}, ${motivo}, ${observaciones}, ${totalCosto})
+      INSERT INTO garantias_proveedor (proveedor_id, total_costo)
+      VALUES (${proveedor_id}, ${totalCosto})
       RETURNING id
     `;
 
@@ -163,8 +174,8 @@ export async function POST(request) {
       `;
 
       await sql`
-        INSERT INTO garantia_proveedor_items (garantia_id, producto_id, referencia, nombre, cantidad, precio_costo)
-        VALUES (${garantia.id}, ${productoId}, ${producto.referencia}, ${producto.nombre}, ${cantidad}, ${costo})
+        INSERT INTO garantia_proveedor_items (garantia_id, producto_id, referencia, nombre, cantidad, precio_costo, motivo)
+        VALUES (${garantia.id}, ${productoId}, ${producto.referencia}, ${producto.nombre}, ${cantidad}, ${costo}, ${motivosPorProducto.get(productoId).join(' / ')})
       `;
     }
 

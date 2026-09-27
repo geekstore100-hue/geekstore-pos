@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Shell from '../../components/Shell';
 
 const proveedorVacio = { nombre: '', identificacion: '', telefono: '' };
-const formVacio = { proveedor_id: '', motivo: '', observaciones: '' };
+const formVacio = { proveedor_id: '' };
 
 const ETIQUETAS_RESOLUCION = {
   nota_credito: 'Nota crédito',
@@ -34,7 +34,7 @@ export default function GarantiasProveedorPage() {
 
   const [mostrarForm, setMostrarForm] = useState(false);
   const [form, setForm] = useState(formVacio);
-  const [items, setItems] = useState([]); // [{producto_id, referencia, nombre, cantidad, disponible}]
+  const [items, setItems] = useState([]); // [{producto_id, referencia, nombre, cantidad, disponible, motivo}]
   const [buscarTexto, setBuscarTexto] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [errorForm, setErrorForm] = useState('');
@@ -118,6 +118,7 @@ export default function GarantiasProveedorPage() {
           nombre: producto.nombre,
           cantidad: 1,
           disponible: Number(producto.stock_principal) || 0,
+          motivo: '',
         },
       ];
     });
@@ -176,6 +177,20 @@ export default function GarantiasProveedorPage() {
       setErrorForm(`Revisa la cantidad de "${itemInvalido.nombre}"`);
       return;
     }
+    const sinMotivo = items.find((it) => !String(it.motivo || '').trim());
+    if (sinMotivo) {
+      setErrorForm(`Escribe el motivo de "${sinMotivo.nombre}"`);
+      return;
+    }
+    const sinStock = items.find((it) => Number(it.cantidad) > it.disponible);
+    if (sinStock) {
+      setErrorForm(
+        sinStock.disponible > 0
+          ? `Solo hay ${sinStock.disponible} unidad${sinStock.disponible === 1 ? '' : 'es'} de "${sinStock.nombre}" en la bodega Principal`
+          : `No hay unidades de "${sinStock.nombre}" en la bodega Principal para enviar a garantía`
+      );
+      return;
+    }
 
     setGuardando(true);
     try {
@@ -184,9 +199,11 @@ export default function GarantiasProveedorPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           proveedor_id: Number(form.proveedor_id),
-          motivo: form.motivo,
-          observaciones: form.observaciones,
-          items: items.map((it) => ({ producto_id: it.producto_id, cantidad: Number(it.cantidad) })),
+          items: items.map((it) => ({
+            producto_id: it.producto_id,
+            cantidad: Number(it.cantidad),
+            motivo: String(it.motivo || '').trim(),
+          })),
         }),
       });
       const data = await res.json();
@@ -424,16 +441,6 @@ export default function GarantiasProveedorPage() {
               )}
             </div>
 
-            <div style={{ marginTop: '12px' }}>
-              <label style={styles.etiquetaChica}>Motivo (opcional)</label>
-              <input
-                value={form.motivo}
-                onChange={(e) => setForm({ ...form, motivo: e.target.value })}
-                placeholder="Ej: llegó dañado de fábrica, no enciende..."
-                style={{ ...styles.select, width: '100%' }}
-              />
-            </div>
-
             <div style={{ position: 'relative', marginTop: '16px' }}>
               <label style={styles.etiquetaChica}>Agregar producto</label>
               <input
@@ -466,6 +473,7 @@ export default function GarantiasProveedorPage() {
                       <th style={styles.th}>Producto</th>
                       <th style={styles.th}>Disponible</th>
                       <th style={styles.th}>Cantidad</th>
+                      <th style={styles.th}>Motivo *</th>
                       <th style={styles.th}></th>
                     </tr>
                   </thead>
@@ -476,7 +484,14 @@ export default function GarantiasProveedorPage() {
                           <div style={{ fontWeight: 600 }}>{it.nombre}</div>
                           <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{it.referencia}</div>
                         </td>
-                        <td style={styles.td}>{it.disponible}</td>
+                        <td style={styles.td}>
+                          {it.disponible}
+                          {it.disponible <= 0 && (
+                            <div style={{ fontSize: '11px', color: 'var(--danger)', maxWidth: '110px' }}>
+                              No hay unidades en Principal
+                            </div>
+                          )}
+                        </td>
                         <td style={styles.td}>
                           <input
                             type="number"
@@ -491,6 +506,14 @@ export default function GarantiasProveedorPage() {
                           />
                         </td>
                         <td style={styles.td}>
+                          <input
+                            value={it.motivo}
+                            onChange={(e) => actualizarItem(it.producto_id, 'motivo', e.target.value)}
+                            placeholder="Ej: no enciende, pantalla rota..."
+                            style={{ ...styles.select, width: '220px' }}
+                          />
+                        </td>
+                        <td style={styles.td}>
                           <button onClick={() => quitarItem(it.producto_id)} style={styles.btnQuitar}>Quitar</button>
                         </td>
                       </tr>
@@ -499,16 +522,6 @@ export default function GarantiasProveedorPage() {
                 </table>
               </div>
             )}
-
-            <div style={{ marginTop: '12px' }}>
-              <label style={styles.etiquetaChica}>Observaciones (opcional)</label>
-              <textarea
-                value={form.observaciones}
-                onChange={(e) => setForm({ ...form, observaciones: e.target.value })}
-                rows={2}
-                style={{ ...styles.select, width: '100%', resize: 'vertical' }}
-              />
-            </div>
 
             {errorForm && <p style={{ color: 'var(--danger)' }}>{errorForm}</p>}
 
@@ -564,6 +577,11 @@ export default function GarantiasProveedorPage() {
                             <td style={styles.td}>
                               {it.nombre}
                               <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{it.referencia}</div>
+                              {it.motivo && (
+                                <div style={{ fontSize: '12px', marginTop: '4px' }}>
+                                  <span style={{ color: 'var(--text-secondary)' }}>Motivo:</span> {it.motivo}
+                                </div>
+                              )}
                             </td>
                             <td style={styles.td}>{it.cantidad}</td>
                             <td style={styles.td}>

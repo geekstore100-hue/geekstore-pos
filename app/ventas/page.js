@@ -58,6 +58,22 @@ export default function VentasPage() {
   const [productosCrudos, setProductosCrudos] = useState([]);
   const [vendedores, setVendedores] = useState([]);
   const [busqueda, setBusqueda] = useState('');
+  const buscadorRef = useRef(null);
+
+  // Después de imprimir el ticket, el cursor vuelve solo al buscador (con
+  // el texto anterior seleccionado), para poder escribir o escanear el
+  // siguiente producto de una vez sin tener que hacer clic. No se hace si
+  // la persona ya se pasó a escribir en otro campo, ni en celular/tablet
+  // (ahí abriría el teclado en pantalla sin que nadie lo pidiera).
+  function enfocarBuscador() {
+    const el = buscadorRef.current;
+    if (!el) return;
+    if (window.matchMedia && window.matchMedia('(hover: none)').matches) return;
+    const activo = document.activeElement;
+    if (activo && activo !== el && ['INPUT', 'TEXTAREA', 'SELECT'].includes(activo.tagName)) return;
+    el.focus();
+    el.select();
+  }
   const [error, setError] = useState('');
   const [mensaje, setMensaje] = useState('');
   const [guardando, setGuardando] = useState(false);
@@ -103,6 +119,10 @@ export default function VentasPage() {
   const [dineroReal, setDineroReal] = useState('');
   const [observacionesCierre, setObservacionesCierre] = useState('');
   const [cerrandoTurno, setCerrandoTurno] = useState(false);
+  // Resumen que se muestra apenas se cierra el turno (total de ventas, por
+  // medio de pago y cuadre de caja), con los números finales que devuelve
+  // el servidor en el momento exacto del cierre.
+  const [cierreTurno, setCierreTurno] = useState(null);
 
   // Si no hay internet (o el servidor no contesta), en vez de dejar la
   // pantalla sin productos ni vendedores, se usa la última copia guardada en
@@ -299,6 +319,12 @@ export default function VentasPage() {
     const data = await res.json();
     setCerrandoTurno(false);
     if (data.ok) {
+      setCierreTurno({
+        resumen: data.resumen || resumenTurno,
+        dineroReal: Number(dineroReal),
+        abiertoEn: data.turno?.abierto_en || turno?.abierto_en,
+        cerradoEn: data.turno?.cerrado_en || new Date().toISOString(),
+      });
       setMostrarCerrarTurno(false);
       setResumenTurno(null);
       setTurno(null);
@@ -621,10 +647,21 @@ export default function VentasPage() {
     doc.write(html);
     doc.close();
 
+    // Al terminar de imprimir (o al cancelar el diálogo), se quita el
+    // iframe y el cursor vuelve al buscador.
+    let terminado = false;
+    const terminarImpresion = () => {
+      if (terminado) return;
+      terminado = true;
+      limpiar();
+      enfocarBuscador();
+    };
+
     const ventanaIframe = iframe.contentWindow;
-    ventanaIframe.addEventListener('afterprint', limpiar);
+    ventanaIframe.addEventListener('afterprint', terminarImpresion);
     // Por si el navegador no dispara "afterprint" en un iframe (pasa en
-    // algunos casos), se limpia igual pasado un tiempo prudente.
+    // algunos casos), se limpia igual pasado un tiempo prudente (acá sin
+    // mover el cursor, para no quitárselo a alguien que ya esté escribiendo).
     setTimeout(limpiar, 30000);
 
     // Un pequeño margen para que el navegador termine de montar el
@@ -632,9 +669,13 @@ export default function VentasPage() {
     setTimeout(() => {
       try {
         ventanaIframe.focus();
+        // En Chrome, print() se queda esperando hasta que se cierra el
+        // diálogo de impresión, así que al llegar a la línea siguiente ya
+        // se imprimió (o se canceló).
         ventanaIframe.print();
+        terminarImpresion();
       } catch {
-        limpiar();
+        terminarImpresion();
       }
     }, 200);
   }
@@ -859,6 +900,7 @@ export default function VentasPage() {
               )}
             </div>
             <input
+              ref={buscadorRef}
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
               placeholder="Buscar productos por referencia o nombre..."
@@ -1167,6 +1209,60 @@ export default function VentasPage() {
         </div>
       )}
 
+      {cierreTurno && (
+        <div style={styles.overlay} onMouseDown={() => setCierreTurno(null)}>
+          <div style={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Turno cerrado</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '-6px' }}>
+              {cierreTurno.abiertoEn &&
+                `${new Date(cierreTurno.abiertoEn).toLocaleString('es-CO', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} — `}
+              {new Date(cierreTurno.cerradoEn).toLocaleString('es-CO', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+            </p>
+
+            <div style={styles.totalCierre}>
+              <span style={{ fontSize: '13px', color: 'var(--teal-dark)' }}>Total de ventas del turno</span>
+              <strong style={{ fontSize: '30px' }}>{moneda(cierreTurno.resumen?.totalVentas)}</strong>
+              {cierreTurno.resumen?.cantidadVentas !== undefined && (
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                  {cierreTurno.resumen.cantidadVentas} venta{cierreTurno.resumen.cantidadVentas === 1 ? '' : 's'}
+                </span>
+              )}
+            </div>
+
+            {cierreTurno.resumen && (
+              <>
+                <div style={styles.filaResumenTurno}><span>Efectivo</span><strong>{moneda(cierreTurno.resumen.ventasEfectivo)}</strong></div>
+                <div style={styles.filaResumenTurno}><span>Tarjeta</span><strong>{moneda(cierreTurno.resumen.ventasTarjeta)}</strong></div>
+                <div style={styles.filaResumenTurno}><span>Transferencia</span><strong>{moneda(cierreTurno.resumen.ventasTransferencia)}</strong></div>
+                {Number(cierreTurno.resumen.ventasOtro) > 0 && (
+                  <div style={styles.filaResumenTurno}><span>Otros medios</span><strong>{moneda(cierreTurno.resumen.ventasOtro)}</strong></div>
+                )}
+                {Number(cierreTurno.resumen.devolucionDinero) > 0 && (
+                  <div style={styles.filaResumenTurno}><span>Devoluciones de dinero</span><strong>-{moneda(cierreTurno.resumen.devolucionDinero)}</strong></div>
+                )}
+                <div style={{ ...styles.filaResumenTurno, borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '4px' }}>
+                  <span>Dinero esperado en caja</span><strong>{moneda(cierreTurno.resumen.dineroEsperado)}</strong>
+                </div>
+                <div style={styles.filaResumenTurno}><span>Dinero contado</span><strong>{moneda(cierreTurno.dineroReal)}</strong></div>
+                {(() => {
+                  const diferencia = cierreTurno.dineroReal - Number(cierreTurno.resumen.dineroEsperado);
+                  const coincide = Math.abs(diferencia) < 1;
+                  return (
+                    <p style={{ fontSize: '13px', fontWeight: 600, color: coincide ? 'var(--teal-dark)' : 'var(--danger)', margin: '6px 0 0' }}>
+                      {coincide ? 'La caja cuadró.' : `Diferencia en caja: ${diferencia > 0 ? '+' : ''}${moneda(diferencia)}`}
+                    </p>
+                  );
+                })()}
+              </>
+            )}
+
+            <div style={{ marginTop: '16px' }}>
+              <button onClick={() => setCierreTurno(null)} style={styles.btnPrimario}>Aceptar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {mostrarCerrarTurno && (
         <div style={styles.overlay} onMouseDown={() => setMostrarCerrarTurno(false)}>
           <div style={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
@@ -1181,6 +1277,14 @@ export default function VentasPage() {
                   hour: '2-digit',
                   minute: '2-digit',
                 })}
+              </p>
+            )}
+
+            {ventasPendientes.length > 0 && (
+              <p style={styles.avisoPendientesCierre}>
+                Hay {ventasPendientes.length} venta{ventasPendientes.length === 1 ? '' : 's'} hecha{ventasPendientes.length === 1 ? '' : 's'} sin
+                conexión que todavía no se ha{ventasPendientes.length === 1 ? '' : 'n'} enviado. No están incluidas en este
+                resumen: si cierras ahora, se sumarán al próximo turno cuando se sincronicen.
               </p>
             )}
 
@@ -1302,6 +1406,23 @@ const styles = {
     gap: '12px',
     alignItems: 'center',
     flexWrap: 'wrap',
+  },
+  totalCierre: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '2px',
+    background: 'var(--teal-light)',
+    borderRadius: 'var(--radius)',
+    padding: '14px',
+    margin: '8px 0 14px',
+  },
+  avisoPendientesCierre: {
+    background: '#fef3c7',
+    color: '#92400e',
+    borderRadius: '8px',
+    padding: '8px 10px',
+    fontSize: '13px',
   },
   btnSincronizar: {
     padding: '6px 12px',

@@ -40,7 +40,7 @@ export async function GET(request, { params }) {
     }
 
     const items = await sql`
-      SELECT id, producto_id, referencia, nombre, cantidad, precio_costo,
+      SELECT id, producto_id, referencia, nombre, cantidad, precio_costo, motivo,
              resolucion, monto_nota_credito, nota_resolucion, resuelto_en
       FROM garantia_proveedor_items
       WHERE garantia_id = ${id}
