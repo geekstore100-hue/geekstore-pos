@@ -11,8 +11,16 @@ const links = [
     label: 'Inventario',
     icon: IconBox,
     children: [
-      { href: '/productos', label: 'Productos', icon: IconBox },
-      { href: '/productos?nuevo=1', label: 'Nuevo producto', icon: IconMas },
+      {
+        href: '/productos',
+        label: 'Productos',
+        icon: IconBox,
+        // En vez de una fila aparte "Nuevo producto" (como estaba antes),
+        // el "+" queda al final de esta misma fila — así se ve igual que
+        // en Alegra (Nelson mandó una captura de referencia).
+        agregarHref: '/productos?nuevo=1',
+        agregarTitulo: 'Nuevo producto',
+      },
       { href: '/ajustes-inventario', label: 'Ajustes de inventario', icon: IconAdjust },
       { href: '/etiquetas', label: 'Etiquetas', icon: IconTag },
       { href: '/chequeos-inventario', label: 'Chequeo semanal', icon: IconChequeo },
@@ -39,7 +47,15 @@ const links = [
     ],
   },
   { href: '/devoluciones', label: 'Devoluciones', icon: IconDevolucion },
-  { href: '/gastos/facturas-compra', label: 'Gastos', icon: IconGastos },
+  {
+    href: '/gastos/facturas-compra',
+    label: 'Gastos',
+    icon: IconGastos,
+    // Por ahora solo tiene una subcategoría (Nelson la pidió así, dejando
+    // espacio para que más adelante entren otros tipos de gasto aparte de
+    // facturas de compra).
+    children: [{ href: '/gastos/facturas-compra', label: 'Factura de compra', icon: IconGastos }],
+  },
   { href: '/garantias-proveedor', label: 'Garantías a proveedor', icon: IconGarantia },
   { href: '/reteica', label: 'Certificados ReteICA', icon: IconCertificado },
   { href: '/manifiestos', label: 'Manifiestos de importación', icon: IconManifiesto },
@@ -148,6 +164,32 @@ export default function Sidebar() {
                       {item.children.map((child) => {
                         const childActivo = pathname === child.href;
                         const ChildIcon = child.icon;
+
+                        // Fila con un "+" al final (por ahora solo
+                        // "Productos", ver arriba) en vez de una fila aparte
+                        // — mismo estilo que el POS de Alegra.
+                        if (child.agregarHref) {
+                          return (
+                            <div key={child.href} style={{ display: 'flex', alignItems: 'stretch' }}>
+                              <Link
+                                href={child.href}
+                                style={{
+                                  ...styles.flyoutLink,
+                                  ...styles.flyoutLinkHijo,
+                                  ...(childActivo ? styles.flyoutLinkActivo : {}),
+                                  flex: 1,
+                                }}
+                              >
+                                <ChildIcon />
+                                <span>{child.label}</span>
+                              </Link>
+                              <Link href={child.agregarHref} title={child.agregarTitulo} style={styles.flyoutBotonAgregar}>
+                                <IconMas />
+                              </Link>
+                            </div>
+                          );
+                        }
+
                         return (
                           <Link
                             key={child.href}
@@ -294,6 +336,16 @@ const styles = {
   flyoutLinkHijo: {
     fontSize: '13px',
     padding: '8px 12px',
+  },
+  flyoutBotonAgregar: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '32px',
+    flexShrink: 0,
+    color: 'var(--teal)',
+    textDecoration: 'none',
+    borderRadius: '8px',
   },
 };
 

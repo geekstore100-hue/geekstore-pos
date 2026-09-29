@@ -1118,26 +1118,32 @@ export default function VentasPage() {
                 style={{ ...styles.itemCarrito, cursor: 'pointer' }}
                 title="Clic para editar precio o descuento"
               >
-                <div style={styles.itemHeader}>
-                  <strong>{item.nombre}</strong>
+                {/* Fila principal: nombre, cantidad y subtotal en la misma
+                    línea (como en la captura de referencia de Alegra), con
+                    el precio unitario y la referencia debajo en gris — el
+                    botón de quitar queda al final, discreto. */}
+                <div style={styles.itemFilaPrincipal}>
+                  <span style={styles.itemNombre}>{item.nombre}</span>
+                  <div style={styles.stepper} onClick={(e) => e.stopPropagation()}>
+                    <button onClick={() => cambiarCantidad(item.producto_id, -1)} style={styles.stepperBtn}>−</button>
+                    <span>{item.cantidad}</span>
+                    <button onClick={() => cambiarCantidad(item.producto_id, 1)} style={styles.stepperBtn}>+</button>
+                  </div>
+                  <span style={styles.itemSubtotal}>{moneda(subtotalItem(item))}</span>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       quitarDelCarrito(item.producto_id);
                     }}
                     style={styles.btnQuitar}
+                    title="Quitar"
                   >
                     ×
                   </button>
                 </div>
-
-                <div style={styles.itemControles} onClick={(e) => e.stopPropagation()}>
-                  <div style={styles.stepper}>
-                    <button onClick={() => cambiarCantidad(item.producto_id, -1)} style={styles.stepperBtn}>−</button>
-                    <span>{item.cantidad}</span>
-                    <button onClick={() => cambiarCantidad(item.producto_id, 1)} style={styles.stepperBtn}>+</button>
-                  </div>
-                  <span style={{ fontWeight: 600 }}>{moneda(subtotalItem(item))}</span>
+                <div style={styles.itemSubtitulo}>
+                  {moneda(item.precio_unitario)}
+                  {item.referencia ? ` | ${item.referencia}` : ''}
                 </div>
 
                 {activa.editandoId === item.producto_id && (
@@ -1670,10 +1676,12 @@ const styles = {
   },
   listaCarrito: { flex: 1, overflowY: 'auto', marginBottom: '12px' },
   itemCarrito: { borderBottom: '1px solid var(--border)', padding: '10px 0' },
-  itemHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '14px' },
-  btnQuitar: { border: 'none', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '16px' },
-  itemControles: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' },
-  stepper: { display: 'flex', alignItems: 'center', gap: '10px' },
+  itemFilaPrincipal: { display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px' },
+  itemNombre: { flex: 1, minWidth: 0, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  itemSubtotal: { fontWeight: 600, whiteSpace: 'nowrap' },
+  itemSubtitulo: { fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' },
+  btnQuitar: { border: 'none', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '16px', flexShrink: 0 },
+  stepper: { display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 },
   stepperBtn: { width: '24px', height: '24px', borderRadius: '6px', border: '1px solid var(--border)', background: '#fff', cursor: 'pointer' },
   edicion: { display: 'flex', gap: '10px', marginTop: '8px', flexWrap: 'wrap' },
   labelEdicion: { fontSize: '12px', color: 'var(--text-secondary)', flex: 1 },

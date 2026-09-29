@@ -33,6 +33,7 @@ export default function FacturasCompraPage() {
   const [form, setForm] = useState(formVacio);
   const [items, setItems] = useState([]); // [{producto_id, referencia, nombre, cantidad, precio, descuento_porcentaje}]
   const [buscarTexto, setBuscarTexto] = useState('');
+  const [buscarProveedor, setBuscarProveedor] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [errorForm, setErrorForm] = useState('');
 
@@ -108,10 +109,24 @@ export default function FacturasCompraPage() {
       .slice(0, 8);
   }, [buscarTexto, productosTodos]);
 
+  // Antes esto era un <select> con todos los proveedores de un solo tirón
+  // (Nelson pidió poder escribir y que se vaya filtrando, como ya pasa acá
+  // mismo con la búsqueda de productos, arriba).
+  const resultadosProveedores = useMemo(() => {
+    const texto = buscarProveedor.trim().toLowerCase();
+    if (!texto) return [];
+    return proveedores
+      .filter(
+        (p) => (p.nombre || '').toLowerCase().includes(texto) || (p.identificacion || '').toLowerCase().includes(texto)
+      )
+      .slice(0, 8);
+  }, [buscarProveedor, proveedores]);
+
   function abrirForm() {
     setForm(formVacio);
     setItems([]);
     setBuscarTexto('');
+    setBuscarProveedor('');
     setErrorForm('');
     setMostrarNuevoProveedor(false);
     setNuevoProveedor(proveedorVacio);
@@ -506,21 +521,59 @@ export default function FacturasCompraPage() {
             <div style={{ marginTop: '12px' }}>
               <label style={styles.etiquetaChica}>Proveedor *</label>
               {!mostrarNuevoProveedor ? (
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <select
-                    value={form.proveedor_id}
-                    onChange={(e) => setForm({ ...form, proveedor_id: e.target.value })}
-                    style={{ ...styles.select, flex: 1 }}
-                  >
-                    <option value="">Selecciona...</option>
-                    {proveedores.map((p) => (
-                      <option key={p.id} value={p.id}>{p.nombre}</option>
-                    ))}
-                  </select>
-                  <button type="button" onClick={() => setMostrarNuevoProveedor(true)} style={styles.btnMiniLink}>
-                    + Nuevo proveedor
-                  </button>
-                </div>
+                form.proveedor_id ? (
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ ...styles.select, flex: 1, background: 'var(--bg)' }}>
+                      {proveedores.find((p) => String(p.id) === String(form.proveedor_id))?.nombre || 'Proveedor seleccionado'}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setForm({ ...form, proveedor_id: '' });
+                        setBuscarProveedor('');
+                      }}
+                      style={styles.btnMiniLink}
+                    >
+                      Cambiar
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ position: 'relative' }}>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <input
+                        value={buscarProveedor}
+                        onChange={(e) => setBuscarProveedor(e.target.value)}
+                        placeholder="Escribe para buscar el proveedor..."
+                        autoComplete="off"
+                        style={{ ...styles.select, flex: 1 }}
+                      />
+                      <button type="button" onClick={() => setMostrarNuevoProveedor(true)} style={styles.btnMiniLink}>
+                        + Nuevo proveedor
+                      </button>
+                    </div>
+                    {resultadosProveedores.length > 0 && (
+                      <div style={styles.dropdownBusqueda}>
+                        {resultadosProveedores.map((p) => (
+                          <div
+                            key={p.id}
+                            style={styles.opcionBusqueda}
+                            onClick={() => {
+                              setForm({ ...form, proveedor_id: String(p.id) });
+                              setBuscarProveedor('');
+                            }}
+                          >
+                            <span style={{ fontWeight: 600 }}>{p.nombre}</span>
+                            {p.identificacion && (
+                              <span style={{ color: 'var(--text-secondary)', fontSize: '12px', marginLeft: '8px' }}>
+                                {p.identificacion}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
               ) : (
                 <div style={styles.cajaNuevoProveedor}>
                   <input
