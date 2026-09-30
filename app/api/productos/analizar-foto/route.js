@@ -1,5 +1,6 @@
 import { analizarFotoProducto } from '../../../../lib/mistralVision';
 import { analizarFotoProductoGemini } from '../../../../lib/geminiVision';
+import { analizarFotoProductoGroq } from '../../../../lib/groqVision';
 import { leerConfigIA } from '../../../../lib/iaArticulo';
 
 // Recibe una foto (base64) y devuelve nombre/descripción/categoría
@@ -21,13 +22,15 @@ export async function POST(request) {
     if (!imagenBase64) {
       return Response.json({ ok: false, error: 'Falta la imagen' }, { status: 400 });
     }
-    const { modelo, modeloGemini, proveedor, prompt } = await leerConfigIA();
+    const { modelo, modeloGemini, modeloGroq, proveedor, prompt } = await leerConfigIA();
     const promptFinal = infoAdicional && infoAdicional.trim()
       ? `${prompt}\n\nInformación adicional que dio el usuario sobre este producto (la foto puede no mostrarla toda) — tenela en cuenta junto con lo que ves en la imagen: "${infoAdicional.trim()}"`
       : prompt;
 
     const sugerencia = proveedor === 'gemini'
       ? await analizarFotoProductoGemini(imagenBase64, { modelo: modeloGemini, prompt: promptFinal })
+      : proveedor === 'groq'
+      ? await analizarFotoProductoGroq(imagenBase64, { modelo: modeloGroq, prompt: promptFinal })
       : await analizarFotoProducto(imagenBase64, { modelo, prompt: promptFinal });
 
     return Response.json({ ok: true, proveedorUsado: proveedor, ...sugerencia });

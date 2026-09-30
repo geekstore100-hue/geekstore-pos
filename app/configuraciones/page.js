@@ -77,6 +77,7 @@ export default function ConfiguracionesPage() {
   // Inteligencia artificial: modelo y prompt para "Nuevo producto"
   const [modeloIA, setModeloIA] = useState('');
   const [modeloGeminiIA, setModeloGeminiIA] = useState('');
+  const [modeloGroqIA, setModeloGroqIA] = useState('');
   const [proveedorIA, setProveedorIA] = useState('mistral');
   const [promptIA, setPromptIA] = useState('');
   const [cargandoIA, setCargandoIA] = useState(true);
@@ -203,6 +204,7 @@ export default function ConfiguracionesPage() {
       if (data.ok) {
         setModeloIA(data.modelo || '');
         setModeloGeminiIA(data.modeloGemini || '');
+        setModeloGroqIA(data.modeloGroq || '');
         setProveedorIA(data.proveedor || 'mistral');
         setPromptIA(data.prompt || '');
       }
@@ -220,12 +222,13 @@ export default function ConfiguracionesPage() {
       const res = await fetch('/api/productos/ia-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ modelo: modeloIA, modeloGemini: modeloGeminiIA, proveedor: proveedorIA, prompt: promptIA }),
+        body: JSON.stringify({ modelo: modeloIA, modeloGemini: modeloGeminiIA, modeloGroq: modeloGroqIA, proveedor: proveedorIA, prompt: promptIA }),
       });
       const data = await res.json();
       if (data.ok) {
         setModeloIA(data.modelo);
         setModeloGeminiIA(data.modeloGemini);
+        setModeloGroqIA(data.modeloGroq);
         setProveedorIA(data.proveedor);
         setPromptIA(data.prompt);
         setMensajeIA('Guardado. Se usa desde el próximo análisis en "Nuevo producto".');
@@ -873,8 +876,8 @@ export default function ConfiguracionesPage() {
               <p style={{ color: 'var(--text-secondary)', marginTop: '-8px' }}>
                 En Productos &gt; Nuevo producto se puede subir una foto para que la IA sugiera el nombre y la
                 descripción. Acá se configura qué modelo usa y las instrucciones (prompt) que sigue. Necesita que
-                hayas configurado la variable de entorno MISTRAL_API_KEY (y opcionalmente GEMINI_API_KEY como
-                respaldo) en Netlify, en el proyecto de este POS.
+                hayas configurado la variable de entorno correspondiente en Netlify, en el proyecto de este POS:
+                MISTRAL_API_KEY, GEMINI_API_KEY o GROQ_API_KEY según el proveedor que elijas abajo.
               </p>
 
               {cargandoIA ? (
@@ -891,9 +894,13 @@ export default function ConfiguracionesPage() {
                       <input type="radio" name="proveedor-ia" checked={proveedorIA === 'gemini'} onChange={() => setProveedorIA('gemini')} />
                       Google Gemini (respaldo)
                     </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                      <input type="radio" name="proveedor-ia" checked={proveedorIA === 'groq'} onChange={() => setProveedorIA('groq')} />
+                      Groq (respaldo, gratis sin tarjeta)
+                    </label>
                   </div>
                   <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '-10px', marginBottom: '14px' }}>
-                    Si se te acaban los créditos de uno, cambia acá al otro — usan el mismo prompt de abajo.
+                    Si se te acaban los créditos de uno, cambia acá a otro — usan el mismo prompt de abajo.
                   </p>
 
                   <label style={{ display: 'block', marginBottom: '10px' }}>
@@ -905,6 +912,11 @@ export default function ConfiguracionesPage() {
                     Modelo de Gemini
                     <input value={modeloGeminiIA} onChange={(e) => setModeloGeminiIA(e.target.value)} style={styles.input} />
                     <small style={{ color: 'var(--text-secondary)' }}>Ej. gemini-2.5-flash.</small>
+                  </label>
+                  <label style={{ display: 'block', marginBottom: '10px' }}>
+                    Modelo de Groq
+                    <input value={modeloGroqIA} onChange={(e) => setModeloGroqIA(e.target.value)} style={styles.input} />
+                    <small style={{ color: 'var(--text-secondary)' }}>Ej. meta-llama/llama-4-scout-17b-16e-instruct — tiene que ser un modelo con visión.</small>
                   </label>
                   <label style={{ display: 'block', marginBottom: '10px' }}>
                     Prompt (instrucciones para la IA)

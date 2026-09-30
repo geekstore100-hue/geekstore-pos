@@ -338,7 +338,8 @@ export default function ProductosPage() {
           setSubcategoriaSugeridaIA(data.subcategoria || '');
         }
 
-        setMensajeIA(`Listo, revisa y ajusta lo que sugirió la IA (usando ${data.proveedorUsado === 'gemini' ? 'Gemini' : 'Mistral'}) antes de guardar.`);
+        const nombreProveedor = data.proveedorUsado === 'gemini' ? 'Gemini' : data.proveedorUsado === 'groq' ? 'Groq' : 'Mistral';
+        setMensajeIA(`Listo, revisa y ajusta lo que sugirió la IA (usando ${nombreProveedor}) antes de guardar.`);
       }
     } catch {
       setMensajeIA('Error de conexión al analizar la foto');
