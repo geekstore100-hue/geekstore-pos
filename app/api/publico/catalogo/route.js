@@ -130,7 +130,31 @@ export async function GET(request) {
         };
       });
 
-    return NextResponse.json({ productos: resultado });
+    // Ahorro de Neon: este catálogo lo pide la tienda (geekstore.com.co)
+    // para armar la página principal, cada página de producto, el mapa del
+    // sitio, el feed de Google Shopping, el checkout... y también lo piden
+    // los robots de Google y compañía cuando recorren la tienda. Sin caché,
+    // CADA una de esas visitas eran 3 consultas grandes a la base de datos
+    // (el catálogo completo). Con esto, Netlify guarda la respuesta en su
+    // CDN 5 minutos: dentro de esos 5 minutos, todas las visitas reciben la
+    // copia guardada sin tocar Neon. La tienda ya estaba pensada para
+    // refrescar el inventario cada 5 minutos, así que no cambia nada de lo
+    // que ve el cliente.
+    // - durable: la copia se comparte entre todos los servidores de Netlify
+    //   del mundo (si no, cada servidor tendría que pedir la suya).
+    // - stale-while-revalidate=60: si justo venció, entrega la copia
+    //   guardada al instante mientras trae una nueva de fondo.
+    // - Cache-Control (navegador): sin caché en el navegador, para que la
+    //   única copia guardada sea la del CDN, que se controla desde aquí.
+    return NextResponse.json(
+      { productos: resultado },
+      {
+        headers: {
+          'Netlify-CDN-Cache-Control': 'public, durable, s-maxage=300, stale-while-revalidate=60',
+          'Cache-Control': 'public, max-age=0, must-revalidate',
+        },
+      }
+    );
   } catch (error) {
     return NextResponse.json({ productos: [], error: error.message }, { status: 500 });
   }

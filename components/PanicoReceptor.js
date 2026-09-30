@@ -65,11 +65,30 @@ export default function PanicoReceptor() {
       }
     }
 
-    consultar();
-    const intervalo = setInterval(consultar, INTERVALO_CONSULTA_MS);
+    // Solo pregunta mientras la pestaña del POS está a la vista: si está
+    // minimizada o detrás de otra pestaña, nadie la puede estar mirando, así
+    // que no tiene sentido seguir consultando. Apenas vuelve a verse,
+    // consulta de inmediato y retoma el ritmo normal.
+    let intervalo = null;
+    function arrancar() {
+      if (intervalo) return;
+      consultar();
+      intervalo = setInterval(consultar, INTERVALO_CONSULTA_MS);
+    }
+    function parar() {
+      clearInterval(intervalo);
+      intervalo = null;
+    }
+    function alCambiarVisibilidad() {
+      if (document.visibilityState === 'visible') arrancar();
+      else parar();
+    }
+    if (document.visibilityState === 'visible') arrancar();
+    document.addEventListener('visibilitychange', alCambiarVisibilidad);
     return () => {
       cancelado = true;
-      clearInterval(intervalo);
+      parar();
+      document.removeEventListener('visibilitychange', alCambiarVisibilidad);
     };
   }, [esCelular]);
 
@@ -85,8 +104,12 @@ export default function PanicoReceptor() {
     };
   }, [activo, esCelular]);
 
+  // Solo se averigua si hay clave configurada cuando de verdad se abre el
+  // formulario para destapar (antes se consultaba en CADA pantalla que se
+  // abría del POS, aunque nunca se usara — una consulta a la base de datos
+  // por cada clic de menú, para nada).
   useEffect(() => {
-    if (esCelular) return;
+    if (esCelular || !formularioAbierto) return;
     fetch('/api/configuracion/clave-admin/verificar', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -97,7 +120,7 @@ export default function PanicoReceptor() {
         if (d.ok) setClaveConfigurada(Boolean(d.configurada));
       })
       .catch(() => {});
-  }, [esCelular, activo]);
+  }, [esCelular, formularioAbierto]);
 
   function tocarTapa() {
     const ahora = Date.now();

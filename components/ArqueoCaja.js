@@ -2,13 +2,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { instanteHoyColombia } from '../lib/horaColombia';
 
 // Arqueo de caja: contar el efectivo a mitad de turno y compararlo con lo
 // que el sistema dice que debería haber.
 //
 // - Se puede hacer cuando se quiera, con el botón "Arqueo" junto al turno.
 // - Si en Configuraciones > Caja hay una hora configurada, a esa hora el
-//   sistema lo pide solo (revisa cada minuto con /api/arqueos/pendiente).
+//   sistema lo pide solo (pregunta a /api/arqueos/pendiente justo a esa
+//   hora — ver el useEffect de abajo; ya no pregunta cada minuto).
 //   Se puede posponer 10 minutos, pero vuelve a salir hasta que se haga.
 //
 // El conteo es "a ciegas": el vendedor escribe lo que contó SIN ver cuánto
@@ -40,27 +42,68 @@ export default function ArqueoCaja({ turno, vendedores = [], enLinea = true }) {
     setAbierto(true);
   }
 
+  // Antes esto le preguntaba al servidor CADA MINUTO, todo el día, si ya
+  // tocaba el arqueo — y cada pregunta eran hasta 3 consultas a la base de
+  // datos, lo que mantenía Neon encendido sin parar mientras Vender
+  // estuviera abierto con un turno. Ahora pregunta una vez, y con la hora
+  // configurada que devuelve el servidor calcula él mismo cuándo volver a
+  // preguntar: justo a la hora del arqueo (y, si lo posponen, justo cuando
+  // se acaban los 10 minutos). En un día normal son 2 o 3 consultas en
+  // total, en vez de cientos.
   useEffect(() => {
     if (!turno || !enLinea) return undefined;
     let cancelado = false;
+    let temporizador = null;
+
+    function volverARevisarEn(ms) {
+      clearTimeout(temporizador);
+      temporizador = setTimeout(revisar, Math.max(ms, 1000));
+    }
+
     async function revisar() {
-      if (abiertoRef.current || Date.now() < pospuestoHasta.current) return;
+      if (cancelado) return;
+      // Con la ventana del arqueo abierta, o pospuesto, no hace falta
+      // preguntarle nada al servidor todavía — solo esperar.
+      if (abiertoRef.current) {
+        volverARevisarEn(POSPONER_MIN * 60000);
+        return;
+      }
+      const faltaPospuesto = pospuestoHasta.current - Date.now();
+      if (faltaPospuesto > 0) {
+        volverARevisarEn(faltaPospuesto + 2000);
+        return;
+      }
       try {
         const res = await fetch('/api/arqueos/pendiente');
         const data = await res.json();
-        if (!cancelado && data.ok && data.pendiente && !abiertoRef.current) {
+        if (cancelado || !data.ok) return;
+        if (data.pendiente) {
           setHora(data.hora);
           abrir(true);
+          // Por si lo posponen: se vuelve a revisar cuando se cumplan los
+          // 10 minutos (si ya lo hicieron, el servidor dirá que no está
+          // pendiente y se programa para mañana).
+          volverARevisarEn(POSPONER_MIN * 60000);
+          return;
         }
+        if (!data.activo) return; // arqueo programado desactivado: no hay nada que esperar
+        const [h, m] = String(data.hora || '').split(':').map(Number);
+        if (!Number.isFinite(h) || !Number.isFinite(m)) return;
+        let proxima = instanteHoyColombia(h, m).getTime();
+        // Si la hora de hoy ya pasó (y no está pendiente: ya se hizo, o el
+        // turno se abrió después de esa hora), la próxima vez es mañana.
+        if (proxima <= Date.now()) proxima += 24 * 60 * 60 * 1000;
+        volverARevisarEn(proxima - Date.now() + 5000);
       } catch {
-        // Sin conexión: se vuelve a intentar en el próximo minuto.
+        // Sin conexión: se vuelve a intentar en un rato.
+        volverARevisarEn(5 * 60000);
       }
     }
+
     revisar();
-    const intervalo = setInterval(revisar, 60000);
     return () => {
       cancelado = true;
-      clearInterval(intervalo);
+      clearTimeout(temporizador);
     };
   }, [turno, enLinea]);
 

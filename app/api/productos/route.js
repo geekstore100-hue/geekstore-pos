@@ -2,8 +2,37 @@ import { NextResponse } from 'next/server';
 import sql from '../../../lib/db';
 import { esUrlYoutubeValida } from '../../../lib/youtube';
 
-export async function GET() {
+export async function GET(request) {
   try {
+    // ?para=venta: versión liviana para la pantalla de Vender. Solo los
+    // campos que esa pantalla usa y solo productos activos — sin las
+    // descripciones largas (hasta 600 letras cada una), costos, videos,
+    // etc. Así cada carga de Vender saca muchísimos menos datos de Neon.
+    const { searchParams } = new URL(request.url);
+    if (searchParams.get('para') === 'venta') {
+      const productos = await sql`
+        SELECT
+          p.id,
+          p.referencia,
+          p.nombre,
+          p.precio_venta,
+          p.precio_distribuidor,
+          p.imagen_key,
+          p.activo,
+          p.es_inventariable,
+          COALESCE(SUM(s.cantidad), 0) AS stock,
+          COALESCE(SUM(s.cantidad) FILTER (WHERE b.nombre = 'Principal'), 0) AS stock_principal,
+          COALESCE(SUM(s.cantidad) FILTER (WHERE b.nombre = 'Bodega Distribuidor'), 0) AS stock_distribuidor
+        FROM productos p
+        LEFT JOIN stock s ON s.producto_id = p.id
+        LEFT JOIN bodegas b ON b.id = s.bodega_id
+        WHERE p.activo = true
+        GROUP BY p.id
+        ORDER BY (p.imagen_key IS NULL) ASC, p.creado_en DESC, p.id DESC
+      `;
+      return NextResponse.json({ ok: true, productos });
+    }
+
     // El stock se suma entre TODAS las bodegas (no depende de un nombre de bodega fijo).
     const productos = await sql`
       SELECT

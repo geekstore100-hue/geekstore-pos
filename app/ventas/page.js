@@ -132,7 +132,10 @@ export default function VentasPage() {
   // deja seguir vendiendo — mejor eso que no poder vender nada.
   async function cargarTodo() {
     try {
-      const [rProd, rVend] = await Promise.all([fetch('/api/productos'), fetch('/api/vendedores')]);
+      // ?para=venta: catálogo sin las descripciones largas (hasta 600 letras
+      // por producto) ni otros campos que Vender no usa — mucho menos datos
+      // que salen de Neon cada vez que se carga esta pantalla.
+      const [rProd, rVend] = await Promise.all([fetch('/api/productos?para=venta'), fetch('/api/vendedores')]);
       const dProd = await rProd.json();
       const dVend = await rVend.json();
       if (dProd.ok) {
@@ -230,9 +233,18 @@ export default function VentasPage() {
   //   sí hay internet pero el turno se cerró mientras tanto), esa venta
   //   puntual se marca con el error para revisarla a mano — y se detiene ahí
   //   para no desordenar las ventas que quedan detrás de esa.
+  //
+  // IMPORTANTE (ahorro de Neon): esto corre cada 45 segundos mientras la
+  // pantalla de Vender esté abierta. Antes, al terminar, SIEMPRE volvía a
+  // cargar el catálogo completo de productos desde la base de datos, aunque
+  // no hubiera ninguna venta pendiente (que es el 99% de las veces) — o sea,
+  // todo el catálogo cada 45 segundos, todo el día. Eso mantenía la base de
+  // datos encendida sin parar y movía muchísimos datos. Ahora solo recarga
+  // el catálogo si de verdad se mandó (o se rechazó) alguna venta pendiente.
   async function sincronizarVentasPendientes() {
     if (sincronizando) return;
     setSincronizando(true);
+    let huboCambios = false;
     try {
       const pendientes = await listarVentasPendientes();
       for (const venta of pendientes) {
@@ -255,6 +267,7 @@ export default function VentasPage() {
           break; // sigue sin internet — se reintenta en el próximo ciclo
         }
         const data = await res.json();
+        huboCambios = true;
         if (data.ok) {
           await eliminarVentaPendiente(venta.idLocal);
         } else {
@@ -264,7 +277,7 @@ export default function VentasPage() {
       }
     } finally {
       await cargarVentasPendientes();
-      cargarTodo();
+      if (huboCambios) cargarTodo(); // el stock cambió: ahí sí vale la pena recargar
       setSincronizando(false);
     }
   }
