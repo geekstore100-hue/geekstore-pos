@@ -48,6 +48,13 @@ export default function ProductosPage() {
   const [mensajeIA, setMensajeIA] = useState('');
   const [categoriaSugeridaIA, setCategoriaSugeridaIA] = useState('');
   const [subcategoriaSugeridaIA, setSubcategoriaSugeridaIA] = useState('');
+  // Cuál de las 3 IA usar para este análisis puntual (no toca la config
+  // guardada en Configuraciones, solo elige cuál usar esta vez).
+  const [proveedorIA, setProveedorIA] = useState('mistral');
+
+  // Si está activo, el precio de distribuidor se recalcula solo (costo +
+  // 40%) cada vez que cambia el precio de costo, como sugerencia editable.
+  const [autoDistribuidor, setAutoDistribuidor] = useState(false);
   const [imagenProductoNueva, setImagenProductoNueva] = useState(null);
   const [recortarActivo, setRecortarActivo] = useState(true);
   const [arrastrandoAnalisis, setArrastrandoAnalisis] = useState(false);
@@ -125,6 +132,8 @@ export default function ProductosPage() {
     setSubcategoriaSugeridaIA('');
     setImagenProductoNueva(null);
     setRecortarActivo(true);
+    setProveedorIA('mistral');
+    setAutoDistribuidor(false);
     setMostrarForm(true);
 
     // Sugiere la siguiente referencia disponible (a partir del catálogo
@@ -348,7 +357,7 @@ export default function ProductosPage() {
       const res = await fetch('/api/productos/analizar-foto', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imagenBase64: imagenAnalisis, infoAdicional: infoAdicionalIA }),
+        body: JSON.stringify({ imagenBase64: imagenAnalisis, infoAdicional: infoAdicionalIA, proveedor: proveedorIA }),
       });
       const data = await res.json();
       if (!data.ok) {
@@ -440,6 +449,7 @@ export default function ProductosPage() {
     setError('');
     setErrorImagen('');
     setPortadaActual(p.imagen_key || null);
+    setAutoDistribuidor(false);
     setMostrarForm(true);
     cargarSubcategorias(p.categoria_id || '');
     cargarImagenes(p.id);
@@ -603,6 +613,13 @@ export default function ProductosPage() {
     return n ? `$${Number(n).toLocaleString('es-CO')}` : '-';
   }
 
+  // Sugerencia de precio de distribuidor: costo + 40%.
+  function calcularDistribuidor(costo) {
+    const n = Number(costo);
+    if (!n || n <= 0) return '';
+    return Math.round(n * 1.4);
+  }
+
   return (
     <Shell title="Productos">
       <div style={styles.header}>
@@ -649,6 +666,14 @@ export default function ProductosPage() {
                 Sube una foto para que la IA te sugiera nombre y descripción — puede ser la caja con las
                 especificaciones (esa foto no queda guardada, solo la mira la IA).
               </p>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', marginBottom: '10px' }}>
+                Proveedor
+                <select value={proveedorIA} onChange={(e) => setProveedorIA(e.target.value)} style={{ ...styles.input, width: 'auto' }}>
+                  <option value="mistral">Mistral</option>
+                  <option value="gemini">Gemini</option>
+                  <option value="groq">Groq</option>
+                </select>
+              </label>
               <div
                 onDragOver={(e) => { e.preventDefault(); setArrastrandoAnalisis(true); }}
                 onDragLeave={() => setArrastrandoAnalisis(false)}
@@ -752,7 +777,14 @@ export default function ProductosPage() {
                   step="0.01"
                   min="0.01"
                   value={form.precio_costo}
-                  onChange={(e) => setForm({ ...form, precio_costo: e.target.value })}
+                  onChange={(e) => {
+                    const valor = e.target.value;
+                    setForm((f) => ({
+                      ...f,
+                      precio_costo: valor,
+                      precio_distribuidor: autoDistribuidor ? calcularDistribuidor(valor) : f.precio_distribuidor,
+                    }));
+                  }}
                   style={styles.input}
                 />
               </label>
@@ -760,6 +792,22 @@ export default function ProductosPage() {
             <label>
               Precio de distribuidor
               <input type="number" step="0.01" value={form.precio_distribuidor} onChange={(e) => setForm({ ...form, precio_distribuidor: e.target.value })} style={styles.input} />
+              {form.es_inventariable && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', fontWeight: 400, fontSize: '13px' }}>
+                  <input
+                    type="checkbox"
+                    checked={autoDistribuidor}
+                    onChange={(e) => {
+                      const activo = e.target.checked;
+                      setAutoDistribuidor(activo);
+                      if (activo) {
+                        setForm((f) => ({ ...f, precio_distribuidor: calcularDistribuidor(f.precio_costo) }));
+                      }
+                    }}
+                  />
+                  Calcular automático (costo + 40%)
+                </span>
+              )}
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '20px' }}>
               <input type="checkbox" checked={form.activo} onChange={(e) => setForm({ ...form, activo: e.target.checked })} />

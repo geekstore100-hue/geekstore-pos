@@ -18,11 +18,15 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request) {
   try {
-    const { imagenBase64, infoAdicional } = await request.json();
+    const { imagenBase64, infoAdicional, proveedor: proveedorElegido } = await request.json();
     if (!imagenBase64) {
       return Response.json({ ok: false, error: 'Falta la imagen' }, { status: 400 });
     }
-    const { modelo, modeloGemini, modeloGroq, proveedor, prompt } = await leerConfigIA();
+    const { modelo, modeloGemini, modeloGroq, proveedor: proveedorConfig, prompt } = await leerConfigIA();
+    // Desde "Nuevo producto" se puede elegir cuál IA usar solo para este
+    // análisis (selector simple, no toca la config guardada); si no manda
+    // nada válido, se usa el proveedor por defecto de Configuraciones.
+    const proveedor = ['mistral', 'gemini', 'groq'].includes(proveedorElegido) ? proveedorElegido : proveedorConfig;
     const promptFinal = infoAdicional && infoAdicional.trim()
       ? `${prompt}\n\nInformación adicional que dio el usuario sobre este producto (la foto puede no mostrarla toda) — tenela en cuenta junto con lo que ves en la imagen: "${infoAdicional.trim()}"`
       : prompt;
