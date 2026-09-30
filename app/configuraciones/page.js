@@ -9,6 +9,7 @@ const SECCIONES = [
   { id: 'etiquetas', label: 'Etiquetas de producto', descripcion: 'Logo que se imprime en las etiquetas' },
   { id: 'caja', label: 'Caja', descripcion: 'Hora del arqueo de caja' },
   { id: 'ia', label: 'Inteligencia artificial', descripcion: 'Modelo y prompt de "Nuevo producto"' },
+  { id: 'tema', label: 'Tema visual', descripcion: 'Colores de toda la aplicación' },
   { id: 'empresa', label: 'Datos de la empresa', descripcion: 'Razón social y NIT para certificados' },
   { id: 'seguridad', label: 'Seguridad', descripcion: 'Clave de administrador' },
   { id: 'respaldos', label: 'Respaldos', descripcion: 'Copias de la base de datos' },
@@ -84,6 +85,12 @@ export default function ConfiguracionesPage() {
   const [guardandoIA, setGuardandoIA] = useState(false);
   const [mensajeIA, setMensajeIA] = useState('');
   const [errorIA, setErrorIA] = useState('');
+
+  // Tema visual: colores de toda la aplicación (se guarda para todos, no por
+  // usuario — este POS lo usa una sola tienda).
+  const [temaVisual, setTemaVisual] = useState('actual');
+  const [cargandoTema, setCargandoTema] = useState(true);
+  const [errorTema, setErrorTema] = useState('');
 
   // Datos de la empresa: razón social/NIT/dirección para el encabezado del
   // certificado de retención de ReteICA (Certificados ReteICA)
@@ -242,6 +249,36 @@ export default function ConfiguracionesPage() {
     }
   }
 
+  async function cargarTema() {
+    setCargandoTema(true);
+    try {
+      const res = await fetch('/api/tema');
+      const data = await res.json();
+      if (data.ok) setTemaVisual(data.tema || 'actual');
+    } finally {
+      setCargandoTema(false);
+    }
+  }
+
+  // Aplica el tema de una vez (sin esperar a guardar, para que se vea el
+  // cambio al toque) y lo guarda para que quede así para todos.
+  async function elegirTema(tema) {
+    setTemaVisual(tema);
+    setErrorTema('');
+    document.documentElement.setAttribute('data-tema', tema === 'azul' ? 'azul' : 'actual');
+    try {
+      const res = await fetch('/api/tema', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tema }),
+      });
+      const data = await res.json();
+      if (!data.ok) setErrorTema('Se aplicó, pero no se pudo guardar — puede que vuelva al de antes al recargar');
+    } catch {
+      setErrorTema('Se aplicó, pero no se pudo guardar — puede que vuelva al de antes al recargar');
+    }
+  }
+
   async function cargarDatosEmpresa() {
     setCargandoEmpresa(true);
     try {
@@ -331,6 +368,7 @@ export default function ConfiguracionesPage() {
     cargarTamanoEtiqueta();
     cargarHoraArqueo();
     cargarConfigIA();
+    cargarTema();
     cargarDatosEmpresa();
     cargarRespaldos();
   }, []);
@@ -941,6 +979,39 @@ export default function ConfiguracionesPage() {
             </>
           )}
 
+          {seccionActiva === 'tema' && (
+            <>
+              <h2 style={{ marginTop: 0 }}>Tema visual</h2>
+              <p style={{ color: 'var(--text-secondary)', marginTop: '-8px' }}>
+                Cambia los colores de toda la aplicación (menú, botones, resaltados). Se aplica
+                de una vez y queda así para todos los que usen el sistema.
+              </p>
+              {cargandoTema ? (
+                <p>Cargando...</p>
+              ) : (
+                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => elegirTema('actual')}
+                    style={{ ...styles.tarjetaTema, ...(temaVisual !== 'azul' ? styles.tarjetaTemaActiva : {}) }}
+                  >
+                    <span style={{ ...styles.muestraTema, background: '#00c2a8' }} />
+                    Actual
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => elegirTema('azul')}
+                    style={{ ...styles.tarjetaTema, ...(temaVisual === 'azul' ? styles.tarjetaTemaActiva : {}) }}
+                  >
+                    <span style={{ ...styles.muestraTema, background: '#0087d1' }} />
+                    Azul cian
+                  </button>
+                </div>
+              )}
+              {errorTema && <p style={{ color: 'var(--danger)', marginTop: '10px' }}>{errorTema}</p>}
+            </>
+          )}
+
           {seccionActiva === 'empresa' && (
             <>
               <h2 style={{ marginTop: 0 }}>Datos de la empresa</h2>
@@ -1152,4 +1223,18 @@ const styles = {
     background: '#fafafa',
   },
   imgLogo: { maxHeight: '80px', maxWidth: '100%', objectFit: 'contain' },
+  tarjetaTema: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '16px 24px',
+    borderRadius: 'var(--radius)',
+    border: '2px solid var(--border)',
+    background: '#fff',
+    cursor: 'pointer',
+    fontWeight: 600,
+  },
+  tarjetaTemaActiva: { borderColor: 'var(--teal)' },
+  muestraTema: { display: 'block', width: '48px', height: '48px', borderRadius: '50%', border: '1px solid var(--border)' },
 };

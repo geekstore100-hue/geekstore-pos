@@ -12,6 +12,15 @@
   --radius: 10px;
 }
 
+/* Tema visual alternativo (Configuraciones > Tema visual). Solo cambia los
+   colores de acento (--teal*), todo lo demás (fondo, texto, bordes) queda
+   igual para no tener que retocar cada pantalla. */
+:root[data-tema='azul'] {
+  --teal: #0087d1;
+  --teal-dark: #006ba3;
+  --teal-light: #e5f4fc;
+}
+
 * {
   box-sizing: border-box;
 }

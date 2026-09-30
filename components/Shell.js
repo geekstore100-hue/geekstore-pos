@@ -24,6 +24,21 @@ export default function Shell({ title, children }) {
     return () => document.removeEventListener('wheel', evitarScrollEnNumeros);
   }, []);
 
+  // Aplica el tema visual guardado (Configuraciones > Tema visual) en
+  // cualquier pantalla que use Shell, es decir, prácticamente todas. Solo
+  // hace falta poner el atributo en <html> una vez; el CSS (globals.css)
+  // se encarga del resto.
+  useEffect(() => {
+    fetch('/api/tema')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.ok && d.tema === 'azul') {
+          document.documentElement.setAttribute('data-tema', 'azul');
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
       {/* pos-no-imprimir: se oculta al imprimir (ver cotizaciones de
