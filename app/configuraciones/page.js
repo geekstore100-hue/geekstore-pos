@@ -916,7 +916,7 @@ export default function ConfiguracionesPage() {
                   <label style={{ display: 'block', marginBottom: '10px' }}>
                     Modelo de Groq
                     <input value={modeloGroqIA} onChange={(e) => setModeloGroqIA(e.target.value)} style={styles.input} />
-                    <small style={{ color: 'var(--text-secondary)' }}>Ej. meta-llama/llama-4-scout-17b-16e-instruct — tiene que ser un modelo con visión.</small>
+                    <small style={{ color: 'var(--text-secondary)' }}>Ej. qwen/qwen3.8-27b — tiene que ser un modelo con visión (por ahora es el único que ofrece Groq).</small>
                   </label>
                   <label style={{ display: 'block', marginBottom: '10px' }}>
                     Prompt (instrucciones para la IA)
