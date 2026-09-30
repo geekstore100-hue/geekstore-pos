@@ -25,15 +25,34 @@ export default function Shell({ title, children }) {
   }, []);
 
   // Aplica el tema visual guardado (Configuraciones > Tema visual) en
-  // cualquier pantalla que use Shell, es decir, prácticamente todas. Solo
-  // hace falta poner el atributo en <html> una vez; el CSS (globals.css)
-  // se encarga del resto.
+  // cualquier pantalla que use Shell, es decir, prácticamente todas.
+  // Se guarda una copia en este navegador (localStorage) para no tener que
+  // preguntarle a la base de datos (Neon) en cada pantalla que se abre —
+  // solo se consulta la primera vez que entra alguien en ese navegador, o
+  // después de que cambien el tema desde Configuraciones.
   useEffect(() => {
+    let cacheado = null;
+    try {
+      cacheado = localStorage.getItem('temaVisual');
+    } catch {
+      // navegación privada u otro bloqueo: sigue de largo sin memoria local
+    }
+
+    if (cacheado === 'azul') {
+      document.documentElement.setAttribute('data-tema', 'azul');
+    }
+    if (cacheado) return; // ya se sabe, no hace falta consultar la base de datos
+
     fetch('/api/tema')
       .then((r) => r.json())
       .then((d) => {
-        if (d.ok && d.tema === 'azul') {
-          document.documentElement.setAttribute('data-tema', 'azul');
+        if (!d.ok) return;
+        if (d.tema === 'azul') document.documentElement.setAttribute('data-tema', 'azul');
+        try {
+          localStorage.setItem('temaVisual', d.tema);
+        } catch {
+          // sin memoria local disponible — no pasa nada, se volverá a
+          // preguntar en la próxima pantalla
         }
       })
       .catch(() => {});

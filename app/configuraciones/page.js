@@ -252,20 +252,47 @@ export default function ConfiguracionesPage() {
   async function cargarTema() {
     setCargandoTema(true);
     try {
+      // Si este navegador ya lo tiene guardado (Shell ya lo dejó en
+      // localStorage al abrir esta misma pantalla), se usa eso y no se
+      // vuelve a consultar la base de datos dos veces de una.
+      let cacheado = null;
+      try {
+        cacheado = localStorage.getItem('temaVisual');
+      } catch {
+        // sin memoria local disponible
+      }
+      if (cacheado) {
+        setTemaVisual(cacheado);
+        return;
+      }
       const res = await fetch('/api/tema');
       const data = await res.json();
-      if (data.ok) setTemaVisual(data.tema || 'actual');
+      if (data.ok) {
+        setTemaVisual(data.tema || 'actual');
+        try {
+          localStorage.setItem('temaVisual', data.tema || 'actual');
+        } catch {
+          // sin memoria local disponible
+        }
+      }
     } finally {
       setCargandoTema(false);
     }
   }
 
   // Aplica el tema de una vez (sin esperar a guardar, para que se vea el
-  // cambio al toque) y lo guarda para que quede así para todos.
+  // cambio al toque), lo guarda para que quede así para todos, y actualiza
+  // la memoria local de este navegador para no tener que volver a
+  // preguntarle a la base de datos la próxima vez.
   async function elegirTema(tema) {
     setTemaVisual(tema);
     setErrorTema('');
     document.documentElement.setAttribute('data-tema', tema === 'azul' ? 'azul' : 'actual');
+    try {
+      localStorage.setItem('temaVisual', tema === 'azul' ? 'azul' : 'actual');
+    } catch {
+      // sin memoria local disponible
+    }
     try {
       const res = await fetch('/api/tema', {
         method: 'POST',
