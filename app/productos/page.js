@@ -161,6 +161,39 @@ export default function ProductosPage() {
     reader.readAsDataURL(file);
   }
 
+  // Achica la foto que se manda a analizar con IA (máximo 1280px en el lado
+  // más largo) antes de enviarla. Una foto de celular sin achicar (3000-4000px,
+  // varios MB) supera fácil el límite de tokens por minuto del plan gratis de
+  // Mistral en una sola llamada (Mistral cobra tokens de imagen según la
+  // resolución) — eso es lo que causaba el error "rate_limited" (429) aunque
+  // la cuenta tuviera crédito gratis disponible y nunca hubiera hecho ninguna
+  // llamada. No afecta la foto real del producto, esto es solo la copia que
+  // ve la IA. De paso también hace que Gemini y Groq analicen más rápido.
+  function redimensionarParaIA(dataUri, maxLado = 1280, calidad = 0.85) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const { naturalWidth: w, naturalHeight: h } = img;
+        if (!w || !h || (w <= maxLado && h <= maxLado)) {
+          resolve(dataUri);
+          return;
+        }
+        const escala = maxLado / Math.max(w, h);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(w * escala);
+        canvas.height = Math.round(h * escala);
+        try {
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/jpeg', calidad));
+        } catch {
+          resolve(dataUri); // por si el navegador bloquea el canvas
+        }
+      };
+      img.onerror = () => resolve(dataUri);
+      img.src = dataUri;
+    });
+  }
+
   // Recorta la imagen hasta el borde de donde empieza el contenido real,
   // sacando el espacio en blanco alrededor (típico de fotos de proveedor
   // con el producto chiquito en el centro de un fondo blanco enorme). No
@@ -231,7 +264,9 @@ export default function ProductosPage() {
     e.target.value = '';
     setMensajeIA('');
     setCategoriaSugeridaIA('');
-    leerArchivoComoDataUri(file, setImagenAnalisis);
+    leerArchivoComoDataUri(file, (dataUri) => {
+      redimensionarParaIA(dataUri).then(setImagenAnalisis);
+    });
   }
 
   function onSoltarAnalisis(e) {
@@ -241,7 +276,9 @@ export default function ProductosPage() {
     if (!file || !file.type.startsWith('image/')) return;
     setMensajeIA('');
     setCategoriaSugeridaIA('');
-    leerArchivoComoDataUri(file, setImagenAnalisis);
+    leerArchivoComoDataUri(file, (dataUri) => {
+      redimensionarParaIA(dataUri).then(setImagenAnalisis);
+    });
   }
 
   async function procesarFotoProductoNueva(file) {
