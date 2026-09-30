@@ -1627,7 +1627,11 @@ const styles = {
     background: 'var(--bg)',
     borderRadius: '10px',
   },
-  fotoTarjeta: { width: '150px', height: '150px', objectFit: 'contain', background: 'var(--bg)', borderRadius: '10px', margin: '8px auto', display: 'block' },
+  // background transparente (antes 'var(--bg)'): con foto que no es cuadrada,
+  // "contain" deja franjas vacías a los lados, y como la tarjeta de fondo es
+  // blanca, esas franjas se veían como un recuadro gris feo alrededor de la
+  // imagen. Transparente hace que esas franjas se mezclen con la tarjeta.
+  fotoTarjeta: { width: '150px', height: '150px', objectFit: 'contain', background: 'transparent', borderRadius: '10px', margin: '8px auto', display: 'block' },
   nombre: { fontSize: '13px', fontWeight: 600, marginBottom: '4px', minHeight: '32px' },
   stockInfo: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', marginBottom: '6px' },
   badgeStock: {

@@ -711,7 +711,9 @@ const styles = {
     flexWrap: 'wrap',
   },
   filaInfo: { display: 'flex', alignItems: 'center', gap: '10px', minWidth: '220px', flex: 1 },
-  miniatura: { width: '44px', height: '44px', objectFit: 'contain', background: 'var(--bg)', borderRadius: '8px' },
+  // Transparente (antes 'var(--bg)') para que no se vea un recuadro gris
+  // alrededor de fotos que no son cuadradas — ver ventas/page.js (fotoTarjeta).
+  miniatura: { width: '44px', height: '44px', objectFit: 'contain', background: 'transparent', borderRadius: '8px' },
   miniaturaVacia: { width: '44px', height: '44px', borderRadius: '8px', background: 'var(--bg)' },
   filaStock: { display: 'flex', flexDirection: 'column', gap: '3px', minWidth: '140px' },
   badgeStock: {

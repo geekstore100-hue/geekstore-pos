@@ -1317,8 +1317,11 @@ const styles = {
     boxShadow: '0 12px 40px rgba(0,0,0,0.2)',
   },
   btnCerrarModal: { border: 'none', background: 'none', cursor: 'pointer', fontSize: '16px', color: 'var(--text-secondary)' },
-  fotoDetalle: { width: '100%', height: '200px', objectFit: 'contain', background: 'var(--bg)', borderRadius: '8px', margin: '10px 0' },
-  fotoDetalleVacia: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', fontSize: '13px' },
+  // Transparente (antes 'var(--bg)') para que no se vea un recuadro gris
+  // alrededor de fotos que no son cuadradas — ver ventas/page.js (fotoTarjeta).
+  // El estado "Sin foto" recupera el gris abajo, como placeholder.
+  fotoDetalle: { width: '100%', height: '200px', objectFit: 'contain', background: 'transparent', borderRadius: '8px', margin: '10px 0' },
+  fotoDetalleVacia: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', fontSize: '13px', background: 'var(--bg)' },
   filaDetalle: { display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: '14px', borderBottom: '1px solid var(--border)' },
   barraLista: { display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap' },
   buscador: { flex: 1, minWidth: '220px', padding: '10px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', boxSizing: 'border-box', background: '#fff' },
