@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../../lib/db';
+import { descontarStockSeguro, sumarStock, esErrorDeGuardia } from '../../../../lib/transaccion';
 
 // Detalle de un traspaso (documento) para el documento imprimible: cabecera
 // con las bodegas y el valor total, y las líneas de productos que llegaron a
 // la bodega destino (con lo que ya había antes, para poder verificar).
 export async function GET(request, { params }) {
   try {
-    const id = Number(params.id);
+    const id = Number((await params).id);
     if (!id) {
       return NextResponse.json({ ok: false, error: 'Traspaso inválido' }, { status: 400 });
     }
@@ -92,7 +93,7 @@ export async function GET(request, { params }) {
 // nuevo), ni un traspaso que ya se marcó como pagado.
 export async function PUT(request, { params }) {
   try {
-    const id = Number(params.id);
+    const id = Number((await params).id);
     if (!id) {
       return NextResponse.json({ ok: false, error: 'Traspaso inválido' }, { status: 400 });
     }
@@ -215,57 +216,91 @@ export async function PUT(request, { params }) {
       }
     }
 
-    // Fase de aplicación: ya validado todo, se ejecutan los cambios.
+    // Fase de aplicación: ya validado todo, se ejecutan los cambios — en UNA
+    // sola transacción (ver lib/transaccion.js): o se aplican todos, o
+    // ninguno. Antes eran pasos sueltos y, si algo fallaba a mitad, el
+    // traspaso podía quedar editado a medias (stock movido en una bodega y
+    // no en la otra). Las restas usan descontarStockSeguro: si en el último
+    // segundo otra operación se llevó unidades, se cancela todo en vez de
+    // dejar el stock negativo.
+    const consultas = [];
     for (const accion of acciones) {
       if (accion.tipo === 'delta') {
-        await sql`UPDATE stock SET cantidad = cantidad - ${accion.delta} WHERE producto_id = ${accion.producto_id} AND bodega_id = ${traspaso.bodega_origen_id}`;
-        await sql`UPDATE stock SET cantidad = cantidad + ${accion.delta} WHERE producto_id = ${accion.producto_id} AND bodega_id = ${traspaso.bodega_destino_id}`;
-        await sql`UPDATE movimientos_stock SET cantidad = ${accion.nuevaCantidad} WHERE id = ${accion.entrada_id}`;
+        if (accion.delta > 0) {
+          consultas.push(descontarStockSeguro(accion.producto_id, traspaso.bodega_origen_id, accion.delta));
+          consultas.push(sumarStock(accion.producto_id, traspaso.bodega_destino_id, accion.delta));
+        } else {
+          const devolver = Math.abs(accion.delta);
+          consultas.push(descontarStockSeguro(accion.producto_id, traspaso.bodega_destino_id, devolver));
+          consultas.push(sumarStock(accion.producto_id, traspaso.bodega_origen_id, devolver));
+        }
+        consultas.push(sql`UPDATE movimientos_stock SET cantidad = ${accion.nuevaCantidad} WHERE id = ${accion.entrada_id}`);
         if (accion.salida_id) {
-          await sql`UPDATE movimientos_stock SET cantidad = ${accion.nuevaCantidad} WHERE id = ${accion.salida_id}`;
+          consultas.push(sql`UPDATE movimientos_stock SET cantidad = ${accion.nuevaCantidad} WHERE id = ${accion.salida_id}`);
         }
       } else if (accion.tipo === 'agregar') {
         const stockAntesOrigen = stockOrigenPorProducto.get(accion.producto_id) || 0;
         const stockAntesDestino = stockDestinoPorProducto.get(accion.producto_id) || 0;
 
-        await sql`UPDATE stock SET cantidad = cantidad - ${accion.cantidad} WHERE producto_id = ${accion.producto_id} AND bodega_id = ${traspaso.bodega_origen_id}`;
-        await sql`
-          INSERT INTO stock (producto_id, bodega_id, cantidad) VALUES (${accion.producto_id}, ${traspaso.bodega_destino_id}, ${accion.cantidad})
-          ON CONFLICT (producto_id, bodega_id) DO UPDATE SET cantidad = stock.cantidad + EXCLUDED.cantidad
-        `;
-        await sql`
+        consultas.push(descontarStockSeguro(accion.producto_id, traspaso.bodega_origen_id, accion.cantidad));
+        consultas.push(sumarStock(accion.producto_id, traspaso.bodega_destino_id, accion.cantidad));
+        consultas.push(sql`
           INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, traspaso_id, stock_antes)
           VALUES (${accion.producto_id}, ${traspaso.bodega_origen_id}, 'traspaso_salida', ${accion.cantidad}, ${accion.costo}, ${id}, ${stockAntesOrigen})
-        `;
-        await sql`
+        `);
+        consultas.push(sql`
           INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, ajuste_id, traspaso_id, stock_antes)
           VALUES (${accion.producto_id}, ${traspaso.bodega_destino_id}, 'ajuste_incremento', ${accion.cantidad}, ${accion.costo}, ${ajuste?.id || null}, ${id}, ${stockAntesDestino})
-        `;
+        `);
       } else if (accion.tipo === 'quitar') {
-        await sql`UPDATE stock SET cantidad = cantidad + ${accion.cantidad} WHERE producto_id = ${accion.producto_id} AND bodega_id = ${traspaso.bodega_origen_id}`;
-        await sql`UPDATE stock SET cantidad = cantidad - ${accion.cantidad} WHERE producto_id = ${accion.producto_id} AND bodega_id = ${traspaso.bodega_destino_id}`;
-        await sql`DELETE FROM movimientos_stock WHERE id = ${accion.entrada_id}`;
+        consultas.push(descontarStockSeguro(accion.producto_id, traspaso.bodega_destino_id, accion.cantidad));
+        consultas.push(sumarStock(accion.producto_id, traspaso.bodega_origen_id, accion.cantidad));
+        consultas.push(sql`DELETE FROM movimientos_stock WHERE id = ${accion.entrada_id}`);
         if (accion.salida_id) {
-          await sql`DELETE FROM movimientos_stock WHERE id = ${accion.salida_id}`;
+          consultas.push(sql`DELETE FROM movimientos_stock WHERE id = ${accion.salida_id}`);
         }
       }
     }
 
-    // Recalcular el valor total: para las líneas que ya existían se usa el
-    // precio que ya tenían guardado (el costo del momento en que se hizo el
+    // Recalcular el valor total (dentro de la misma transacción, después de
+    // todos los cambios): para las líneas que ya existían se usa el precio
+    // que ya tenían guardado (el costo del momento en que se hizo el
     // traspaso), y para las nuevas el costo actual del producto.
-    const lineasFinal = await sql`
-      SELECT cantidad, precio_unitario
-      FROM movimientos_stock
-      WHERE traspaso_id = ${id} AND bodega_id = ${traspaso.bodega_destino_id}
-        AND tipo IN ('traspaso_entrada', 'ajuste_incremento')
-    `;
-    const nuevoTotal = lineasFinal.reduce((acc, l) => acc + Number(l.cantidad) * Number(l.precio_unitario), 0);
-
-    await sql`UPDATE traspasos_inventario SET valor_total = ${nuevoTotal}, observaciones = ${observaciones} WHERE id = ${id}`;
+    consultas.push(sql`
+      UPDATE traspasos_inventario
+      SET valor_total = (
+            SELECT COALESCE(SUM(cantidad * precio_unitario), 0)
+            FROM movimientos_stock
+            WHERE traspaso_id = ${id} AND bodega_id = ${traspaso.bodega_destino_id}
+              AND tipo IN ('traspaso_entrada', 'ajuste_incremento')
+          ),
+          observaciones = ${observaciones}
+      WHERE id = ${id}
+      RETURNING valor_total
+    `);
+    const indiceTotal = consultas.length - 1;
     if (ajuste) {
-      await sql`UPDATE ajustes_inventario SET total = ${nuevoTotal}, observaciones = ${observaciones} WHERE id = ${ajuste.id}`;
+      consultas.push(sql`
+        UPDATE ajustes_inventario
+        SET total = (SELECT valor_total FROM traspasos_inventario WHERE id = ${id}),
+            observaciones = ${observaciones}
+        WHERE id = ${ajuste.id}
+      `);
     }
+
+    let resultados;
+    try {
+      resultados = await sql.transaction(consultas);
+    } catch (error) {
+      if (esErrorDeGuardia(error)) {
+        return NextResponse.json(
+          { ok: false, error: 'El stock cambió mientras se guardaba (otra operación movió unidades de uno de los productos). No se cambió nada — revisa y vuelve a intentar.' },
+          { status: 409 }
+        );
+      }
+      throw error;
+    }
+    const nuevoTotal = Number(resultados[indiceTotal][0]?.valor_total) || 0;
 
     return NextResponse.json({ ok: true, traspasoId: id, total: nuevoTotal });
   } catch (error) {

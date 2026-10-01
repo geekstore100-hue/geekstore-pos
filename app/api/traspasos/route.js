@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../lib/db';
+import { descontarStockSeguro, sumarStock, esErrorDeGuardia } from '../../../lib/transaccion';
 
 // Historial de traspasos recientes entre bodegas: ahora cada traspaso es un
 // documento que puede traer varios productos, así que se muestra junto con
@@ -117,36 +118,56 @@ export async function POST(request) {
       valorTotal += precioCosto * cantidad;
     }
 
-    const [traspaso] = await sql`
-      INSERT INTO traspasos_inventario (bodega_origen_id, bodega_destino_id, observaciones, valor_total)
-      VALUES (${bodega_origen_id}, ${bodega_destino_id}, ${observaciones}, ${valorTotal})
-      RETURNING id
-    `;
+    // Todo en una sola transacción (ver lib/transaccion.js): antes, si algo
+    // fallaba a mitad de camino, la mercancía podía salir de la bodega de
+    // origen y nunca llegar a la de destino. Ahora se guarda todo o nada.
+    // descontarStockSeguro: si en el último segundo otra operación se llevó
+    // esas unidades del origen, se cancela todo en vez de dejarlo negativo.
+    // El id del traspaso recién creado lo deja anotado el primer paso
+    // (set_config) y los demás lo leen con current_setting.
+    const consultas = [
+      sql`
+        WITH nuevo AS (
+          INSERT INTO traspasos_inventario (bodega_origen_id, bodega_destino_id, observaciones, valor_total)
+          VALUES (${bodega_origen_id}, ${bodega_destino_id}, ${observaciones}, ${valorTotal})
+          RETURNING id
+        )
+        SELECT id, set_config('pos.id_traspaso', id::text, true) FROM nuevo
+      `,
+    ];
 
     for (const [productoId, cantidad] of cantidadesPorProducto) {
       const precioCosto = Number(productoPorId.get(productoId).precio_costo) || 0;
       const stockAntesOrigen = stockOrigenPorProducto.get(productoId) || 0;
       const stockAntesDestino = stockDestinoPorProducto.get(productoId) || 0;
 
-      await sql`
-        UPDATE stock SET cantidad = cantidad - ${cantidad}
-        WHERE producto_id = ${productoId} AND bodega_id = ${bodega_origen_id}
-      `;
-      await sql`
-        INSERT INTO stock (producto_id, bodega_id, cantidad)
-        VALUES (${productoId}, ${bodega_destino_id}, ${cantidad})
-        ON CONFLICT (producto_id, bodega_id) DO UPDATE SET cantidad = stock.cantidad + EXCLUDED.cantidad
-      `;
-
-      await sql`
+      consultas.push(descontarStockSeguro(productoId, bodega_origen_id, cantidad));
+      consultas.push(sumarStock(productoId, bodega_destino_id, cantidad));
+      consultas.push(sql`
         INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, traspaso_id, precio_unitario, stock_antes)
-        VALUES (${productoId}, ${bodega_origen_id}, 'traspaso_salida', ${cantidad}, ${traspaso.id}, ${precioCosto}, ${stockAntesOrigen})
-      `;
-      await sql`
+        VALUES (${productoId}, ${bodega_origen_id}, 'traspaso_salida', ${cantidad},
+                current_setting('pos.id_traspaso')::int, ${precioCosto}, ${stockAntesOrigen})
+      `);
+      consultas.push(sql`
         INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, traspaso_id, precio_unitario, stock_antes)
-        VALUES (${productoId}, ${bodega_destino_id}, 'traspaso_entrada', ${cantidad}, ${traspaso.id}, ${precioCosto}, ${stockAntesDestino})
-      `;
+        VALUES (${productoId}, ${bodega_destino_id}, 'traspaso_entrada', ${cantidad},
+                current_setting('pos.id_traspaso')::int, ${precioCosto}, ${stockAntesDestino})
+      `);
     }
+
+    let resultados;
+    try {
+      resultados = await sql.transaction(consultas);
+    } catch (error) {
+      if (esErrorDeGuardia(error)) {
+        return NextResponse.json(
+          { ok: false, error: 'El stock de la bodega de origen cambió mientras se guardaba (otra operación se llevó unidades). No se guardó nada — revisa y vuelve a intentar.' },
+          { status: 409 }
+        );
+      }
+      throw error;
+    }
+    const traspaso = resultados[0][0];
 
     return NextResponse.json({ ok: true, traspasoId: traspaso.id, valorTotal });
   } catch (error) {

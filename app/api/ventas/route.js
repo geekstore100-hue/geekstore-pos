@@ -173,16 +173,22 @@ export async function POST(request) {
     // es bastante más rápido y gasta menos Neon.
     //
     // Como todo se manda de una vez, los pasos no pueden "ver" el id de la
-    // venta que acaba de crearse desde aquí; por eso usan
-    // currval(...) — el último id creado en la tabla ventas dentro de esta
-    // misma transacción.
+    // venta que acaba de crearse desde aquí. Por eso el primer paso, al
+    // crear la venta, deja su id anotado en una variable que solo existe
+    // dentro de esta transacción (set_config(..., true)), y los demás pasos
+    // la leen con current_setting('pos.id_venta'). Si por algo no estuviera
+    // anotada, la lectura da error y se cancela todo (nunca queda un pago o
+    // un movimiento sin enlazar a su venta).
     const pagosAGuardar = esPagoCombinado ? pagos : [{ medio_pago, monto: total }];
 
     const consultas = [
       sql`
-        INSERT INTO ventas (total, medio_pago, vendedor_id, turno_id, creado_en)
-        VALUES (${total}, ${medioPagoGuardado}, ${vendedor_id || null}, ${turnoAbierto.id}, COALESCE(${fechaVenta}, now()))
-        RETURNING id
+        WITH nueva AS (
+          INSERT INTO ventas (total, medio_pago, vendedor_id, turno_id, creado_en)
+          VALUES (${total}, ${medioPagoGuardado}, ${vendedor_id || null}, ${turnoAbierto.id}, COALESCE(${fechaVenta}, now()))
+          RETURNING id
+        )
+        SELECT id, set_config('pos.id_venta', id::text, true) FROM nueva
       `,
     ];
 
@@ -192,7 +198,7 @@ export async function POST(request) {
     for (const p of pagosAGuardar) {
       consultas.push(sql`
         INSERT INTO pagos_venta (venta_id, medio_pago, monto)
-        VALUES (currval(pg_get_serial_sequence('ventas', 'id')), ${p.medio_pago}, ${p.monto})
+        VALUES (current_setting('pos.id_venta')::int, ${p.medio_pago}, ${p.monto})
       `);
     }
 
@@ -219,7 +225,7 @@ export async function POST(request) {
       // toque la tabla stock.
       consultas.push(sql`
         INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, descuento_porcentaje, venta_id)
-        VALUES (${item.producto_id}, ${bodegaId}, 'venta', ${item.cantidad}, ${item.precioNeto}, ${item.descuento_porcentaje || 0}, currval(pg_get_serial_sequence('ventas', 'id')))
+        VALUES (${item.producto_id}, ${bodegaId}, 'venta', ${item.cantidad}, ${item.precioNeto}, ${item.descuento_porcentaje || 0}, current_setting('pos.id_venta')::int)
       `);
     }
 

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../lib/db';
+import { sumarStock } from '../../../lib/transaccion';
 
 // Historial de devoluciones (para el listado de la página de Devoluciones).
 export async function GET(request) {
@@ -62,21 +63,26 @@ export async function POST(request) {
       return NextResponse.json({ ok: false, error: 'Producto no encontrado' }, { status: 404 });
     }
 
+    // Todo en una sola transacción (ver lib/transaccion.js): reponer el
+    // stock y registrar la devolución van juntos — o se guardan los dos, o
+    // ninguno.
+    // sumarStock (en vez del UPDATE de antes): si el producto no tenía fila
+    // de stock en Principal (nunca había tenido existencias ahí), el UPDATE
+    // de antes no hacía nada y la unidad devuelta "desaparecía"; ahora se
+    // crea la fila.
+    const consultas = [];
     if (producto.es_inventariable !== false && cantidad > 0) {
       const [principal] = await sql`SELECT id FROM bodegas WHERE nombre = 'Principal'`;
-      if (principal) {
-        await sql`
-          UPDATE stock SET cantidad = cantidad + ${cantidad}
-          WHERE producto_id = ${producto_id} AND bodega_id = ${principal.id}
-        `;
-      }
+      if (principal) consultas.push(sumarStock(producto_id, principal.id, cantidad));
     }
-
-    const [devolucion] = await sql`
+    consultas.push(sql`
       INSERT INTO devoluciones (venta_id, producto_id, cantidad, monto, motivo, turno_id)
       VALUES (NULL, ${producto_id}, ${cantidad}, ${monto}, ${motivo}, ${turnoAbierto.id})
       RETURNING id
-    `;
+    `);
+
+    const resultados = await sql.transaction(consultas);
+    const devolucion = resultados[resultados.length - 1][0];
 
     return NextResponse.json({ ok: true, devolucionId: devolucion.id });
   } catch (error) {

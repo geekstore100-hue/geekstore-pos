@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../lib/db';
+import { descontarStockSeguro, sumarStock, esErrorDeGuardia } from '../../../lib/transaccion';
 
 export async function GET() {
   try {
@@ -115,68 +116,113 @@ export async function POST(request) {
 
     const total = itemsConDatos.reduce((acc, i) => acc + i.subtotal, 0);
 
+    // Todo en una sola transacción (ver lib/transaccion.js): el documento
+    // del traspaso (si aplica), el ajuste, los cambios de stock en ambas
+    // bodegas y los movimientos se guardan juntos o no se guarda nada.
+    // Antes, si algo fallaba a mitad de camino, podía quedar la mercancía
+    // sumada en una bodega sin haberse descontado de la otra.
+    //
+    // Los ids recién creados (traspaso y ajuste) los deja anotados el paso
+    // que los crea (set_config) y los demás pasos los leen con
+    // current_setting — así quedan enlazados aunque todo se mande de una vez.
+    const consultas = [];
+
     // Si viene de un traspaso, primero se crea el documento del traspaso
     // (para llevar el valor total y si ya se le pagó a la bodega de origen),
     // y el ajuste queda enlazado a él.
-    let traspasoId = null;
     if (bodega_origen_id) {
-      const [traspaso] = await sql`
-        INSERT INTO traspasos_inventario (bodega_origen_id, bodega_destino_id, observaciones, valor_total)
-        VALUES (${bodega_origen_id}, ${bodega_id}, ${observaciones || null}, ${total})
-        RETURNING id
-      `;
-      traspasoId = traspaso.id;
+      consultas.push(sql`
+        WITH nuevo AS (
+          INSERT INTO traspasos_inventario (bodega_origen_id, bodega_destino_id, observaciones, valor_total)
+          VALUES (${bodega_origen_id}, ${bodega_id}, ${observaciones || null}, ${total})
+          RETURNING id
+        )
+        SELECT id, set_config('pos.id_traspaso', id::text, true) FROM nuevo
+      `);
+      consultas.push(sql`
+        WITH nuevo AS (
+          INSERT INTO ajustes_inventario (bodega_id, numeracion, observaciones, total, traspaso_id)
+          VALUES (${bodega_id}, 'Ajuste de Inventario', ${observaciones || null}, ${total}, current_setting('pos.id_traspaso')::int)
+          RETURNING id
+        )
+        SELECT id, set_config('pos.id_ajuste', id::text, true) FROM nuevo
+      `);
+    } else {
+      consultas.push(sql`
+        WITH nuevo AS (
+          INSERT INTO ajustes_inventario (bodega_id, numeracion, observaciones, total, traspaso_id)
+          VALUES (${bodega_id}, 'Ajuste de Inventario', ${observaciones || null}, ${total}, NULL)
+          RETURNING id
+        )
+        SELECT id, set_config('pos.id_ajuste', id::text, true) FROM nuevo
+      `);
     }
-
-    const [ajuste] = await sql`
-      INSERT INTO ajustes_inventario (bodega_id, numeracion, observaciones, total, traspaso_id)
-      VALUES (${bodega_id}, 'Ajuste de Inventario', ${observaciones || null}, ${total}, ${traspasoId})
-      RETURNING id
-    `;
+    const indiceAjuste = consultas.length - 1;
 
     for (const item of itemsConDatos) {
-      const delta = item.objetivo === 'incrementar' ? item.cantidad : -item.cantidad;
+      const tipo = item.objetivo === 'incrementar' ? 'ajuste_incremento' : 'ajuste_disminucion';
 
-      // Si es un incremento que viene de un traspaso, se guarda cuánto había
-      // en esta bodega ANTES de sumar, para que el documento impreso siempre
-      // pueda mostrar "lo que ya había" aunque se reimprima después.
-      let stockAntesDestino = null;
-      if (bodega_origen_id && item.objetivo === 'incrementar') {
-        const [filaActual] = await sql`
-          SELECT COALESCE(cantidad, 0) AS cantidad FROM stock WHERE producto_id = ${item.producto_id} AND bodega_id = ${bodega_id}
-        `;
-        stockAntesDestino = Number(filaActual?.cantidad) || 0;
+      if (bodega_origen_id) {
+        // Viene de un traspaso (siempre es incremento): se guarda cuánto
+        // había en esta bodega ANTES de sumar (stock_antes), para que el
+        // documento impreso siempre pueda mostrar "lo que ya había" aunque
+        // se reimprima después. Se calcula en la base de datos justo antes
+        // de sumar, por eso este movimiento va antes que el cambio de stock.
+        consultas.push(sql`
+          INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, ajuste_id, traspaso_id, stock_antes)
+          VALUES (
+            ${item.producto_id}, ${bodega_id}, ${tipo},
+            ${item.cantidad}, ${item.costo},
+            current_setting('pos.id_ajuste')::int,
+            current_setting('pos.id_traspaso')::int,
+            COALESCE((SELECT cantidad FROM stock WHERE producto_id = ${item.producto_id} AND bodega_id = ${bodega_id}), 0)
+          )
+        `);
+      } else {
+        consultas.push(sql`
+          INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, ajuste_id, traspaso_id, stock_antes)
+          VALUES (
+            ${item.producto_id}, ${bodega_id}, ${tipo},
+            ${item.cantidad}, ${item.costo},
+            current_setting('pos.id_ajuste')::int, NULL, NULL
+          )
+        `);
       }
 
-      await sql`
-        INSERT INTO stock (producto_id, bodega_id, cantidad)
-        VALUES (${item.producto_id}, ${bodega_id}, ${delta})
-        ON CONFLICT (producto_id, bodega_id)
-        DO UPDATE SET cantidad = stock.cantidad + EXCLUDED.cantidad
-      `;
-
-      await sql`
-        INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, ajuste_id, traspaso_id, stock_antes)
-        VALUES (
-          ${item.producto_id}, ${bodega_id},
-          ${item.objetivo === 'incrementar' ? 'ajuste_incremento' : 'ajuste_disminucion'},
-          ${item.cantidad}, ${item.costo}, ${ajuste.id}, ${traspasoId}, ${stockAntesDestino}
-        )
-      `;
+      // Incrementar: suma (crea la fila si no existía). Disminuir: resta
+      // SOLO si alcanza — si en el último segundo otra operación se llevó
+      // unidades, se cancela todo en vez de dejar el stock negativo.
+      consultas.push(
+        item.objetivo === 'incrementar'
+          ? sumarStock(item.producto_id, bodega_id, item.cantidad)
+          : descontarStockSeguro(item.producto_id, bodega_id, item.cantidad)
+      );
 
       if (bodega_origen_id) {
         const stockAntesOrigen = stockOrigenPorProducto.get(Number(item.producto_id)) || 0;
-
-        await sql`
-          UPDATE stock SET cantidad = cantidad - ${item.cantidad}
-          WHERE producto_id = ${item.producto_id} AND bodega_id = ${bodega_origen_id}
-        `;
-        await sql`
+        consultas.push(descontarStockSeguro(item.producto_id, bodega_origen_id, item.cantidad));
+        consultas.push(sql`
           INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, traspaso_id, stock_antes)
-          VALUES (${item.producto_id}, ${bodega_origen_id}, 'traspaso_salida', ${item.cantidad}, ${item.costo}, ${traspasoId}, ${stockAntesOrigen})
-        `;
+          VALUES (${item.producto_id}, ${bodega_origen_id}, 'traspaso_salida', ${item.cantidad}, ${item.costo},
+                  current_setting('pos.id_traspaso')::int, ${stockAntesOrigen})
+        `);
       }
     }
+
+    let resultados;
+    try {
+      resultados = await sql.transaction(consultas);
+    } catch (error) {
+      if (esErrorDeGuardia(error)) {
+        return NextResponse.json(
+          { ok: false, error: 'El stock cambió mientras se guardaba (otra operación se llevó unidades de uno de los productos). No se guardó nada — revisa y vuelve a intentar.' },
+          { status: 409 }
+        );
+      }
+      throw error;
+    }
+    const ajuste = resultados[indiceAjuste][0];
+    const traspasoId = bodega_origen_id ? Number(resultados[0][0].id) : null;
 
     return NextResponse.json({ ok: true, ajusteId: ajuste.id, traspasoId, total });
   } catch (error) {

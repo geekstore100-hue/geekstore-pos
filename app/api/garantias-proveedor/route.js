@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../lib/db';
+import { descontarStockSeguro, sumarStock, esErrorDeGuardia } from '../../../lib/transaccion';
 
 async function bodegaPrincipalId() {
   const [b] = await sql`SELECT id FROM bodegas WHERE nombre = 'Principal'`;
@@ -161,41 +162,58 @@ export async function POST(request) {
       totalCosto += (Number(productoPorId.get(productoId).precio_costo) || 0) * cantidad;
     }
 
-    const [garantia] = await sql`
-      INSERT INTO garantias_proveedor (proveedor_id, total_costo, estado)
-      VALUES (${proveedor_id}, ${totalCosto}, ${estadoInicial})
-      RETURNING id
-    `;
+    // Todo en una sola transacción (ver lib/transaccion.js): crear la
+    // garantía, mover el stock de Principal a la bodega de Garantías, los
+    // movimientos y las líneas se guardan juntos o no se guarda nada. Antes,
+    // si algo fallaba a mitad, la mercancía podía salir de Principal sin
+    // quedar registrada en la garantía. El id de la garantía recién creada
+    // lo deja anotado el primer paso (set_config) y los demás lo leen con
+    // current_setting.
+    const consultas = [
+      sql`
+        WITH nueva AS (
+          INSERT INTO garantias_proveedor (proveedor_id, total_costo, estado)
+          VALUES (${proveedor_id}, ${totalCosto}, ${estadoInicial})
+          RETURNING id
+        )
+        SELECT id, set_config('pos.id_garantia', id::text, true) FROM nueva
+      `,
+    ];
 
     for (const [productoId, cantidad] of cantidadesPorProducto) {
       const producto = productoPorId.get(productoId);
       const costo = Number(producto.precio_costo) || 0;
       const stockAntesPrincipal = stockPrincipalPorProducto.get(productoId) || 0;
 
-      await sql`
-        UPDATE stock SET cantidad = cantidad - ${cantidad}
-        WHERE producto_id = ${productoId} AND bodega_id = ${bodegaPrincipal}
-      `;
-      await sql`
-        INSERT INTO stock (producto_id, bodega_id, cantidad)
-        VALUES (${productoId}, ${bodegaGarantias}, ${cantidad})
-        ON CONFLICT (producto_id, bodega_id) DO UPDATE SET cantidad = stock.cantidad + EXCLUDED.cantidad
-      `;
-
-      await sql`
+      consultas.push(descontarStockSeguro(productoId, bodegaPrincipal, cantidad));
+      consultas.push(sumarStock(productoId, bodegaGarantias, cantidad));
+      consultas.push(sql`
         INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, garantia_id, stock_antes)
-        VALUES (${productoId}, ${bodegaPrincipal}, 'garantia_salida', ${cantidad}, ${costo}, ${garantia.id}, ${stockAntesPrincipal})
-      `;
-      await sql`
+        VALUES (${productoId}, ${bodegaPrincipal}, 'garantia_salida', ${cantidad}, ${costo}, current_setting('pos.id_garantia')::int, ${stockAntesPrincipal})
+      `);
+      consultas.push(sql`
         INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, garantia_id)
-        VALUES (${productoId}, ${bodegaGarantias}, 'garantia_entrada', ${cantidad}, ${costo}, ${garantia.id})
-      `;
-
-      await sql`
+        VALUES (${productoId}, ${bodegaGarantias}, 'garantia_entrada', ${cantidad}, ${costo}, current_setting('pos.id_garantia')::int)
+      `);
+      consultas.push(sql`
         INSERT INTO garantia_proveedor_items (garantia_id, producto_id, referencia, nombre, cantidad, precio_costo, motivo)
-        VALUES (${garantia.id}, ${productoId}, ${producto.referencia}, ${producto.nombre}, ${cantidad}, ${costo}, ${motivosPorProducto.get(productoId).join(' / ')})
-      `;
+        VALUES (current_setting('pos.id_garantia')::int, ${productoId}, ${producto.referencia}, ${producto.nombre}, ${cantidad}, ${costo}, ${motivosPorProducto.get(productoId).join(' / ')})
+      `);
     }
+
+    let resultados;
+    try {
+      resultados = await sql.transaction(consultas);
+    } catch (error) {
+      if (esErrorDeGuardia(error)) {
+        return NextResponse.json(
+          { ok: false, error: 'El stock de la bodega Principal cambió mientras se guardaba (otra operación se llevó unidades). No se guardó nada — revisa y vuelve a intentar.' },
+          { status: 409 }
+        );
+      }
+      throw error;
+    }
+    const garantia = resultados[0][0];
 
     return NextResponse.json({ ok: true, garantiaId: garantia.id });
   } catch (error) {

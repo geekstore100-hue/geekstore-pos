@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../lib/db';
+import { actualizarCostoPromedio } from '../../../lib/transaccion';
 
 // Antes decía "Kennedy" y buscaba una bodega con ese nombre, que no existe
 // en el sistema (la bodega principal se llama "Principal", igual que en
@@ -57,36 +58,31 @@ export async function POST(request) {
     // que antes: se usa como referencia el precio_costo actual y no se
     // recalcula nada.
     const precioCompraNum = Number(precio_compra) || 0;
-    let precioParaElMovimiento = producto?.precio_costo ?? null;
+    const precioParaElMovimiento = precioCompraNum > 0 ? precioCompraNum : producto?.precio_costo ?? null;
 
+    // Todo en una sola transacción (ver lib/transaccion.js): el costo
+    // promedio, el stock y el movimiento se guardan juntos o no se guarda
+    // nada. El costo promedio ahora lo calcula la base de datos al momento
+    // de guardar (misma fórmula de arriba), antes de sumar el stock.
+    const consultas = [];
     if (precioCompraNum > 0) {
-      const [{ total_stock }] = await sql`
-        SELECT COALESCE(SUM(cantidad), 0) AS total_stock FROM stock WHERE producto_id = ${producto_id}
-      `;
-      const stockAntes = Number(total_stock) || 0;
-      const costoAntes = Number(producto?.precio_costo) || 0;
-
-      const nuevoPromedio =
-        stockAntes > 0 && costoAntes > 0
-          ? (stockAntes * costoAntes + Number(cantidad) * precioCompraNum) / (stockAntes + Number(cantidad))
-          : precioCompraNum;
-
-      await sql`UPDATE productos SET precio_costo = ${nuevoPromedio} WHERE id = ${producto_id}`;
-      precioParaElMovimiento = precioCompraNum;
+      consultas.push(actualizarCostoPromedio(producto_id, Number(cantidad), precioCompraNum));
     }
-
-    const actualizado = await sql`
+    consultas.push(sql`
       INSERT INTO stock (producto_id, bodega_id, cantidad)
       VALUES (${producto_id}, ${bodegaId}, ${cantidad})
       ON CONFLICT (producto_id, bodega_id)
       DO UPDATE SET cantidad = stock.cantidad + EXCLUDED.cantidad
       RETURNING cantidad
-    `;
-
-    await sql`
+    `);
+    const indiceStock = consultas.length - 1;
+    consultas.push(sql`
       INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, nota, precio_unitario)
       VALUES (${producto_id}, ${bodegaId}, 'entrada', ${cantidad}, ${nota || null}, ${precioParaElMovimiento})
-    `;
+    `);
+
+    const resultados = await sql.transaction(consultas);
+    const actualizado = resultados[indiceStock];
 
     return NextResponse.json({ ok: true, stock: actualizado[0].cantidad });
   } catch (error) {

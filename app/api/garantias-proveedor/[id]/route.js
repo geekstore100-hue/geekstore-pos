@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../../lib/db';
+import { sumarStock, restarStock, esErrorDeGuardia } from '../../../../lib/transaccion';
 
 async function bodegaPrincipalId() {
   const [b] = await sql`SELECT id FROM bodegas WHERE nombre = 'Principal'`;
@@ -22,7 +23,7 @@ const RESOLUCIONES_VALIDAS = [
 // cada una con su resolución si ya se resolvió.
 export async function GET(request, { params }) {
   try {
-    const id = Number(params.id);
+    const id = Number((await params).id);
     if (!id) {
       return NextResponse.json({ ok: false, error: 'Garantía inválida' }, { status: 400 });
     }
@@ -61,7 +62,7 @@ export async function GET(request, { params }) {
 // el caso completo queda marcado como resuelto.
 export async function PATCH(request, { params }) {
   try {
-    const id = Number(params.id);
+    const id = Number((await params).id);
     if (!id) {
       return NextResponse.json({ ok: false, error: 'Garantía inválida' }, { status: 400 });
     }
@@ -100,12 +101,16 @@ export async function PATCH(request, { params }) {
       }
     }
 
-    for (const r of resolucionesBody) {
-      const itemId = Number(r.id);
-      const [item] = await sql`
-        SELECT id, garantia_id, producto_id, cantidad, precio_costo, resolucion
-        FROM garantia_proveedor_items WHERE id = ${itemId} AND garantia_id = ${id}
-      `;
+    // Se traen todas las líneas a resolver de una sola vez (antes, una
+    // consulta por línea) y se validan antes de tocar nada.
+    const idsItems = resolucionesBody.map((r) => Number(r.id));
+    const filasItems = await sql`
+      SELECT id, garantia_id, producto_id, cantidad, precio_costo, resolucion
+      FROM garantia_proveedor_items WHERE id = ANY(${idsItems}::int[]) AND garantia_id = ${id}
+    `;
+    const itemPorId = new Map(filasItems.map((f) => [Number(f.id), f]));
+    for (const itemId of idsItems) {
+      const item = itemPorId.get(itemId);
       if (!item) {
         return NextResponse.json({ ok: false, error: `Una de las líneas ya no existe (#${itemId})` }, { status: 404 });
       }
@@ -118,6 +123,20 @@ export async function PATCH(request, { params }) {
           { status: 409 }
         );
       }
+    }
+
+    // Todo en una sola transacción (ver lib/transaccion.js): o se resuelven
+    // todas las líneas (con sus movimientos de stock), o ninguna. Antes, si
+    // algo fallaba a mitad, podían quedar líneas resueltas sin su movimiento
+    // de stock, o al revés.
+    // El primer paso de cada línea la marca como resuelta SOLO si todavía no
+    // lo estaba. Si ya lo estaba (por ejemplo, se le dio "Guardar" dos veces
+    // seguidas), no toca ninguna fila y se cancela TODO — así el stock nunca
+    // se mueve dos veces por la misma línea.
+    const consultas = [];
+    for (const r of resolucionesBody) {
+      const itemId = Number(r.id);
+      const item = itemPorId.get(itemId);
 
       const cantidad = Number(item.cantidad);
       const costo = Number(item.precio_costo) || 0;
@@ -128,52 +147,63 @@ export async function PATCH(request, { params }) {
       const devuelveAPrincipal =
         resolucion === 'producto_nuevo' || resolucion === 'producto_reparado' || resolucion === 'no_aplica_devuelto';
 
-      // Sale siempre de la bodega de garantías (deja de estar "en trámite").
-      await sql`
-        UPDATE stock SET cantidad = cantidad - ${cantidad}
-        WHERE producto_id = ${item.producto_id} AND bodega_id = ${bodegaGarantias}
-      `;
+      consultas.push(sql`
+        WITH marcada AS (
+          UPDATE garantia_proveedor_items
+          SET resolucion = ${resolucion}, monto_nota_credito = ${montoNotaCredito}, nota_resolucion = ${notaResolucion}, resuelto_en = now()
+          WHERE id = ${itemId} AND resolucion IS NULL
+          RETURNING 1
+        )
+        SELECT 1 / c.n AS ok FROM (SELECT COUNT(*)::int AS n FROM marcada) c
+      `);
+
+      // Sale de la bodega de Garantías (sin exigir que alcance: es mercancía
+      // que ya se registró ahí; bloquear la resolución sería peor).
+      consultas.push(restarStock(item.producto_id, bodegaGarantias, cantidad));
       const tipoSalida =
         resolucion === 'nota_credito'
           ? 'garantia_baja_credito'
           : resolucion === 'no_aplica_baja'
           ? 'garantia_baja_no_aplica'
           : 'garantia_salida_resuelta';
-      await sql`
+      consultas.push(sql`
         INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, garantia_id)
         VALUES (${item.producto_id}, ${bodegaGarantias}, ${tipoSalida}, ${cantidad}, ${costo}, ${id})
-      `;
+      `);
 
       if (devuelveAPrincipal) {
-        await sql`
-          INSERT INTO stock (producto_id, bodega_id, cantidad)
-          VALUES (${item.producto_id}, ${bodegaPrincipal}, ${cantidad})
-          ON CONFLICT (producto_id, bodega_id) DO UPDATE SET cantidad = stock.cantidad + EXCLUDED.cantidad
-        `;
+        consultas.push(sumarStock(item.producto_id, bodegaPrincipal, cantidad));
         const tipoEntrada =
           resolucion === 'producto_nuevo'
             ? 'garantia_entrada_nuevo'
             : resolucion === 'producto_reparado'
             ? 'garantia_entrada_reparado'
             : 'garantia_entrada_no_aplica';
-        await sql`
+        consultas.push(sql`
           INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, garantia_id)
           VALUES (${item.producto_id}, ${bodegaPrincipal}, ${tipoEntrada}, ${cantidad}, ${costo}, ${id})
-        `;
+        `);
       }
-
-      await sql`
-        UPDATE garantia_proveedor_items
-        SET resolucion = ${resolucion}, monto_nota_credito = ${montoNotaCredito}, nota_resolucion = ${notaResolucion}, resuelto_en = now()
-        WHERE id = ${itemId}
-      `;
     }
 
-    const [{ pendientes }] = await sql`
-      SELECT COUNT(*) AS pendientes FROM garantia_proveedor_items WHERE garantia_id = ${id} AND resolucion IS NULL
-    `;
-    if (Number(pendientes) === 0) {
-      await sql`UPDATE garantias_proveedor SET estado = 'resuelta', resuelto_en = now() WHERE id = ${id}`;
+    // Si ya no queda ninguna línea pendiente, la garantía completa queda
+    // resuelta (dentro de la misma transacción).
+    consultas.push(sql`
+      UPDATE garantias_proveedor SET estado = 'resuelta', resuelto_en = now()
+      WHERE id = ${id}
+        AND NOT EXISTS (SELECT 1 FROM garantia_proveedor_items WHERE garantia_id = ${id} AND resolucion IS NULL)
+    `);
+
+    try {
+      await sql.transaction(consultas);
+    } catch (error) {
+      if (esErrorDeGuardia(error)) {
+        return NextResponse.json(
+          { ok: false, error: 'Una de las líneas ya estaba resuelta (¿se guardó dos veces?). No se cambió nada — recarga la página.' },
+          { status: 409 }
+        );
+      }
+      throw error;
     }
 
     return NextResponse.json({ ok: true });
@@ -191,7 +221,7 @@ export async function PATCH(request, { params }) {
 // etc.) ya no se puede eliminar: hay que dejar ese historial tal cual.
 export async function DELETE(request, { params }) {
   try {
-    const id = Number(params.id);
+    const id = Number((await params).id);
     if (!id) {
       return NextResponse.json({ ok: false, error: 'Garantía inválida' }, { status: 400 });
     }
@@ -220,31 +250,46 @@ export async function DELETE(request, { params }) {
       SELECT producto_id, cantidad, precio_costo FROM garantia_proveedor_items WHERE garantia_id = ${id}
     `;
 
+    // Todo en una sola transacción (ver lib/transaccion.js): o se devuelve
+    // TODO a Principal y la garantía queda eliminada, o no pasa nada.
+    // El primer paso marca la garantía como eliminada SOLO si todavía se
+    // puede (no estaba resuelta ni eliminada). Si se le dio "Eliminar" dos
+    // veces seguidas, el segundo intento no toca ninguna fila y se cancela
+    // todo — así la mercancía nunca se devuelve dos veces a Principal.
+    // (Si el producto de una línea ya no existe en el catálogo no hay a dónde
+    // devolver el stock; esa línea se deja como está, igual que antes.)
+    const consultas = [
+      sql`
+        WITH marcada AS (
+          UPDATE garantias_proveedor SET estado = 'eliminada'
+          WHERE id = ${id} AND estado NOT IN ('resuelta', 'eliminada')
+          RETURNING 1
+        )
+        SELECT 1 / c.n AS ok FROM (SELECT COUNT(*)::int AS n FROM marcada) c
+      `,
+    ];
     for (const it of items) {
-      // Si el producto ya no existe en el catálogo no hay a dónde devolver
-      // el stock; se deja como está (caso muy raro) y se sigue con el resto.
       if (!it.producto_id) continue;
-
-      await sql`
-        UPDATE stock SET cantidad = cantidad - ${it.cantidad}
-        WHERE producto_id = ${it.producto_id} AND bodega_id = ${bodegaGarantias}
-      `;
-      await sql`
-        INSERT INTO stock (producto_id, bodega_id, cantidad)
-        VALUES (${it.producto_id}, ${bodegaPrincipal}, ${it.cantidad})
-        ON CONFLICT (producto_id, bodega_id) DO UPDATE SET cantidad = stock.cantidad + EXCLUDED.cantidad
-      `;
-      await sql`
+      consultas.push(restarStock(it.producto_id, bodegaGarantias, it.cantidad));
+      consultas.push(sumarStock(it.producto_id, bodegaPrincipal, it.cantidad));
+      consultas.push(sql`
         INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, garantia_id)
         VALUES (${it.producto_id}, ${bodegaGarantias}, 'garantia_eliminada', ${it.cantidad}, ${it.precio_costo}, ${id})
-      `;
-      await sql`
+      `);
+      consultas.push(sql`
         INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, garantia_id)
         VALUES (${it.producto_id}, ${bodegaPrincipal}, 'garantia_eliminada_entrada', ${it.cantidad}, ${it.precio_costo}, ${id})
-      `;
+      `);
     }
 
-    await sql`UPDATE garantias_proveedor SET estado = 'eliminada' WHERE id = ${id}`;
+    try {
+      await sql.transaction(consultas);
+    } catch (error) {
+      if (esErrorDeGuardia(error)) {
+        return NextResponse.json({ ok: false, error: 'Esta garantía ya estaba eliminada o resuelta' }, { status: 409 });
+      }
+      throw error;
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error) {

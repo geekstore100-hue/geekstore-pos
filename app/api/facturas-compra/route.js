@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../lib/db';
+import { actualizarCostoPromedio, sumarStock } from '../../../lib/transaccion';
 
 // Tarifas de ReteICA permitidas. 0 = "Sin retención".
 const TARIFAS_RETEICA = [0, 1.1, 0.41];
@@ -131,43 +132,40 @@ export async function POST(request) {
     // puede seguir cambiando después desde "Editar retención" en el detalle.
     const retencionValor = retencionBase * (retencionPorcentaje / 100);
 
-    const [factura] = await sql`
-      INSERT INTO facturas_compra
-        (numero, proveedor_id, bodega_id, fecha_creacion, fecha_vencimiento, subtotal, retencion_porcentaje, retencion_base, retencion_valor, total, notas)
-      VALUES
-        (${numero}, ${proveedor_id}, ${bodega_id}, ${fecha_creacion}, ${fecha_vencimiento}, ${subtotal}, ${retencionPorcentaje}, ${retencionBase}, ${retencionValor}, ${total}, ${notas})
-      RETURNING id
-    `;
-
-    // Se procesa una línea a la vez (no en paralelo) para que, si el mismo
-    // producto aparece en dos líneas de la misma factura, el costo promedio
-    // de la segunda línea ya tenga en cuenta el stock que dejó la primera.
+    // Todo en una sola transacción (ver lib/transaccion.js): la factura, el
+    // costo promedio, el stock y los movimientos de TODAS las líneas se
+    // guardan juntos o no se guarda nada. Antes, si algo fallaba a mitad,
+    // quedaba la factura creada con solo algunas líneas cargadas al
+    // inventario.
+    // Los pasos van en orden, una línea tras otra: si el mismo producto
+    // aparece en dos líneas, el costo promedio de la segunda ya tiene en
+    // cuenta el stock que dejó la primera (igual que antes). El id de la
+    // factura recién creada lo deja anotado el primer paso (set_config) y
+    // los demás lo leen con current_setting — ver lib/transaccion.js.
+    const consultas = [
+      sql`
+        WITH nueva AS (
+          INSERT INTO facturas_compra
+            (numero, proveedor_id, bodega_id, fecha_creacion, fecha_vencimiento, subtotal, retencion_porcentaje, retencion_base, retencion_valor, total, notas)
+          VALUES
+            (${numero}, ${proveedor_id}, ${bodega_id}, ${fecha_creacion}, ${fecha_vencimiento}, ${subtotal}, ${retencionPorcentaje}, ${retencionBase}, ${retencionValor}, ${total}, ${notas})
+          RETURNING id
+        )
+        SELECT id, set_config('pos.id_factura', id::text, true) FROM nueva
+      `,
+    ];
     for (const it of items) {
-      const [producto] = await sql`SELECT precio_costo FROM productos WHERE id = ${it.producto_id}`;
-      const [{ total_stock }] = await sql`
-        SELECT COALESCE(SUM(cantidad), 0) AS total_stock FROM stock WHERE producto_id = ${it.producto_id}
-      `;
-      const stockAntes = Number(total_stock) || 0;
-      const costoAntes = Number(producto?.precio_costo) || 0;
-
-      const nuevoPromedio =
-        stockAntes > 0 && costoAntes > 0
-          ? (stockAntes * costoAntes + it.cantidad * it.precio) / (stockAntes + it.cantidad)
-          : it.precio;
-
-      await sql`UPDATE productos SET precio_costo = ${nuevoPromedio} WHERE id = ${it.producto_id}`;
-
-      await sql`
-        INSERT INTO stock (producto_id, bodega_id, cantidad)
-        VALUES (${it.producto_id}, ${bodega_id}, ${it.cantidad})
-        ON CONFLICT (producto_id, bodega_id) DO UPDATE SET cantidad = stock.cantidad + EXCLUDED.cantidad
-      `;
-
-      await sql`
+      consultas.push(actualizarCostoPromedio(it.producto_id, it.cantidad, it.precio));
+      consultas.push(sumarStock(it.producto_id, bodega_id, it.cantidad));
+      consultas.push(sql`
         INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, descuento_porcentaje, factura_compra_id)
-        VALUES (${it.producto_id}, ${bodega_id}, 'factura_compra', ${it.cantidad}, ${it.precio}, ${it.descuento_porcentaje}, ${factura.id})
-      `;
+        VALUES (${it.producto_id}, ${bodega_id}, 'factura_compra', ${it.cantidad}, ${it.precio}, ${it.descuento_porcentaje},
+                current_setting('pos.id_factura')::int)
+      `);
     }
+
+    const resultados = await sql.transaction(consultas);
+    const factura = resultados[0][0];
 
     return NextResponse.json({ ok: true, facturaId: factura.id, subtotal, retencionValor, total });
   } catch (error) {
