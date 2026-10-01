@@ -192,7 +192,12 @@ export default function ProductosPage() {
         canvas.width = Math.round(w * escala);
         canvas.height = Math.round(h * escala);
         try {
-          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          const ctx = canvas.getContext('2d');
+          // Fondo blanco: si la foto es un PNG con fondo transparente, al
+          // pasarla a JPG lo transparente quedaría NEGRO.
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           resolve(canvas.toDataURL('image/jpeg', calidad));
         } catch {
           resolve(dataUri); // por si el navegador bloquea el canvas
@@ -200,6 +205,53 @@ export default function ProductosPage() {
       };
       img.onerror = () => resolve(dataUri);
       img.src = dataUri;
+    });
+  }
+
+  // Achica las fotos REALES del producto antes de subirlas (máximo 1600px
+  // en el lado más largo, JPG de buena calidad). Antes se guardaban tal
+  // cual llegaban — hasta 10 MB — y la pantalla de Vender cargaba hasta 60
+  // de golpe, en tamaño completo, solo para mostrarlas en recuadros
+  // pequeños: lento en celular y gasto de ancho de banda en Netlify. 1600px
+  // sigue siendo de sobra para la tienda (y para hacer zoom). Si la foto ya
+  // es liviana y de tamaño razonable, se sube tal cual, sin tocarla.
+  const FOTO_MAX_LADO = 1600;
+  const FOTO_MAX_BYTES = 1.2 * 1024 * 1024;
+  function achicarFotoProducto(dataUri) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const { naturalWidth: w, naturalHeight: h } = img;
+        const bytesAprox = Math.round(((dataUri.length - dataUri.indexOf(',') - 1) * 3) / 4);
+        if (!w || !h || (w <= FOTO_MAX_LADO && h <= FOTO_MAX_LADO && bytesAprox <= FOTO_MAX_BYTES)) {
+          resolve(dataUri);
+          return;
+        }
+        const escala = Math.min(1, FOTO_MAX_LADO / Math.max(w, h));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(w * escala);
+        canvas.height = Math.round(h * escala);
+        try {
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff'; // PNG transparente → fondo blanco, no negro
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
+        } catch {
+          resolve(dataUri);
+        }
+      };
+      img.onerror = () => resolve(dataUri);
+      img.src = dataUri;
+    });
+  }
+
+  function leerComoDataUri(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
     });
   }
 
@@ -215,6 +267,12 @@ export default function ProductosPage() {
         canvas.width = img.naturalWidth;
         canvas.height = img.naturalHeight;
         const ctx = canvas.getContext('2d');
+        // Fondo blanco primero: en un PNG con fondo transparente, lo
+        // transparente se leía como negro — no se recortaba y además la foto
+        // final (JPG) quedaba con fondo negro. Así queda blanco y se recorta
+        // igual que un fondo blanco normal.
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0);
         const { width, height } = canvas;
         let datos;
@@ -461,8 +519,21 @@ export default function ProductosPage() {
     if (!archivo || !form.id) return;
     setErrorImagen('');
     setSubiendoImagen(true);
+    // Se achica antes de subir (ver achicarFotoProducto); si no hace falta,
+    // se sube el archivo original tal cual.
+    let archivoFinal = archivo;
+    try {
+      const original = await leerComoDataUri(archivo);
+      const achicada = await achicarFotoProducto(original);
+      if (achicada !== original) {
+        const base = (archivo.name || 'foto').replace(/\.[^.]+$/, '');
+        archivoFinal = await dataUriAFile(achicada, `${base}.jpg`);
+      }
+    } catch {
+      archivoFinal = archivo;
+    }
     const cuerpo = new FormData();
-    cuerpo.append('imagen', archivo);
+    cuerpo.append('imagen', archivoFinal);
     const res = await fetch(`/api/productos/${form.id}/imagenes`, { method: 'POST', body: cuerpo });
     const data = await res.json();
     setSubiendoImagen(false);
@@ -579,7 +650,8 @@ export default function ProductosPage() {
       // Recién creado y con una foto elegida antes de guardar: se sube
       // ahora que ya existe el id.
       try {
-        const archivo = await dataUriAFile(imagenProductoNueva, `${form.referencia || 'producto'}.jpg`);
+        const fotoAchicada = await achicarFotoProducto(imagenProductoNueva);
+        const archivo = await dataUriAFile(fotoAchicada, `${form.referencia || 'producto'}.jpg`);
         const cuerpo = new FormData();
         cuerpo.append('imagen', archivo);
         const resFoto = await fetch(`/api/productos/${data.producto.id}/imagenes`, { method: 'POST', body: cuerpo });

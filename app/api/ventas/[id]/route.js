@@ -65,17 +65,41 @@ export async function POST(request, { params }) {
       WHERE venta_id = ${id} AND tipo = 'venta'
     `;
 
-    for (const m of movimientos) {
-      await sql`
-        UPDATE stock SET cantidad = cantidad + ${m.cantidad}
-        WHERE producto_id = ${m.producto_id} AND bodega_id = ${m.bodega_id}
-      `;
-    }
+    // Todo en UNA transacción (todo o nada): marcar la venta como anulada y
+    // devolver el stock de cada producto. Antes eran pasos sueltos: si la
+    // conexión se caía en medio, el stock podía quedar devuelto a medias; y
+    // si alguien le daba "Anular" dos veces seguidas (doble clic, o desde
+    // dos pantallas), el stock se devolvía DOS veces.
+    //
+    // El primer paso solo marca la venta si todavía NO estaba anulada; si
+    // ya lo estaba (otra anulación le ganó por un instante), no toca
+    // ninguna fila, el conteo da 0 y la división entre 0 cancela toda la
+    // transacción a propósito — así el stock nunca se devuelve dos veces.
+    const consultas = [
+      sql`
+        WITH marcada AS (
+          UPDATE ventas SET anulada = true, anulada_en = now()
+          WHERE id = ${id} AND anulada = false
+          RETURNING 1
+        )
+        SELECT 1 / c.n AS ok FROM (SELECT COUNT(*)::int AS n FROM marcada) c
+      `,
+      ...movimientos.map(
+        (m) => sql`
+          UPDATE stock SET cantidad = cantidad + ${m.cantidad}
+          WHERE producto_id = ${m.producto_id} AND bodega_id = ${m.bodega_id}
+        `
+      ),
+    ];
 
-    await sql`
-      UPDATE ventas SET anulada = true, anulada_en = now()
-      WHERE id = ${id}
-    `;
+    try {
+      await sql.transaction(consultas);
+    } catch (error) {
+      if (/division by zero/i.test(error.message || '')) {
+        return NextResponse.json({ ok: false, error: 'Esta venta ya está anulada' }, { status: 409 });
+      }
+      throw error;
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error) {

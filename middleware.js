@@ -54,6 +54,11 @@ export async function middleware(request) {
   return NextResponse.next();
 }
 
+// api/imagenes/ también queda por fuera del middleware: las fotos ya eran
+// públicas (ver esRutaPublica arriba) y esa ruta solo acepta GET, así que
+// el middleware no hacía nada con ellas — pero igual se ejecutaba una vez
+// por CADA foto que se cargaba (hasta 60 de golpe al abrir Vender, más
+// todas las que pide la tienda), gastando ejecuciones en Netlify para nada.
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/imagenes/).*)'],
 };

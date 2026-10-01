@@ -106,19 +106,31 @@ export async function POST(request) {
     // Fase 1: validar que haya stock suficiente para cada ítem antes de escribir nada.
     // Los servicios (es_inventariable = false, ej. servicio técnico o de envío) no
     // manejan stock, así que no se validan ni se descuentan.
+    // Antes esto eran 2 consultas por producto (una tras otra); ahora es UNA
+    // sola consulta para todos los productos de la venta.
+    const ids = [...new Set(items.map((i) => Number(i.producto_id)))];
+    const filas = await sql`
+      SELECT p.id, p.es_inventariable, COALESCE(s.cantidad, 0) AS disponible
+      FROM productos p
+      LEFT JOIN stock s ON s.producto_id = p.id AND s.bodega_id = ${bodegaId}
+      WHERE p.id = ANY(${ids}::int[])
+    `;
+    const infoPorId = new Map(filas.map((f) => [Number(f.id), f]));
+    const pedidoPorId = new Map();
     for (const item of items) {
-      const [producto] = await sql`SELECT es_inventariable FROM productos WHERE id = ${item.producto_id}`;
-      if (!producto) {
+      const info = infoPorId.get(Number(item.producto_id));
+      if (!info) {
         return NextResponse.json({ ok: false, error: 'Uno de los productos ya no existe' }, { status: 400 });
       }
-      item._inventariable = producto.es_inventariable !== false;
-      if (!item._inventariable) continue;
-
-      const [row] = await sql`
-        SELECT cantidad FROM stock WHERE producto_id = ${item.producto_id} AND bodega_id = ${bodegaId}
-      `;
-      const disponible = row?.cantidad ?? 0;
-      if (disponible < item.cantidad) {
+      item._inventariable = info.es_inventariable !== false;
+      if (item._inventariable) {
+        const id = Number(item.producto_id);
+        pedidoPorId.set(id, (pedidoPorId.get(id) || 0) + Number(item.cantidad));
+      }
+    }
+    for (const [id, pedido] of pedidoPorId) {
+      const disponible = Number(infoPorId.get(id).disponible);
+      if (disponible < pedido) {
         return NextResponse.json(
           { ok: false, error: `Stock insuficiente para uno de los productos (disponible: ${disponible})` },
           { status: 409 }
@@ -152,38 +164,82 @@ export async function POST(request) {
       ? [...new Set(pagos.map((p) => p.medio_pago))].join(' + ')
       : medio_pago;
 
-    const [venta] = await sql`
-      INSERT INTO ventas (total, medio_pago, vendedor_id, turno_id, creado_en)
-      VALUES (${total}, ${medioPagoGuardado}, ${vendedor_id || null}, ${turnoAbierto.id}, COALESCE(${fechaVenta}, now()))
-      RETURNING id
-    `;
+    // Fase 2: guardar TODO en una sola transacción — la venta, sus pagos, el
+    // descuento de stock y los movimientos. Antes eran muchos pasos sueltos
+    // (unos 4 por producto): si la conexión se caía en medio, podía quedar
+    // la venta registrada sin descontar el inventario, o descontado a
+    // medias. Ahora es todo o nada: si cualquier paso falla, no se guarda
+    // ningún pedazo. Además va en UN solo viaje a la base de datos, así que
+    // es bastante más rápido y gasta menos Neon.
+    //
+    // Como todo se manda de una vez, los pasos no pueden "ver" el id de la
+    // venta que acaba de crearse desde aquí; por eso usan
+    // currval(...) — el último id creado en la tabla ventas dentro de esta
+    // misma transacción.
+    const pagosAGuardar = esPagoCombinado ? pagos : [{ medio_pago, monto: total }];
+
+    const consultas = [
+      sql`
+        INSERT INTO ventas (total, medio_pago, vendedor_id, turno_id, creado_en)
+        VALUES (${total}, ${medioPagoGuardado}, ${vendedor_id || null}, ${turnoAbierto.id}, COALESCE(${fechaVenta}, now()))
+        RETURNING id
+      `,
+    ];
 
     // El detalle de pago se guarda siempre en pagos_venta (aunque sea un
     // solo medio de pago), para que el cuadre de caja de turnos solo tenga
     // que mirar una sola tabla.
-    const pagosAGuardar = esPagoCombinado ? pagos : [{ medio_pago, monto: total }];
     for (const p of pagosAGuardar) {
-      await sql`
+      consultas.push(sql`
         INSERT INTO pagos_venta (venta_id, medio_pago, monto)
-        VALUES (${venta.id}, ${p.medio_pago}, ${p.monto})
-      `;
+        VALUES (currval(pg_get_serial_sequence('ventas', 'id')), ${p.medio_pago}, ${p.monto})
+      `);
     }
 
     for (const item of itemsConTotal) {
       if (item._inventariable) {
-        await sql`
-          UPDATE stock SET cantidad = cantidad - ${item.cantidad}
-          WHERE producto_id = ${item.producto_id} AND bodega_id = ${bodegaId}
-        `;
+        // Descuenta el stock SOLO si todavía alcanza (cantidad >= lo
+        // vendido). Si en el último segundo otra caja se llevó esas
+        // unidades, la actualización no toca ninguna fila, el conteo da 0 y
+        // la división entre 0 hace fallar la transacción a propósito: así
+        // se cancela TODA la venta en vez de dejar el stock en negativo.
+        // (El conteo se calcula al momento de ejecutar, no antes, por eso
+        // solo falla cuando de verdad no alcanzó.)
+        consultas.push(sql`
+          WITH descontado AS (
+            UPDATE stock SET cantidad = cantidad - ${item.cantidad}
+            WHERE producto_id = ${item.producto_id} AND bodega_id = ${bodegaId} AND cantidad >= ${item.cantidad}
+            RETURNING 1
+          )
+          SELECT 1 / c.n AS ok FROM (SELECT COUNT(*)::int AS n FROM descontado) c
+        `);
       }
       // Se registra el movimiento igual para los servicios, para que el
       // ítem quede en el detalle de la venta y en el ticket, aunque no
       // toque la tabla stock.
-      await sql`
+      consultas.push(sql`
         INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, descuento_porcentaje, venta_id)
-        VALUES (${item.producto_id}, ${bodegaId}, 'venta', ${item.cantidad}, ${item.precioNeto}, ${item.descuento_porcentaje || 0}, ${venta.id})
-      `;
+        VALUES (${item.producto_id}, ${bodegaId}, 'venta', ${item.cantidad}, ${item.precioNeto}, ${item.descuento_porcentaje || 0}, currval(pg_get_serial_sequence('ventas', 'id')))
+      `);
     }
+
+    let resultados;
+    try {
+      resultados = await sql.transaction(consultas);
+    } catch (error) {
+      if (/division by zero/i.test(error.message || '')) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              'Stock insuficiente: otra venta se llevó las últimas unidades de uno de los productos mientras se registraba esta. No se guardó nada — revisa el stock y vuelve a intentar.',
+          },
+          { status: 409 }
+        );
+      }
+      throw error;
+    }
+    const venta = resultados[0][0];
 
     return NextResponse.json({ ok: true, ventaId: venta.id, total, pagos: pagosAGuardar });
   } catch (error) {
