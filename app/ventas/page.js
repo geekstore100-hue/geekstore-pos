@@ -107,7 +107,27 @@ export default function VentasPage() {
 
   // Guarda los datos de la última factura impresa (de cualquier pestaña) para
   // poder reimprimirla con un botón, sin tener que buscarla en Historial.
-  const [ultimaVenta, setUltimaVenta] = useState(null);
+  // Antes solo vivía en la memoria de la pantalla: al recargar la página (o
+  // al publicar una versión nueva del POS, que recarga sola) el botón
+  // desaparecía hasta hacer otra venta. Ahora también queda guardada en este
+  // navegador (localStorage), así el botón sigue ahí después de recargar.
+  const [ultimaVenta, setUltimaVentaEstado] = useState(null);
+  useEffect(() => {
+    try {
+      const guardada = localStorage.getItem('pos_ultima_venta');
+      if (guardada) setUltimaVentaEstado(JSON.parse(guardada));
+    } catch {
+      // sin memoria del navegador disponible: el botón aparece después de la próxima venta
+    }
+  }, []);
+  function setUltimaVenta(datos) {
+    setUltimaVentaEstado(datos);
+    try {
+      localStorage.setItem('pos_ultima_venta', JSON.stringify(datos));
+    } catch {
+      // sin memoria del navegador disponible
+    }
+  }
 
   const [turno, setTurno] = useState(null);
   const [cargandoTurno, setCargandoTurno] = useState(true);
