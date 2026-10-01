@@ -20,7 +20,7 @@ export async function GET(request) {
       WITH ventas_filtradas AS (
         SELECT id, vendedor_id, total
         FROM ventas
-        WHERE creado_en::date BETWEEN ${desde} AND ${hasta} AND anulada = false
+        WHERE (creado_en::timestamptz AT TIME ZONE 'America/Bogota')::date BETWEEN ${desde} AND ${hasta} AND anulada = false
       ),
       por_vendedor AS (
         SELECT vendedor_id, COUNT(*) AS cantidad_ventas, SUM(total) AS total_vendido

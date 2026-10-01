@@ -26,7 +26,7 @@ export async function GET(request) {
               (SELECT COUNT(*) FROM movimientos_stock m WHERE m.venta_id = v.id) AS items
             FROM ventas v
             LEFT JOIN vendedores ve ON ve.id = v.vendedor_id
-            WHERE v.creado_en::date BETWEEN ${desde} AND ${hasta}
+            WHERE (v.creado_en::timestamptz AT TIME ZONE 'America/Bogota')::date BETWEEN ${desde} AND ${hasta}
             ORDER BY v.creado_en DESC
           `
         : await sql`
@@ -41,7 +41,7 @@ export async function GET(request) {
               (SELECT COUNT(*) FROM movimientos_stock m WHERE m.venta_id = v.id) AS items
             FROM ventas v
             LEFT JOIN vendedores ve ON ve.id = v.vendedor_id
-            WHERE v.creado_en >= CURRENT_DATE
+            WHERE (v.creado_en::timestamptz AT TIME ZONE 'America/Bogota')::date >= (now() AT TIME ZONE 'America/Bogota')::date
             ORDER BY v.creado_en DESC
           `;
     return NextResponse.json({ ok: true, ventas });

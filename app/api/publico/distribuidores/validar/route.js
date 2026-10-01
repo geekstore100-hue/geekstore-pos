@@ -18,6 +18,9 @@ export async function POST(request) {
     }
     return NextResponse.json({ ok: true, nombre: distribuidor.nombre, cedula: distribuidor.cedula });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    // No se le muestra al público el detalle interno del error (podía
+    // incluir datos de la base de datos); queda en el registro de Netlify.
+    console.error('Error en ' + request.url, error);
+    return NextResponse.json({ ok: false, error: 'Error interno, intenta de nuevo' }, { status: 500 });
   }
 }

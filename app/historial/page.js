@@ -3,8 +3,11 @@
 import { useEffect, useState } from 'react';
 import Shell from '../../components/Shell';
 
+// Fecha de HOY en hora de Colombia (AAAA-MM-DD). Antes usaba
+// toISOString(), que da la fecha en hora UTC (5 horas adelante): después de
+// las 7:00 p. m. ya daba la fecha de MAÑANA, y la vista de "hoy" salía vacía.
 function hoyISO() {
-  return new Date().toISOString().slice(0, 10);
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
 }
 function primerDiaMesISO() {
   return hoyISO().slice(0, 8) + '01';

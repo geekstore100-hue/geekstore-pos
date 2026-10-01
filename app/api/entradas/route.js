@@ -17,7 +17,7 @@ export async function GET() {
       SELECT m.id, m.cantidad, m.nota, m.creado_en, m.precio_unitario AS precio_compra, p.referencia, p.nombre
       FROM movimientos_stock m
       JOIN productos p ON p.id = m.producto_id
-      WHERE m.tipo = 'entrada' AND m.creado_en >= CURRENT_DATE
+      WHERE m.tipo = 'entrada' AND (m.creado_en::timestamptz AT TIME ZONE 'America/Bogota')::date >= (now() AT TIME ZONE 'America/Bogota')::date
       ORDER BY m.creado_en DESC
     `;
     return NextResponse.json({ ok: true, entradas });

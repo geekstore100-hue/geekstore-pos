@@ -156,6 +156,9 @@ export async function GET(request) {
       }
     );
   } catch (error) {
-    return NextResponse.json({ productos: [], error: error.message }, { status: 500 });
+    // No se le muestra al público el detalle interno del error (podía
+    // incluir datos de la base de datos); queda en el registro de Netlify.
+    console.error('Error en ' + request.url, error);
+    return NextResponse.json({ productos: [], error: 'Error interno, intenta de nuevo' }, { status: 500 });
   }
 }

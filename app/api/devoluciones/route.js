@@ -15,14 +15,14 @@ export async function GET(request) {
             SELECT d.id, d.cantidad, d.monto, d.motivo, d.creado_en, p.referencia, p.nombre
             FROM devoluciones d
             JOIN productos p ON p.id = d.producto_id
-            WHERE d.creado_en::date BETWEEN ${desde} AND ${hasta}
+            WHERE (d.creado_en::timestamptz AT TIME ZONE 'America/Bogota')::date BETWEEN ${desde} AND ${hasta}
             ORDER BY d.creado_en DESC
           `
         : await sql`
             SELECT d.id, d.cantidad, d.monto, d.motivo, d.creado_en, p.referencia, p.nombre
             FROM devoluciones d
             JOIN productos p ON p.id = d.producto_id
-            WHERE d.creado_en >= CURRENT_DATE
+            WHERE (d.creado_en::timestamptz AT TIME ZONE 'America/Bogota')::date >= (now() AT TIME ZONE 'America/Bogota')::date
             ORDER BY d.creado_en DESC
           `;
 

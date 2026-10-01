@@ -76,23 +76,35 @@ export async function POST(request) {
 
     const numero = `DIST-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
 
-    const [cotizacion] = await sql`
-      INSERT INTO cotizaciones_distribuidor (numero, distribuidor_id, distribuidor_nombre, distribuidor_cedula, total)
-      VALUES (${numero}, ${distribuidor.id}, ${distribuidor.nombre}, ${distribuidor.cedula}, ${total})
-      RETURNING id, numero
-    `;
-
-    for (const linea of detalle) {
-      await sql`
-        INSERT INTO cotizacion_distribuidor_items
-          (cotizacion_id, producto_id, referencia, nombre, cantidad, precio_unitario, subtotal)
-        VALUES
-          (${cotizacion.id}, ${linea.producto_id}, ${linea.referencia}, ${linea.nombre}, ${linea.cantidad}, ${linea.precio_unitario}, ${linea.subtotal})
-      `;
-    }
+    // Una sola transacción (ver lib/transaccion.js): la cotización y todas
+    // sus líneas se guardan juntas o no se guarda nada — antes, si algo
+    // fallaba a mitad, podía quedar una cotización con líneas faltantes.
+    const consultas = [
+      sql`
+        WITH nueva AS (
+          INSERT INTO cotizaciones_distribuidor (numero, distribuidor_id, distribuidor_nombre, distribuidor_cedula, total)
+          VALUES (${numero}, ${distribuidor.id}, ${distribuidor.nombre}, ${distribuidor.cedula}, ${total})
+          RETURNING id, numero
+        )
+        SELECT id, numero, set_config('pos.id_cotizacion', id::text, true) FROM nueva
+      `,
+      ...detalle.map(
+        (linea) => sql`
+          INSERT INTO cotizacion_distribuidor_items
+            (cotizacion_id, producto_id, referencia, nombre, cantidad, precio_unitario, subtotal)
+          VALUES
+            (current_setting('pos.id_cotizacion')::int, ${linea.producto_id}, ${linea.referencia}, ${linea.nombre}, ${linea.cantidad}, ${linea.precio_unitario}, ${linea.subtotal})
+        `
+      ),
+    ];
+    const resultados = await sql.transaction(consultas);
+    const cotizacion = resultados[0][0];
 
     return NextResponse.json({ ok: true, numero: cotizacion.numero, total, articulos: detalle.length });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    // No se le muestra al público el detalle interno del error (podía
+    // incluir datos de la base de datos); queda en el registro de Netlify.
+    console.error('Error en ' + request.url, error);
+    return NextResponse.json({ ok: false, error: 'Error interno, intenta de nuevo' }, { status: 500 });
   }
 }

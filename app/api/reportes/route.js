@@ -45,7 +45,7 @@ export async function GET(request) {
         FROM movimientos_stock m
         JOIN ventas v ON v.id = m.venta_id
         JOIN productos pr ON pr.id = m.producto_id
-        WHERE m.tipo = 'venta' AND v.anulada = false AND v.creado_en::date BETWEEN ${desde} AND ${hasta}
+        WHERE m.tipo = 'venta' AND v.anulada = false AND (v.creado_en::timestamptz AT TIME ZONE 'America/Bogota')::date BETWEEN ${desde} AND ${hasta}
         GROUP BY pr.id
         ORDER BY total DESC
       `;

@@ -55,7 +55,7 @@ export async function GET(request) {
               FROM devoluciones
               GROUP BY turno_id
             ) ds ON ds.turno_id = t.id
-            WHERE t.abierto_en::date BETWEEN ${desde} AND ${hasta}
+            WHERE (t.abierto_en::timestamptz AT TIME ZONE 'America/Bogota')::date BETWEEN ${desde} AND ${hasta}
             ORDER BY t.abierto_en DESC
           `
         : await sql`

@@ -45,7 +45,7 @@ export async function POST(request, { params }) {
     const { id } = await params;
 
     const [venta] = await sql`
-      SELECT id, anulada, (creado_en::date = CURRENT_DATE) AS es_hoy
+      SELECT id, anulada, ((creado_en::timestamptz AT TIME ZONE 'America/Bogota')::date = (now() AT TIME ZONE 'America/Bogota')::date) AS es_hoy
       FROM ventas
       WHERE id = ${id}
     `;

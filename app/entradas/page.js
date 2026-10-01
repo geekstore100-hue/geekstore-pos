@@ -106,7 +106,7 @@ export default function EntradasPage() {
       const libro = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(libro, hoja, 'Etiquetas');
 
-      const fecha = new Date().toISOString().slice(0, 10);
+      const fecha = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
       XLSX.writeFile(libro, `etiquetas_openlabel_${fecha}.xlsx`);
     } finally {
       setGenerandoExcel(false);
