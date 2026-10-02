@@ -41,6 +41,16 @@ export default function AjustesInventarioPage() {
   // servidor al guardar, y para mostrar el aviso en pantalla.
   const [traspasoOrigen, setTraspasoOrigen] = useState(null); // {id, nombre}
 
+  // Edición de un ajuste ya guardado (botón "Editar" en Ajustes recientes):
+  // se carga en este mismo formulario. efectoAnterior = cuánto movió el
+  // ajuste guardado el stock de cada producto (ej. -2), para mostrar la
+  // cantidad "sin este ajuste" y calcular bien la cantidad final.
+  const [editando, setEditando] = useState(null); // { id, efectoAnterior: { [producto_id]: n } }
+  const [cargandoEdicion, setCargandoEdicion] = useState(false);
+  // Último ajuste guardado, para ofrecer el enlace de imprimir.
+  const [ultimoAjusteId, setUltimoAjusteId] = useState(null);
+  const formularioRef = useRef(null);
+
   useEffect(() => {
     try {
       const crudo = sessionStorage.getItem('geekstore_traspaso_pendiente');
@@ -239,10 +249,59 @@ export default function AjustesInventarioPage() {
     return stockPorProducto[fila.producto_id] ?? 0;
   }
 
-  function cantidadFinalDe(fila) {
+  // Al editar, la "cantidad actual" ya incluye el ajuste tal como quedó
+  // guardado. Para que la cuenta sea clara se muestra la cantidad SIN este
+  // ajuste, y la final se calcula desde ahí.
+  function cantidadBaseDe(fila) {
     const actual = cantidadActualDe(fila);
+    if (!editando || !fila.producto_id) return actual;
+    return actual - (editando.efectoAnterior[fila.producto_id] || 0);
+  }
+
+  function cantidadFinalDe(fila) {
+    const base = cantidadBaseDe(fila);
     const cambio = Number(fila.cantidad) || 0;
-    return fila.objetivo === 'incrementar' ? actual + cambio : actual - cambio;
+    return fila.objetivo === 'incrementar' ? base + cambio : base - cambio;
+  }
+
+  async function editarAjuste(id) {
+    setError('');
+    setMensaje('');
+    setUltimoAjusteId(null);
+    setCargandoEdicion(true);
+    const res = await fetch(`/api/ajustes-inventario/${id}`);
+    const data = await res.json().catch(() => ({}));
+    setCargandoEdicion(false);
+    if (!data.ok) {
+      setError(data.error || 'No se pudo cargar el ajuste');
+      return;
+    }
+    const efectoAnterior = {};
+    data.items.forEach((it) => {
+      const signo = it.objetivo === 'disminuir' ? -1 : 1;
+      efectoAnterior[it.producto_id] = (efectoAnterior[it.producto_id] || 0) + signo * Number(it.cantidad);
+    });
+    setTraspasoOrigen(null);
+    setBodegaId(String(data.ajuste.bodega_id));
+    setObservaciones(data.ajuste.observaciones || '');
+    setFilas(
+      data.items.length
+        ? data.items.map((it) => {
+            contadorKey += 1;
+            return {
+              _key: contadorKey,
+              producto_id: String(it.producto_id),
+              busquedaProducto: `${it.referencia} - ${it.nombre}`,
+              costo: Number(it.precio_unitario) || 0,
+              objetivo: it.objetivo,
+              cantidad: String(it.cantidad),
+            };
+          })
+        : [nuevaLinea()]
+    );
+    setEditando({ id: data.ajuste.id, efectoAnterior });
+    cargarStock(String(data.ajuste.bodega_id));
+    formularioRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   // Disminuir quita valor del inventario: el total de esa fila va en
@@ -303,21 +362,28 @@ export default function AjustesInventarioPage() {
     }
 
     setGuardando(true);
-    const res = await fetch('/api/ajustes-inventario', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        bodega_id: bodegaId,
-        observaciones,
-        bodega_origen_id: traspasoOrigen ? traspasoOrigen.id : undefined,
-        items: lineasValidas.map((f) => ({
-          producto_id: f.producto_id,
-          objetivo: f.objetivo,
-          cantidad: Number(f.cantidad),
-        })),
-      }),
-    });
-    const data = await res.json();
+    const itemsParaGuardar = lineasValidas.map((f) => ({
+      producto_id: f.producto_id,
+      objetivo: f.objetivo,
+      cantidad: Number(f.cantidad),
+    }));
+    const res = editando
+      ? await fetch(`/api/ajustes-inventario/${editando.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ observaciones, items: itemsParaGuardar }),
+        })
+      : await fetch('/api/ajustes-inventario', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            bodega_id: bodegaId,
+            observaciones,
+            bodega_origen_id: traspasoOrigen ? traspasoOrigen.id : undefined,
+            items: itemsParaGuardar,
+          }),
+        });
+    const data = await res.json().catch(() => ({ ok: false, error: 'No se pudo guardar el ajuste' }));
     setGuardando(false);
 
     if (!data.ok) {
@@ -333,13 +399,17 @@ export default function AjustesInventarioPage() {
     }
 
     setMensaje(
-      data.traspasoId
-        ? 'Ajuste guardado. Se abrió el documento del traspaso para imprimir y entregar al vendedor.'
-        : 'Ajuste guardado correctamente'
+      editando
+        ? `Ajuste #${editando.id} corregido. El inventario quedó actualizado.`
+        : data.traspasoId
+          ? 'Ajuste guardado. Se abrió el documento del traspaso para imprimir y entregar al vendedor.'
+          : `Ajuste #${data.ajusteId} guardado correctamente.`
     );
+    setUltimoAjusteId(data.traspasoId ? null : data.ajusteId);
     setFilas([nuevaLinea()]);
     setObservaciones('');
     setTraspasoOrigen(null);
+    setEditando(null);
     cargarTodo();
     cargarStock(bodegaId);
   }
@@ -355,8 +425,10 @@ export default function AjustesInventarioPage() {
     setFilas([nuevaLinea()]);
     setObservaciones('');
     setTraspasoOrigen(null);
+    setEditando(null);
     setError('');
     setMensaje('');
+    setUltimoAjusteId(null);
   }
 
   if (verificandoAcceso) {
@@ -398,11 +470,20 @@ export default function AjustesInventarioPage() {
 
   return (
     <Shell title="Ajustes de inventario">
-      <div style={styles.card}>
-        <h2 style={{ marginTop: 0 }}>Nuevo ajuste de inventario</h2>
+      <div style={{ ...styles.card, ...(editando ? styles.cardEditando : {}) }} ref={formularioRef}>
+        <h2 style={{ marginTop: 0 }}>{editando ? `Editando ajuste de inventario #${editando.id}` : 'Nuevo ajuste de inventario'}</h2>
         <p style={{ color: 'var(--text-secondary)', marginTop: '-8px' }}>
           Modifica las cantidades de los productos que tienes en la bodega seleccionada.
         </p>
+
+        {editando && (
+          <div style={styles.avisoEdicion}>
+            Estás corrigiendo un ajuste que ya estaba guardado. Puedes cambiar cantidades, pasar de aumentar a
+            disminuir, agregar o quitar productos y cambiar las observaciones. La columna "Cantidad sin este ajuste"
+            muestra cuánto habría si este ajuste no existiera; al guardar, el inventario queda como si el ajuste
+            siempre hubiera sido así. La bodega no se puede cambiar.
+          </div>
+        )}
 
         {traspasoOrigen && (
           <div style={styles.avisoTraspaso}>
@@ -415,7 +496,7 @@ export default function AjustesInventarioPage() {
         <div className="pos-grid2" style={styles.grid2}>
           <label style={styles.labelCampo}>
             Bodega *
-            <select value={bodegaId} onChange={(e) => setBodegaId(e.target.value)} style={styles.inputCampo}>
+            <select value={bodegaId} onChange={(e) => setBodegaId(e.target.value)} style={styles.inputCampo} disabled={Boolean(editando)}>
               <option value="">Seleccionar</option>
               {bodegas.map((b) => (
                 <option key={b.id} value={b.id}>{b.nombre}</option>
@@ -449,7 +530,7 @@ export default function AjustesInventarioPage() {
               <tr style={{ background: 'var(--bg)' }}>
                 <th style={styles.th}>Producto</th>
                 <th style={styles.th}>Costo</th>
-                <th style={styles.th}>Cantidad actual</th>
+                <th style={styles.th}>{editando ? 'Cantidad sin este ajuste' : 'Cantidad actual'}</th>
                 <th style={styles.th}>Disp. en Distribuidor</th>
                 <th style={styles.th}>Objetivo</th>
                 <th style={styles.th}>Cantidad</th>
@@ -495,7 +576,7 @@ export default function AjustesInventarioPage() {
                     )}
                   </td>
                   <td style={styles.td}>{f.producto_id ? moneda(f.costo) : '-'}</td>
-                  <td style={styles.td}>{f.producto_id ? cantidadActualDe(f) : '-'}</td>
+                  <td style={styles.td}>{f.producto_id ? cantidadBaseDe(f) : '-'}</td>
                   <td style={styles.td}>{f.producto_id ? stockDistribuidorDe(f) : '-'}</td>
                   <td style={styles.td}>
                     <select
@@ -538,7 +619,19 @@ export default function AjustesInventarioPage() {
         </div>
 
         {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
-        {mensaje && <p style={{ color: 'var(--teal-dark)' }}>{mensaje}</p>}
+        {mensaje && (
+          <p style={{ color: 'var(--teal-dark)' }}>
+            {mensaje}
+            {ultimoAjusteId ? (
+              <>
+                {' '}
+                <a href={`/ajustes-inventario/${ultimoAjusteId}/imprimir`} target="_blank" rel="noreferrer" style={styles.enlaceAccion}>
+                  Imprimir
+                </a>
+              </>
+            ) : null}
+          </p>
+        )}
 
         <div style={styles.filaInferior}>
           <div style={{ flex: 1 }} />
@@ -551,9 +644,11 @@ export default function AjustesInventarioPage() {
         </div>
 
         <div style={styles.filaBotones}>
-          <button type="button" onClick={cancelar} style={styles.btnSecundario}>Cancelar</button>
+          <button type="button" onClick={cancelar} style={styles.btnSecundario}>
+            {editando ? 'Cancelar edición' : 'Cancelar'}
+          </button>
           <button type="button" onClick={onClickGuardar} disabled={guardando} style={styles.btnPrimario}>
-            {guardando ? 'Guardando...' : traspasoOrigen ? 'Guardar e imprimir' : 'Guardar cambios'}
+            {guardando ? 'Guardando...' : editando ? `Guardar corrección del ajuste #${editando.id}` : traspasoOrigen ? 'Guardar e imprimir' : 'Guardar cambios'}
           </button>
         </div>
       </div>
@@ -563,6 +658,7 @@ export default function AjustesInventarioPage() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+              <th style={styles.th}>N.°</th>
               <th style={styles.th}>Fecha</th>
               <th style={styles.th}>Bodega</th>
               <th style={styles.th}>Observaciones</th>
@@ -574,6 +670,7 @@ export default function AjustesInventarioPage() {
           <tbody>
             {ajustesRecientes.map((a) => (
               <tr key={a.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                <td style={styles.td}>#{a.id}</td>
                 <td style={styles.td}>{new Date(a.creado_en).toLocaleString('es-CO')}</td>
                 <td style={styles.td}>
                   {a.bodega_nombre || '-'}
@@ -585,6 +682,21 @@ export default function AjustesInventarioPage() {
                 <td style={styles.td}>{a.items}</td>
                 <td style={{ ...styles.td, ...colorValor(a.total) }}>{moneda(a.total)}</td>
                 <td style={styles.td}>
+                  {!a.traspaso_id && (
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                      <a href={`/ajustes-inventario/${a.id}/imprimir`} target="_blank" rel="noreferrer" style={styles.enlaceAccion}>
+                        Ver / imprimir
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => editarAjuste(a.id)}
+                        disabled={cargandoEdicion || guardando}
+                        style={{ ...styles.enlaceAccion, border: 'none', background: 'none', padding: 0, cursor: 'pointer' }}
+                      >
+                        {editando?.id === a.id ? 'Editando…' : 'Editar'}
+                      </button>
+                    </div>
+                  )}
                   {a.traspaso_id && (
                     <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                       <a href={`/traspasos/${a.traspaso_id}/imprimir`} target="_blank" rel="noreferrer" style={{ color: 'var(--teal-dark)', fontSize: '13px', fontWeight: 600, textDecoration: 'none' }}>
@@ -602,7 +714,7 @@ export default function AjustesInventarioPage() {
             ))}
             {ajustesRecientes.length === 0 && (
               <tr>
-                <td style={styles.td} colSpan={6}>Sin ajustes registrados.</td>
+                <td style={styles.td} colSpan={7}>Sin ajustes registrados.</td>
               </tr>
             )}
           </tbody>
@@ -622,6 +734,17 @@ const styles = {
     maxWidth: '380px',
   },
   subtitulo: { marginBottom: '10px' },
+  cardEditando: { border: '2px solid var(--teal)' },
+  avisoEdicion: {
+    background: '#fff7e6',
+    color: '#7a4b00',
+    border: '1px solid #f3d19c',
+    borderRadius: 'var(--radius)',
+    padding: '10px 14px',
+    fontSize: '13px',
+    marginBottom: '16px',
+  },
+  enlaceAccion: { color: 'var(--teal-dark)', fontSize: '13px', fontWeight: 600, textDecoration: 'none' },
   avisoTraspaso: {
     background: 'var(--teal-light)',
     color: 'var(--teal-dark)',
