@@ -53,7 +53,7 @@ export async function GET(request) {
     `;
 
     const imagenes = await sql`
-      SELECT producto_id, imagen_key FROM producto_imagenes ORDER BY producto_id, orden ASC
+      SELECT producto_id, imagen_key FROM producto_imagenes ORDER BY producto_id, orden ASC, id ASC
     `;
     const imagenesPorProducto = new Map();
     for (const fila of imagenes) {
@@ -65,7 +65,15 @@ export async function GET(request) {
     const resultado = productos
       .filter((p) => p.es_inventariable === false || Number(p.stock_total) > 0)
       .map((p) => {
-        const images = imagenesPorProducto.get(p.id) || (p.imagen_key ? [`${origin}/api/imagenes/${p.imagen_key}`] : []);
+        // La portada (la que se marcó como portada en Productos del POS) va
+        // SIEMPRE de primera — la tienda usa la primera foto como portada.
+        // Antes iban en el orden en que se subieron, así que marcar otra foto
+        // como portada en el POS no cambiaba la portada de la tienda.
+        const urlPortada = p.imagen_key ? `${origin}/api/imagenes/${p.imagen_key}` : null;
+        const todas = imagenesPorProducto.get(p.id) || [];
+        const images = urlPortada
+          ? [urlPortada, ...todas.filter((u) => u !== urlPortada)]
+          : todas;
         return {
           id: p.alegra_id || p.referencia,
           name: p.nombre,
