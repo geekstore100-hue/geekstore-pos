@@ -88,7 +88,10 @@ export async function POST(request) {
         );
       }
 
-      itemsConDatos.push({ ...item, cantidad, costo, subtotal: costo * cantidad });
+      // Disminuir resta valor del inventario: va en NEGATIVO, para que el
+      // total del ajuste muestre lo que realmente se sumó o se quitó.
+      const signo = item.objetivo === 'disminuir' ? -1 : 1;
+      itemsConDatos.push({ ...item, cantidad, costo, subtotal: signo * costo * cantidad });
     }
 
     // Si el ajuste viene de un traspaso, además hay que validar que la bodega

@@ -245,13 +245,23 @@ export default function AjustesInventarioPage() {
     return fila.objetivo === 'incrementar' ? actual + cambio : actual - cambio;
   }
 
+  // Disminuir quita valor del inventario: el total de esa fila va en
+  // negativo (y en rojo), incrementar va en positivo.
   function totalAjustadoDe(fila) {
     const cambio = Number(fila.cantidad) || 0;
-    return fila.costo * cambio;
+    const signo = fila.objetivo === 'disminuir' ? -1 : 1;
+    return signo * (Number(fila.costo) || 0) * cambio;
   }
 
   function moneda(n) {
-    return `$${Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
+    const valor = Math.round(Number(n || 0));
+    const texto = `$${Math.abs(valor).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
+    return valor < 0 ? `-${texto}` : texto;
+  }
+
+  // Color del valor: rojo si es negativo (se quitó inventario).
+  function colorValor(n) {
+    return Number(n) < 0 ? { color: 'var(--danger)', fontWeight: 600 } : {};
   }
 
   const totalGeneral = filas.reduce((acc, f) => acc + totalAjustadoDe(f), 0);
@@ -276,6 +286,18 @@ export default function AjustesInventarioPage() {
     const lineasValidas = filas.filter((f) => f.producto_id && Number(f.cantidad) > 0);
     if (lineasValidas.length === 0) {
       setError('Agrega al menos un producto con una cantidad mayor a 0');
+      if (ventanaImpresion) ventanaImpresion.close();
+      return;
+    }
+    // No se puede disminuir más de lo que hay (quedaría el inventario en
+    // negativo). Se avisa aquí, antes de mandar nada, con los productos
+    // que tienen el problema.
+    const quedanNegativos = lineasValidas.filter((f) => cantidadFinalDe(f) < 0);
+    if (quedanNegativos.length > 0) {
+      const nombres = quedanNegativos
+        .map((f) => productos.find((p) => String(p.id) === String(f.producto_id))?.nombre || `producto ${f.producto_id}`)
+        .join(', ');
+      setError(`No puedes disminuir más de lo que hay en la bodega. Revisa: ${nombres}`);
       if (ventanaImpresion) ventanaImpresion.close();
       return;
     }
@@ -494,8 +516,15 @@ export default function AjustesInventarioPage() {
                       style={styles.inputCelda}
                     />
                   </td>
-                  <td style={styles.td}>{f.producto_id ? cantidadFinalDe(f) : '-'}</td>
-                  <td style={styles.td}>{f.producto_id ? moneda(totalAjustadoDe(f)) : '-'}</td>
+                  <td style={{ ...styles.td, ...(f.producto_id ? colorValor(cantidadFinalDe(f)) : {}) }}>
+                    {f.producto_id ? cantidadFinalDe(f) : '-'}
+                    {f.producto_id && cantidadFinalDe(f) < 0 ? (
+                      <div style={{ fontSize: '11px', fontWeight: 400 }}>No alcanza</div>
+                    ) : null}
+                  </td>
+                  <td style={{ ...styles.td, ...(f.producto_id ? colorValor(totalAjustadoDe(f)) : {}) }}>
+                    {f.producto_id ? moneda(totalAjustadoDe(f)) : '-'}
+                  </td>
                   <td style={styles.td}>
                     <button type="button" onClick={() => quitarFila(f._key)} style={styles.btnQuitar}>×</button>
                   </td>
@@ -516,7 +545,7 @@ export default function AjustesInventarioPage() {
           <div style={styles.resumen}>
             <div style={{ ...styles.filaResumen, fontWeight: 700 }}>
               <span>Total del ajuste</span>
-              <span>{moneda(totalGeneral)}</span>
+              <span style={colorValor(totalGeneral)}>{moneda(totalGeneral)}</span>
             </div>
           </div>
         </div>
@@ -554,7 +583,7 @@ export default function AjustesInventarioPage() {
                 </td>
                 <td style={styles.td}>{a.observaciones || '-'}</td>
                 <td style={styles.td}>{a.items}</td>
-                <td style={styles.td}>{moneda(a.total)}</td>
+                <td style={{ ...styles.td, ...colorValor(a.total) }}>{moneda(a.total)}</td>
                 <td style={styles.td}>
                   {a.traspaso_id && (
                     <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
