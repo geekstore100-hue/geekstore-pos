@@ -81,6 +81,7 @@ export default function ConfiguracionesPage() {
   const [modeloGroqIA, setModeloGroqIA] = useState('');
   const [proveedorIA, setProveedorIA] = useState('mistral');
   const [promptIA, setPromptIA] = useState('');
+  const [promptPorDefectoIA, setPromptPorDefectoIA] = useState('');
   const [cargandoIA, setCargandoIA] = useState(true);
   const [guardandoIA, setGuardandoIA] = useState(false);
   const [mensajeIA, setMensajeIA] = useState('');
@@ -214,6 +215,7 @@ export default function ConfiguracionesPage() {
         setModeloGroqIA(data.modeloGroq || '');
         setProveedorIA(data.proveedor || 'mistral');
         setPromptIA(data.prompt || '');
+        setPromptPorDefectoIA(data.promptPorDefecto || '');
       }
     } finally {
       setCargandoIA(false);
@@ -992,10 +994,20 @@ export default function ConfiguracionesPage() {
                       style={{ ...styles.input, width: '100%', fontFamily: 'monospace', fontSize: '12px' }}
                     />
                     <small style={{ color: 'var(--text-secondary)' }}>
-                      Tiene que seguir pidiendo la respuesta en JSON con las claves &quot;nombre&quot;, &quot;descripcion&quot; y
-                      &quot;categoria&quot; — si cambias eso, la IA puede dejar de funcionar bien en Productos.
+                      Aquí van el estilo y las reglas del nombre y la descripción. El formato de la respuesta (JSON), la
+                      ficha técnica y la regla de no inventar datos los agrega el sistema solo al final, así que no hace
+                      falta escribirlos aquí.
                     </small>
                   </label>
+                  {promptPorDefectoIA && promptIA !== promptPorDefectoIA && (
+                    <button
+                      type="button"
+                      onClick={() => setPromptIA(promptPorDefectoIA)}
+                      style={{ ...styles.btnSecundario, marginLeft: 0, marginBottom: '10px' }}
+                    >
+                      Usar el prompt recomendado (después dale Guardar)
+                    </button>
+                  )}
                   {errorIA && <p style={{ color: 'var(--danger)' }}>{errorIA}</p>}
                   {mensajeIA && <p style={{ color: 'var(--teal-dark)' }}>{mensajeIA}</p>}
                   <button type="submit" disabled={guardandoIA} style={styles.btnPrimario}>

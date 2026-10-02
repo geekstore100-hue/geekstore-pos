@@ -11,7 +11,7 @@ import sql from '../../../../lib/db';
 //
 // Forma exacta que espera la tienda por cada producto:
 //   { id, name, description, reference, category, subcategory, gamer, price,
-//     available, warehouses: [{name, quantity}], image, images, video, status }
+//     available, warehouses: [{name, quantity}], image, images, video, specs, status }
 // "video" es el enlace de YouTube que se puso en Productos (opcional, viene
 // null si no se configuró) — la tienda lo convierte a un video incrustado.
 // "subcategory" y "gamer" se agregaron para que la tienda pueda navegar por
@@ -57,7 +57,7 @@ export async function GET(request) {
     const productos = await sql`
       SELECT
         p.id, p.referencia, p.alegra_id, p.nombre, p.descripcion, p.precio_venta, p.imagen_key,
-        p.es_inventariable, p.es_gamer, p.video_youtube,
+        p.es_inventariable, p.es_gamer, p.video_youtube, p.especificaciones,
         c.nombre AS categoria_nombre,
         sc.nombre AS subcategoria_nombre,
         COALESCE(st.stock_total, 0) AS stock_total
@@ -134,6 +134,11 @@ export async function GET(request) {
           image: images[0] ?? null,
           images,
           video: p.video_youtube || null,
+          // Ficha técnica: [{ name, value }] — la tienda la muestra como tabla
+          // "Especificaciones técnicas" (lista vacía si el producto no tiene).
+          specs: Array.isArray(p.especificaciones)
+            ? p.especificaciones.map((e) => ({ name: e.nombre, value: e.valor }))
+            : [],
           status: 'active',
         };
       });

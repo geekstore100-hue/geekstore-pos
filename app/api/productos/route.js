@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../lib/db';
 import { esUrlYoutubeValida } from '../../../lib/youtube';
+import { normalizarEspecificaciones } from '../../../lib/especificaciones';
 
 export async function GET(request) {
   try {
@@ -53,6 +54,7 @@ export async function GET(request) {
         p.es_inventariable,
         p.mostrar_en_tienda,
         p.es_gamer,
+        p.especificaciones,
         COALESCE(SUM(s.cantidad), 0) AS stock,
         COALESCE(SUM(s.cantidad) FILTER (WHERE b.nombre = 'Principal'), 0) AS stock_principal,
         COALESCE(SUM(s.cantidad) FILTER (WHERE b.nombre = 'Bodega Distribuidor'), 0) AS stock_distribuidor
@@ -88,6 +90,10 @@ export async function POST(request) {
       es_gamer,
       video_youtube,
     } = body;
+    // Ficha técnica (ver lib/especificaciones.js): se guarda como JSON, o
+    // vacía si no tiene filas.
+    const especificaciones = normalizarEspecificaciones(body.especificaciones);
+    const especificacionesJson = especificaciones ? JSON.stringify(especificaciones) : null;
 
     if (!referencia || !referencia.trim()) {
       return NextResponse.json({ ok: false, error: 'La referencia es obligatoria' }, { status: 400 });
@@ -118,7 +124,7 @@ export async function POST(request) {
       INSERT INTO productos (
         referencia, nombre, descripcion, categoria_id, subcategoria_id,
         precio_venta, precio_costo, precio_distribuidor, activo, es_inventariable,
-        mostrar_en_tienda, es_gamer, video_youtube
+        mostrar_en_tienda, es_gamer, video_youtube, especificaciones
       )
       VALUES (
         ${referencia.trim()}, ${nombre.trim()}, ${descripcion || null},
@@ -126,7 +132,7 @@ export async function POST(request) {
         ${precio_venta || null}, ${precioCostoFinal}, ${precio_distribuidor || null},
         ${activo === undefined ? true : activo}, ${inventariable},
         ${mostrar_en_tienda === undefined ? true : Boolean(mostrar_en_tienda)},
-        ${Boolean(es_gamer)}, ${video_youtube?.trim() || null}
+        ${Boolean(es_gamer)}, ${video_youtube?.trim() || null}, ${especificacionesJson}::jsonb
       )
       RETURNING id
     `;

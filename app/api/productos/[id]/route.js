@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../../lib/db';
 import { esUrlYoutubeValida } from '../../../../lib/youtube';
+import { normalizarEspecificaciones } from '../../../../lib/especificaciones';
 
 export async function PUT(request, { params }) {
   try {
@@ -21,6 +22,12 @@ export async function PUT(request, { params }) {
       es_gamer,
       video_youtube,
     } = body;
+    // Ficha técnica (ver lib/especificaciones.js). Si quien llama no manda
+    // "especificaciones" (otra pantalla que solo edita algunos campos), se
+    // deja la que ya estaba; si la manda (aunque sea vacía), se reemplaza.
+    const traeEspecificaciones = Object.prototype.hasOwnProperty.call(body, 'especificaciones');
+    const especificaciones = normalizarEspecificaciones(body.especificaciones);
+    const especificacionesJson = especificaciones ? JSON.stringify(especificaciones) : null;
 
     if (!referencia || !referencia.trim()) {
       return NextResponse.json({ ok: false, error: 'La referencia es obligatoria' }, { status: 400 });
@@ -63,6 +70,7 @@ export async function PUT(request, { params }) {
         mostrar_en_tienda = ${mostrar_en_tienda === undefined ? true : Boolean(mostrar_en_tienda)},
         es_gamer = ${Boolean(es_gamer)},
         video_youtube = ${video_youtube?.trim() || null},
+        especificaciones = CASE WHEN ${traeEspecificaciones} THEN ${especificacionesJson}::jsonb ELSE especificaciones END,
         actualizado_en = now()
       WHERE id = ${id}
       RETURNING id

@@ -18,6 +18,8 @@ const vacio = {
   mostrar_en_tienda: true,
   es_gamer: false,
   video_youtube: '',
+  // Ficha técnica: [{ nombre, valor }] — ver lib/especificaciones.js.
+  especificaciones: [],
 };
 
 export default function ProductosPage() {
@@ -44,6 +46,13 @@ export default function ProductosPage() {
   // apenas se guarda el producto, ya con su id.
   const [imagenAnalisis, setImagenAnalisis] = useState(null);
   const [infoAdicionalIA, setInfoAdicionalIA] = useState('');
+  // Página del fabricante como fuente para la IA (ver
+  // /api/productos/analizar-foto): el enlace, o el texto pegado a mano
+  // cuando esa página no se deja leer.
+  const [enlaceFabricante, setEnlaceFabricante] = useState('');
+  const [textoFabricante, setTextoFabricante] = useState('');
+  const [mostrarPegarTexto, setMostrarPegarTexto] = useState(false);
+  const [iaAbiertaEdicion, setIaAbiertaEdicion] = useState(false);
   const [analizandoIA, setAnalizandoIA] = useState(false);
   const [mensajeIA, setMensajeIA] = useState('');
   const [categoriaSugeridaIA, setCategoriaSugeridaIA] = useState('');
@@ -127,6 +136,10 @@ export default function ProductosPage() {
     setError('');
     setImagenAnalisis(null);
     setInfoAdicionalIA('');
+    setEnlaceFabricante('');
+    setTextoFabricante('');
+    setMostrarPegarTexto(false);
+    setIaAbiertaEdicion(false);
     setMensajeIA('');
     setCategoriaSugeridaIA('');
     setSubcategoriaSugeridaIA('');
@@ -403,8 +416,8 @@ export default function ProductosPage() {
   }
 
   async function analizarConIA() {
-    if (!imagenAnalisis) {
-      setMensajeIA('Primero sube una foto para analizar (puede ser la caja con las especificaciones).');
+    if (!imagenAnalisis && !enlaceFabricante.trim() && !textoFabricante.trim()) {
+      setMensajeIA('Sube una foto, pon el enlace del fabricante o pega el texto del producto.');
       return;
     }
     setAnalizandoIA(true);
@@ -415,13 +428,32 @@ export default function ProductosPage() {
       const res = await fetch('/api/productos/analizar-foto', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imagenBase64: imagenAnalisis, infoAdicional: infoAdicionalIA, proveedor: proveedorIA }),
+        body: JSON.stringify({
+          imagenBase64: imagenAnalisis,
+          infoAdicional: infoAdicionalIA,
+          proveedor: proveedorIA,
+          enlaceFabricante: enlaceFabricante.trim() || undefined,
+          textoFabricante: textoFabricante.trim() || undefined,
+        }),
       });
       const data = await res.json();
       if (!data.ok) {
-        setMensajeIA(data.error || 'No se pudo analizar la foto');
+        setMensajeIA(data.error || 'No se pudo analizar');
+        // La página del fabricante no se dejó leer: se abre de una vez el
+        // cuadro para pegar el texto a mano.
+        if (data.codigo === 'pagina_no_legible') setMostrarPegarTexto(true);
       } else {
-        setForm((f) => ({ ...f, nombre: data.nombre || f.nombre, descripcion: (data.descripcion || '').slice(0, 600) }));
+        setForm((f) => ({
+          ...f,
+          nombre: data.nombre || f.nombre,
+          descripcion: (data.descripcion || '').slice(0, 600),
+          // La ficha técnica solo se reemplaza si la IA encontró datos; si
+          // no encontró ninguno verificable, se deja la que ya hubiera.
+          especificaciones:
+            Array.isArray(data.especificaciones) && data.especificaciones.length > 0
+              ? data.especificaciones
+              : f.especificaciones || [],
+        }));
 
         // Si el nombre que sugirió la IA coincide con una categoría (y
         // subcategoría) que ya existe en el catálogo, se selecciona sola;
@@ -443,10 +475,16 @@ export default function ProductosPage() {
         }
 
         const nombreProveedor = data.proveedorUsado === 'gemini' ? 'Gemini' : data.proveedorUsado === 'groq' ? 'Groq' : 'Mistral';
-        setMensajeIA(`Listo, revisa y ajusta lo que sugirió la IA (usando ${nombreProveedor}) antes de guardar.`);
+        const sinFicha = !(Array.isArray(data.especificaciones) && data.especificaciones.length > 0);
+        setMensajeIA(
+          `Listo, revisa y ajusta lo que sugirió la IA (usando ${nombreProveedor}) antes de guardar.` +
+            (sinFicha
+              ? ' No encontró datos técnicos que se puedan verificar, así que no llenó la ficha técnica — para eso sirve mucho el enlace del fabricante o una foto de la caja.'
+              : ' Revisa sobre todo la ficha técnica.')
+        );
       }
     } catch {
-      setMensajeIA('Error de conexión al analizar la foto');
+      setMensajeIA('Error de conexión al analizar');
     }
     setAnalizandoIA(false);
   }
@@ -503,11 +541,21 @@ export default function ProductosPage() {
       mostrar_en_tienda: p.mostrar_en_tienda === undefined || p.mostrar_en_tienda === null ? true : p.mostrar_en_tienda,
       es_gamer: Boolean(p.es_gamer),
       video_youtube: p.video_youtube || '',
+      especificaciones: Array.isArray(p.especificaciones) ? p.especificaciones : [],
     });
     setError('');
     setErrorImagen('');
     setPortadaActual(p.imagen_key || null);
     setAutoDistribuidor(false);
+    setImagenAnalisis(null);
+    setInfoAdicionalIA('');
+    setEnlaceFabricante('');
+    setTextoFabricante('');
+    setMostrarPegarTexto(false);
+    setIaAbiertaEdicion(false);
+    setMensajeIA('');
+    setCategoriaSugeridaIA('');
+    setSubcategoriaSugeridaIA('');
     setMostrarForm(true);
     cargarSubcategorias(p.categoria_id || '');
     cargarImagenes(p.id);
@@ -731,12 +779,24 @@ export default function ProductosPage() {
               : 'No maneja stock ni precio de compra, y nunca bloquea la venta por falta de existencias (por ejemplo servicio técnico o servicio de envío).'}
           </p>
 
-          {!form.id && (
+          {/* Al editar un producto que ya existe, la ayuda de IA queda
+              plegada (un botón) para no estorbar; al crear, se ve de una. */}
+          {form.id && !iaAbiertaEdicion && (
+            <button
+              type="button"
+              onClick={() => setIaAbiertaEdicion(true)}
+              style={{ ...styles.btnSecundario, marginLeft: 0, marginBottom: '12px' }}
+            >
+              🪄 Regenerar descripción y ficha técnica con IA
+            </button>
+          )}
+          {(!form.id || iaAbiertaEdicion) && (
             <div style={styles.tarjetaIA}>
               <p style={{ margin: '0 0 4px', fontWeight: 600 }}>🪄 Ayuda de IA (opcional)</p>
               <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 10px' }}>
-                Sube una foto para que la IA te sugiera nombre y descripción — puede ser la caja con las
-                especificaciones (esa foto no queda guardada, solo la mira la IA).
+                Dale a la IA una foto (puede ser la caja con las especificaciones), el enlace del producto en la
+                página del fabricante, o las dos cosas — y te sugiere nombre, descripción y ficha técnica. Nada se
+                guarda hasta que le des Guardar (la foto de aquí tampoco: solo la mira la IA).
               </p>
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', marginBottom: '10px' }}>
                 Proveedor
@@ -771,6 +831,42 @@ export default function ProductosPage() {
               {imagenAnalisis && (
                 <img src={imagenAnalisis} alt="Vista previa análisis" style={styles.previewIA} />
               )}
+              <label style={{ display: 'block', marginTop: '12px' }}>
+                Enlace del producto en la página del fabricante (opcional)
+                <input
+                  type="url"
+                  value={enlaceFabricante}
+                  onChange={(e) => setEnlaceFabricante(e.target.value)}
+                  placeholder="https://www.marca.com/producto/..."
+                  style={styles.input}
+                />
+                <small style={{ color: 'var(--text-secondary)' }}>
+                  Es la mejor fuente para la ficha técnica. Algunas páginas no se dejan leer; si pasa,
+                  copia el texto del producto y pégalo abajo.
+                </small>
+              </label>
+              {!mostrarPegarTexto ? (
+                <button
+                  type="button"
+                  onClick={() => setMostrarPegarTexto(true)}
+                  style={{ ...styles.btnSecundario, marginTop: '6px', marginLeft: 0 }}
+                >
+                  Pegar el texto de la página
+                </button>
+              ) : (
+                <label style={{ display: 'block', marginTop: '10px' }}>
+                  Texto del fabricante (copiado de su página)
+                  <textarea
+                    value={textoFabricante}
+                    onChange={(e) => setTextoFabricante(e.target.value)}
+                    placeholder="Pega aquí la descripción y las especificaciones que copiaste de la página del fabricante"
+                    style={{ ...styles.input, width: '100%', minHeight: '90px' }}
+                  />
+                  <small style={{ color: 'var(--text-secondary)' }}>
+                    Si pegas texto aquí, se usa este en vez del enlace.
+                  </small>
+                </label>
+              )}
               <label style={{ display: 'block', marginTop: '10px' }}>
                 Información adicional para la IA (opcional)
                 <textarea
@@ -783,7 +879,7 @@ export default function ProductosPage() {
               <button
                 type="button"
                 onClick={analizarConIA}
-                disabled={!imagenAnalisis || analizandoIA}
+                disabled={(!imagenAnalisis && !enlaceFabricante.trim() && !textoFabricante.trim()) || analizandoIA}
                 style={{ ...styles.btnPrimario, marginTop: '10px' }}
               >
                 {analizandoIA ? 'Analizando...' : '🪄 Analizar con IA'}
@@ -931,9 +1027,66 @@ export default function ProductosPage() {
               style={{ ...styles.input, width: '100%', minHeight: '160px' }}
             />
             <small style={{ color: form.descripcion.length >= 600 ? 'var(--danger)' : 'var(--text-secondary)' }}>
-              {form.descripcion.length} / 600 caracteres
+              {form.descripcion.length} / 600 caracteres — aquí van los beneficios (para vender); los datos técnicos van en la ficha técnica de abajo.
             </small>
           </label>
+
+          {/* Ficha técnica: filas "nombre: valor" (ej. Potencia: 20 W). La
+              tienda la muestra como tabla "Especificaciones técnicas" en la
+              página del producto. La puede llenar la IA, pero siempre se
+              revisa aquí antes de guardar. */}
+          <div style={{ marginTop: '14px' }}>
+            <label style={{ display: 'block', marginBottom: '6px' }}>Ficha técnica (especificaciones)</label>
+            {(form.especificaciones || []).length === 0 && (
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 8px' }}>
+                Sin especificaciones. Agrégalas a mano o déjalas a la IA (con el enlace del fabricante sale mucho mejor).
+              </p>
+            )}
+            {(form.especificaciones || []).map((fila, i) => (
+              <div key={i} style={{ display: 'flex', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
+                <input
+                  value={fila.nombre}
+                  placeholder="Ej. Potencia"
+                  maxLength={60}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      especificaciones: f.especificaciones.map((x, j) => (j === i ? { ...x, nombre: e.target.value } : x)),
+                    }))
+                  }
+                  style={{ ...styles.input, flex: '0 0 38%', minWidth: 0, marginTop: 0 }}
+                />
+                <input
+                  value={fila.valor}
+                  placeholder="Ej. 20 W"
+                  maxLength={200}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      especificaciones: f.especificaciones.map((x, j) => (j === i ? { ...x, valor: e.target.value } : x)),
+                    }))
+                  }
+                  style={{ ...styles.input, flex: 1, minWidth: 0, marginTop: 0 }}
+                />
+                <button
+                  type="button"
+                  aria-label="Quitar esta fila"
+                  title="Quitar esta fila"
+                  onClick={() => setForm((f) => ({ ...f, especificaciones: f.especificaciones.filter((_, j) => j !== i) }))}
+                  style={{ ...styles.btnSecundario, marginLeft: 0, color: 'var(--danger)' }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => setForm((f) => ({ ...f, especificaciones: [...(f.especificaciones || []), { nombre: '', valor: '' }] }))}
+              style={{ ...styles.btnSecundario, marginLeft: 0 }}
+            >
+              + Agregar especificación
+            </button>
+          </div>
 
           <div style={{ marginTop: '16px' }}>
             <label style={{ display: 'block', marginBottom: '8px' }}>Fotos</label>
@@ -1206,7 +1359,18 @@ export default function ProductosPage() {
             {detalleProducto.descripcion && (
               <div style={{ marginTop: '10px' }}>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '2px' }}>Descripción</div>
-                <div>{detalleProducto.descripcion}</div>
+                <div style={{ whiteSpace: 'pre-line' }}>{detalleProducto.descripcion}</div>
+              </div>
+            )}
+            {Array.isArray(detalleProducto.especificaciones) && detalleProducto.especificaciones.length > 0 && (
+              <div style={{ marginTop: '10px' }}>
+                <div style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '4px' }}>Ficha técnica</div>
+                {detalleProducto.especificaciones.map((e) => (
+                  <div key={e.nombre} style={styles.filaDetalle}>
+                    <span>{e.nombre}</span>
+                    <strong style={{ textAlign: 'right' }}>{e.valor}</strong>
+                  </div>
+                ))}
               </div>
             )}
 
