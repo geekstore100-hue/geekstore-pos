@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { leerEstadoPanico, guardarEstadoPanico } from '../../../../lib/panico';
+import { leerUltimoPedidoDistribuidor } from '../../../../lib/avisoPedidoDistribuidor';
 
 // Estado compartido del botón de pánico (ver lib/panico.js). Lo consultan
 // dos tipos de pantalla distintos:
@@ -7,10 +8,14 @@ import { leerEstadoPanico, guardarEstadoPanico } from '../../../../lib/panico';
 //   segundos, para saber si tiene que taparse.
 // - El celular de Nelson (components/PanicoBoton.js), al abrir, para saber
 //   si ya está activo o no y mostrar el botón en el estado correcto.
+//
+// Esta misma consulta trae también el último pedido de distribuidor (ver
+// lib/avisoPedidoDistribuidor.js), para mostrar el aviso de pedido nuevo
+// sin hacer otra consulta aparte cada pocos segundos.
 export async function GET() {
   try {
-    const estado = await leerEstadoPanico();
-    return NextResponse.json({ ok: true, ...estado });
+    const [estado, pedidoDistribuidor] = await Promise.all([leerEstadoPanico(), leerUltimoPedidoDistribuidor()]);
+    return NextResponse.json({ ok: true, ...estado, pedidoDistribuidor });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }

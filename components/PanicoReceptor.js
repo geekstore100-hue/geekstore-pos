@@ -58,7 +58,17 @@ export default function PanicoReceptor() {
       try {
         const res = await fetch('/api/panico/estado');
         const data = await res.json();
-        if (!cancelado && data.ok) setActivo(data.activo);
+        if (!cancelado && data.ok) {
+          setActivo(data.activo);
+          // Aviso de pedido nuevo de distribuidor: lo muestra
+          // components/AvisoPedidoDistribuidor.js (viene en esta misma
+          // consulta para no hacer otra aparte).
+          if (data.pedidoDistribuidor) {
+            window.dispatchEvent(
+              new CustomEvent('pos:pedido-distribuidor', { detail: { pedido: data.pedidoDistribuidor, panicoActivo: Boolean(data.activo) } })
+            );
+          }
+        }
       } catch {
         // Si falla una consulta, se reintenta sola en la siguiente — no
         // cambia el estado actual por un error de red pasajero.

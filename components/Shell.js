@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import Sidebar from './Sidebar';
 import PanicoBoton from './PanicoBoton';
 import PanicoReceptor from './PanicoReceptor';
+import AvisoPedidoDistribuidor from './AvisoPedidoDistribuidor';
 
 export default function Shell({ title, children }) {
   // Evita el problema clásico de los navegadores: si el mouse queda sobre un
@@ -101,6 +102,9 @@ export default function Shell({ title, children }) {
           acordarse de agregarlos página por página. Ver ambos archivos. */}
       <PanicoBoton />
       <PanicoReceptor />
+      {/* Cartel de pedido nuevo de distribuidor (usa la misma consulta de
+          PanicoReceptor, ver AvisoPedidoDistribuidor.js). */}
+      <AvisoPedidoDistribuidor />
     </div>
   );
 }

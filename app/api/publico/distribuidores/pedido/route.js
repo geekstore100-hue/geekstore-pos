@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import sql from '../../../../../lib/db';
 import { claveValida, buscarDistribuidor } from '../../../../../lib/distribuidores';
+import { anotarPedidoDistribuidor } from '../../../../../lib/avisoPedidoDistribuidor';
 
 // Crea el pedido de un distribuidor como una COTIZACIÓN pendiente en el
 // POS — nunca descuenta stock ni genera ninguna venta real. Nelson la
@@ -100,7 +101,31 @@ export async function POST(request) {
     const resultados = await sql.transaction(consultas);
     const cotizacion = resultados[0][0];
 
-    return NextResponse.json({ ok: true, numero: cotizacion.numero, total, articulos: detalle.length });
+    // Aviso para el computador de la tienda (cartel con sonido en el POS).
+    // Si esto falla, el pedido ya quedó guardado: no se le muestra error al
+    // distribuidor por eso.
+    try {
+      await anotarPedidoDistribuidor({
+        id: cotizacion.id,
+        numero: cotizacion.numero,
+        distribuidor: distribuidor.nombre,
+        total,
+        articulos: detalle.length,
+      });
+    } catch (e) {
+      console.error('No se pudo anotar el aviso del pedido de distribuidor', e);
+    }
+
+    return NextResponse.json({
+      ok: true,
+      id: cotizacion.id,
+      numero: cotizacion.numero,
+      total,
+      articulos: detalle.length,
+      // Resumen para el aviso por WhatsApp/correo que manda la tienda.
+      distribuidor: distribuidor.nombre,
+      lineas: detalle.map((l) => ({ nombre: l.nombre, referencia: l.referencia, cantidad: l.cantidad, subtotal: l.subtotal })),
+    });
   } catch (error) {
     // No se le muestra al público el detalle interno del error (podía
     // incluir datos de la base de datos); queda en el registro de Netlify.
