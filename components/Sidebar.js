@@ -21,6 +21,7 @@ const links = [
         agregarHref: '/productos?nuevo=1',
         agregarTitulo: 'Nuevo producto',
       },
+      { href: '/productos/fichas', label: 'Fichas incompletas', icon: IconChequeo },
       { href: '/ajustes-inventario', label: 'Ajustes de inventario', icon: IconAdjust },
       { href: '/etiquetas', label: 'Etiquetas', icon: IconTag },
       { href: '/chequeos-inventario', label: 'Chequeo semanal', icon: IconChequeo },

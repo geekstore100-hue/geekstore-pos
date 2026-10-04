@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Shell from '../../components/Shell';
+import { tipoDeProducto, camposFaltantes } from '../../lib/plantillasFicha';
 
 const vacio = {
   id: null,
@@ -176,6 +177,44 @@ export default function ProductosPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // /productos?editar=ID abre directo la edición de ese producto (lo usa el
+  // reporte "Fichas incompletas"). Se espera a que cargue el catálogo.
+  const [editarPendiente, setEditarPendiente] = useState(null);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const id = new URLSearchParams(window.location.search).get('editar');
+    if (id) setEditarPendiente(id);
+  }, []);
+  useEffect(() => {
+    if (!editarPendiente || productos.length === 0) return;
+    const p = productos.find((x) => String(x.id) === String(editarPendiente));
+    setEditarPendiente(null);
+    window.history.replaceState({}, '', '/productos');
+    if (p) editarProducto(p);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editarPendiente, productos]);
+
+  // Plantilla de ficha según el tipo de producto (cargador, cable, control…)
+  // y los campos que todavía le faltan — ver lib/plantillasFicha.js.
+  const plantillaFicha = useMemo(() => {
+    const cat = categorias.find((c) => String(c.id) === String(form.categoria_id));
+    const sub = subcategorias.find((x) => String(x.id) === String(form.subcategoria_id));
+    return tipoDeProducto({ nombre: form.nombre, categoria: cat?.nombre, subcategoria: sub?.nombre });
+  }, [form.nombre, form.categoria_id, form.subcategoria_id, categorias, subcategorias]);
+  const faltantesFicha = useMemo(
+    () => camposFaltantes(plantillaFicha, form.especificaciones || []),
+    [plantillaFicha, form.especificaciones]
+  );
+
+  function agregarCamposFicha(campos) {
+    setForm((f) => {
+      const filas = (f.especificaciones || []).filter((x) => x.nombre || x.valor);
+      const nombres = new Set(filas.map((x) => String(x.nombre).toLowerCase()));
+      const nuevas = campos.filter((c) => !nombres.has(c.nombre.toLowerCase())).map((c) => ({ nombre: c.nombre, valor: '' }));
+      return { ...f, especificaciones: [...filas, ...nuevas] };
+    });
+  }
 
   // Lee un archivo de imagen como data URI (base64).
   function leerArchivoComoDataUri(file, setter) {
@@ -755,6 +794,9 @@ export default function ProductosPage() {
           <a href="/productos/revisar-nombres" style={{ ...styles.btnSecundario, marginLeft: 0, textDecoration: 'none', color: 'inherit', fontSize: '14px' }}>
             🪄 Revisar nombres con IA
           </a>
+          <a href="/productos/fichas" style={{ ...styles.btnSecundario, marginLeft: 0, textDecoration: 'none', color: 'inherit', fontSize: '14px' }}>
+            📋 Fichas incompletas
+          </a>
           <button onClick={nuevoProducto} style={styles.btnPrimario}>+ Nuevo producto</button>
         </div>
       </div>
@@ -1068,6 +1110,36 @@ export default function ProductosPage() {
               revisa aquí antes de guardar. */}
           <div style={{ marginTop: '14px' }}>
             <label style={{ display: 'block', marginBottom: '6px' }}>Ficha técnica (especificaciones)</label>
+            {faltantesFicha.length > 0 && (
+              <div style={styles.cajaPlantilla}>
+                <div style={{ fontSize: '13px', marginBottom: '6px' }}>
+                  Tipo detectado: <b>{plantillaFicha.titulo}</b>. Campos recomendados que faltan
+                  {faltantesFicha.some((c) => c.clave) && <> (los marcados con <b>*</b> son los que el chat de la tienda necesita para recomendarlo bien)</>}:
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  {faltantesFicha.map((c) => (
+                    <button
+                      key={c.nombre}
+                      type="button"
+                      onClick={() => agregarCamposFicha([c])}
+                      style={{ ...styles.chipCampo, ...(c.clave ? styles.chipCampoClave : {}) }}
+                      title="Agregar esta fila a la ficha"
+                    >
+                      + {c.nombre}
+                      {c.clave ? ' *' : ''}
+                    </button>
+                  ))}
+                  {faltantesFicha.length > 1 && (
+                    <button type="button" onClick={() => agregarCamposFicha(faltantesFicha)} style={styles.chipTodos}>
+                      Agregar los que faltan
+                    </button>
+                  )}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                  Escribe los conectores así: USB-C, USB-A, Lightning, Micro USB. En “Compatible con” pon solo lo que estés seguro.
+                </div>
+              </div>
+            )}
             {(form.especificaciones || []).length === 0 && (
               <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 8px' }}>
                 Sin especificaciones. Agrégalas a mano o déjalas a la IA (con el enlace del fabricante sale mucho mejor).
@@ -1737,5 +1809,36 @@ const styles = {
     fontSize: '13px',
     fontWeight: 600,
     color: 'var(--teal-dark)',
+  },
+  cajaPlantilla: {
+    border: '1px dashed var(--border)',
+    borderRadius: '10px',
+    padding: '10px',
+    marginBottom: '10px',
+    background: 'var(--bg-secondary, transparent)',
+  },
+  chipCampo: {
+    padding: '4px 10px',
+    borderRadius: '999px',
+    border: '1px solid var(--border)',
+    background: 'transparent',
+    color: 'inherit',
+    cursor: 'pointer',
+    fontSize: '12px',
+  },
+  chipCampoClave: {
+    borderColor: 'var(--teal-dark)',
+    color: 'var(--teal-dark)',
+    fontWeight: 600,
+  },
+  chipTodos: {
+    padding: '4px 10px',
+    borderRadius: '999px',
+    border: 'none',
+    background: 'var(--teal-dark)',
+    color: '#fff',
+    cursor: 'pointer',
+    fontSize: '12px',
+    fontWeight: 600,
   },
 };

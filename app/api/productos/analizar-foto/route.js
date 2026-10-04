@@ -3,6 +3,7 @@ import { analizarFotoProductoGemini } from '../../../../lib/geminiVision';
 import { analizarFotoProductoGroq } from '../../../../lib/groqVision';
 import { leerConfigIA } from '../../../../lib/iaArticulo';
 import { leerPaginaFabricante, ErrorPagina, MAX_CARACTERES_TEXTO } from '../../../../lib/leerPaginaFabricante';
+import { guiaDeCamposParaIA } from '../../../../lib/plantillasFicha';
 
 // Recibe la información de un producto y devuelve nombre, descripción,
 // categoría y ficha técnica (especificaciones) sugeridos por IA, para
@@ -39,6 +40,10 @@ Responde SOLO con un objeto JSON válido, sin texto adicional y sin markdown, co
 "descripcion" (máximo 600 caracteres en total): es el texto para VENDER, no una ficha técnica. Empieza con una frase que diga qué es el producto y para quién o para qué sirve. Después pon de 2 a 4 beneficios concretos, cada uno en su propia línea y empezando con "✓ " — habla de lo que gana el cliente (por ejemplo: cargar el celular más rápido, trabajar más cómodo, no preocuparse por la batería). NO pongas en la descripción cifras técnicas ni listas de características: esas van en "especificaciones". Español de Colombia con trato de "tú" (nunca "vos" ni voseo).
 
 "especificaciones": la ficha técnica, normalmente de 4 a 15 filas. Cada fila tiene un "nombre" corto (por ejemplo "Marca", "Modelo", "Potencia", "Conector", "Compatibilidad", "Dimensiones", "Peso", "Batería", "Incluye") y un "valor" concreto con su unidad (por ejemplo "20 W", "USB-C", "iPhone 12 en adelante"). Escribe cada "nombre" en español y solo con la primera letra en mayúscula (por ejemplo "Velocidad del ventilador", NO "VELOCIDAD DEL VENTILADOR" ni "Velocidad Del Ventilador"); las marcas, modelos y siglas se dejan como son (por ejemplo "TDP", "RGB", "USB", "Thermalright"). Los valores tampoco van en mayúsculas sostenidas.
+
+CAMPOS QUE MÁS IMPORTAN SEGÚN EL TIPO DE PRODUCTO (el asistente de la tienda los usa para saber si un producto le sirve a un cliente). Si el dato aparece en la información, ponlo con ESE nombre exacto de fila; si no aparece, no lo pongas:
+${guiaDeCamposParaIA()}
+Formato de esos valores: conectores siempre escritos "USB-C", "USB-A", "Lightning", "Micro USB"; en "Incluye cable" pon "Sí, USB-C a Lightning" o "No"; en "Compatible con" pon los equipos o la familia concreta (por ejemplo "iPhone 8 en adelante (con cable USB-C a Lightning)", "PS5", "Nintendo Switch") y SOLO si el fabricante o el usuario lo dicen.
 
 REGLA MÁS IMPORTANTE: en "especificaciones" pon SOLO datos que aparezcan escritos en la información del fabricante, en la foto (por ejemplo impresos en la caja o en una etiqueta) o en la información adicional del usuario. Si un dato no aparece, NO lo pongas y NO lo supongas. Es mejor una ficha corta y cierta que una larga con datos inventados. Si no hay ningún dato técnico que se pueda verificar, deja "especificaciones" como [].
 
