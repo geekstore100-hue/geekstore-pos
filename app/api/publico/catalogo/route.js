@@ -58,6 +58,8 @@ export async function GET(request) {
       SELECT
         p.id, p.referencia, p.alegra_id, p.nombre, p.descripcion, p.precio_venta, p.imagen_key,
         p.es_inventariable, p.es_gamer, p.video_youtube, p.especificaciones,
+        -- "precio antes" (oferta); así no falla si falta la migración.
+        (to_jsonb(p) ->> 'precio_anterior')::numeric AS precio_anterior,
         c.nombre AS categoria_nombre,
         sc.nombre AS subcategoria_nombre,
         COALESCE(st.stock_total, 0) AS stock_total
@@ -129,6 +131,12 @@ export async function GET(request) {
           subcategory: p.subcategoria_nombre || '',
           gamer: Boolean(p.es_gamer),
           price: Number(p.precio_venta) || 0,
+          // Precio "antes" para mostrarlo en oferta (tachado, con % de
+          // descuento). null si el producto no está en oferta.
+          priceBefore:
+            Number(p.precio_anterior) > Number(p.precio_venta) && Number(p.precio_venta) > 0
+              ? Number(p.precio_anterior)
+              : null,
           available: Number(p.stock_total) || 0,
           warehouses: bodegasPorProducto.get(p.id) || [],
           image: images[0] ?? null,

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import sql from '../../../../lib/db';
 import { esUrlYoutubeValida } from '../../../../lib/youtube';
 import { normalizarEspecificaciones } from '../../../../lib/especificaciones';
+import { guardarPrecioAnterior } from '../../../../lib/precioAnterior';
 
 export async function PUT(request, { params }) {
   try {
@@ -87,7 +88,15 @@ export async function PUT(request, { params }) {
       await sql`DELETE FROM stock WHERE producto_id = ${id}`;
     }
 
-    return NextResponse.json({ ok: true, producto });
+    // "Precio antes" (oferta en la tienda): solo si la pantalla lo manda
+    // (otras pantallas que editan solo algunos campos no lo borran).
+    let avisoPrecioAnterior = null;
+    if (Object.prototype.hasOwnProperty.call(body, 'precio_anterior')) {
+      const r = await guardarPrecioAnterior(producto.id, body.precio_anterior, precio_venta);
+      if (!r.ok) avisoPrecioAnterior = r.aviso;
+    }
+
+    return NextResponse.json({ ok: true, producto, ...(avisoPrecioAnterior ? { aviso: avisoPrecioAnterior } : {}) });
   } catch (error) {
     if (String(error.message).includes('duplicate key')) {
       return NextResponse.json({ ok: false, error: 'Ya existe un producto con esa referencia' }, { status: 409 });

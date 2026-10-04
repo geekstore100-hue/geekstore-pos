@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import sql from '../../../lib/db';
 import { esUrlYoutubeValida } from '../../../lib/youtube';
 import { normalizarEspecificaciones } from '../../../lib/especificaciones';
+import { guardarPrecioAnterior } from '../../../lib/precioAnterior';
 
 export async function GET(request) {
   try {
@@ -48,6 +49,9 @@ export async function GET(request) {
         p.precio_venta,
         p.precio_costo,
         p.precio_distribuidor,
+        -- "precio antes" (oferta). Se lee así para que no falle si todavía
+        -- no se corrió migracion_precio_anterior.sql (sale null).
+        (to_jsonb(p) ->> 'precio_anterior')::numeric AS precio_anterior,
         p.imagen_key,
         p.video_youtube,
         p.activo,
@@ -137,6 +141,14 @@ export async function POST(request) {
       RETURNING id
     `;
 
+    // "Precio antes" (oferta en la tienda) — consulta aparte y a prueba de
+    // fallos, ver lib/precioAnterior.js.
+    let avisoPrecioAnterior = null;
+    if (Object.prototype.hasOwnProperty.call(body, 'precio_anterior')) {
+      const r = await guardarPrecioAnterior(producto.id, body.precio_anterior, precio_venta);
+      if (!r.ok) avisoPrecioAnterior = r.aviso;
+    }
+
     // Deja el producto con stock 0 en todas las bodegas existentes, para que
     // aparezca de una vez en compras/ventas sin importar la bodega elegida.
     // Los servicios (es_inventariable = false) no manejan stock, así que no
@@ -152,7 +164,7 @@ export async function POST(request) {
       }
     }
 
-    return NextResponse.json({ ok: true, producto });
+    return NextResponse.json({ ok: true, producto, ...(avisoPrecioAnterior ? { aviso: avisoPrecioAnterior } : {}) });
   } catch (error) {
     if (String(error.message).includes('duplicate key')) {
       return NextResponse.json({ ok: false, error: 'Ya existe un producto con esa referencia' }, { status: 409 });

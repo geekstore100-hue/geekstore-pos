@@ -13,6 +13,8 @@ const vacio = {
   precio_venta: '',
   precio_costo: '',
   precio_distribuidor: '',
+  // "Precio antes" para mostrar el producto EN OFERTA en la tienda.
+  precio_anterior: '',
   activo: true,
   es_inventariable: true,
   mostrar_en_tienda: true,
@@ -536,6 +538,7 @@ export default function ProductosPage() {
       precio_venta: p.precio_venta || '',
       precio_costo: p.precio_costo || '',
       precio_distribuidor: p.precio_distribuidor || '',
+      precio_anterior: p.precio_anterior || '',
       activo: p.activo,
       es_inventariable: p.es_inventariable === undefined || p.es_inventariable === null ? true : p.es_inventariable,
       mostrar_en_tienda: p.mostrar_en_tienda === undefined || p.mostrar_en_tienda === null ? true : p.mostrar_en_tienda,
@@ -721,6 +724,10 @@ export default function ProductosPage() {
       cargarProductos();
       editarProducto({ ...form, id: data.producto.id });
       setError(`El producto se creó, pero la foto no se pudo guardar (${fotoFallo}). Puedes intentar subirla de nuevo aquí abajo.`);
+    } else if (data.ok && data.aviso) {
+      // Se guardó, pero hay algo que avisar (ej. falta una migración).
+      cargarProductos();
+      setError(data.aviso);
     } else if (data.ok) {
       setMostrarForm(false);
       cargarProductos();
@@ -744,7 +751,12 @@ export default function ProductosPage() {
     <Shell title="Productos">
       <div style={styles.header}>
         <h2 style={{ margin: 0 }}>Catálogo</h2>
-        <button onClick={nuevoProducto} style={styles.btnPrimario}>+ Nuevo producto</button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <a href="/productos/revisar-nombres" style={{ ...styles.btnSecundario, marginLeft: 0, textDecoration: 'none', color: 'inherit', fontSize: '14px' }}>
+            🪄 Revisar nombres con IA
+          </a>
+          <button onClick={nuevoProducto} style={styles.btnPrimario}>+ Nuevo producto</button>
+        </div>
       </div>
 
       {mostrarForm && (
@@ -935,6 +947,25 @@ export default function ProductosPage() {
             <label>
               Precio de venta
               <input type="number" step="0.01" value={form.precio_venta} onChange={(e) => setForm({ ...form, precio_venta: e.target.value })} style={styles.input} />
+            </label>
+            <label>
+              Precio antes (oferta)
+              <input
+                type="number"
+                step="1"
+                min="0"
+                value={form.precio_anterior}
+                placeholder="Vacío = sin oferta"
+                onChange={(e) => setForm({ ...form, precio_anterior: e.target.value })}
+                style={styles.input}
+              />
+              <span style={{ display: 'block', marginTop: '6px', fontWeight: 400, fontSize: '12px', color: 'var(--text-secondary)' }}>
+                {Number(form.precio_anterior) > Number(form.precio_venta) && Number(form.precio_venta) > 0
+                  ? `En la tienda sale en oferta: antes $${Number(form.precio_anterior).toLocaleString('es-CO')}, −${Math.round((1 - Number(form.precio_venta) / Number(form.precio_anterior)) * 100)}%.`
+                  : form.precio_anterior
+                    ? 'Tiene que ser mayor que el precio de venta para que salga en oferta.'
+                    : 'Si pones un precio mayor al de venta, la tienda lo muestra tachado y en la sección Ofertas.'}
+              </span>
             </label>
             {form.es_inventariable && (
               <label>
