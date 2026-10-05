@@ -8,9 +8,9 @@ const moneda = (n) => `$${Math.round(Number(n) || 0).toLocaleString('es-CO')}`;
 
 // Pedidos que hacen los distribuidores desde el portal de mayoristas de
 // la tienda online. Quedan como cotización pendiente — no tocan stock
-// ni generan ninguna venta. Acá se revisan, se imprimen, y cuando ya se
-// facturaron (a mano, aparte) se marcan como tal solo para llevar
-// registro de cuáles faltan por atender.
+// ni generan ninguna venta. Al abrir una se puede editar, imprimir y
+// "Facturar": se revisa/ajusta y se guarda como venta del POS (descuenta
+// inventario de la bodega elegida, por defecto Bodega Distribuidor).
 export default function CotizacionesDistribuidorPage() {
   const [cotizaciones, setCotizaciones] = useState([]);
   const [cargando, setCargando] = useState(true);
@@ -77,6 +77,8 @@ export default function CotizacionesDistribuidorPage() {
                   <span style={{ color: c.estado === 'facturada' ? '#067647' : '#b45309' }}>
                     {c.estado === 'facturada' ? '✓ Facturada' : '⏳ Pendiente'}
                   </span>
+                  {c.venta_id ? <span style={{ color: '#667', fontSize: '0.8rem' }}> · venta #{c.venta_id}</span> : null}
+                  {c.editada_en && c.estado === 'pendiente' ? <span style={{ color: '#667', fontSize: '0.8rem' }}> · editada</span> : null}
                 </td>
               </tr>
             ))}

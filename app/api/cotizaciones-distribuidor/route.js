@@ -12,6 +12,8 @@ export async function GET() {
       SELECT
         id, numero, distribuidor_nombre, distribuidor_cedula, total, estado,
         creado_en, facturada_en,
+        (to_jsonb(cotizaciones_distribuidor) ->> 'venta_id')::int AS venta_id,
+        (to_jsonb(cotizaciones_distribuidor) ->> 'editada_en') AS editada_en,
         (SELECT COUNT(*) FROM cotizacion_distribuidor_items WHERE cotizacion_id = cotizaciones_distribuidor.id) AS articulos
       FROM cotizaciones_distribuidor
       ORDER BY creado_en DESC
