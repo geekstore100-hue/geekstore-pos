@@ -2,8 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import Shell from '../../components/Shell';
+import AnaliticasTienda from '../../components/AnaliticasTienda';
 
-// Sección de Analíticas: en vez de reconstruir un dashboard de Google
+// Octubre 2026: la sección tiene dos pestañas:
+//   - "Tienda online" (por defecto): estadísticas propias de geekstore.com.co
+//     (components/AnaliticasTienda.js).
+//   - "Google Analytics": el reporte de Looker Studio de antes (abajo).
+//
+// Pestaña Google Analytics: en vez de reconstruir un dashboard de Google
 // Analytics 4 desde cero (eso exigiría crear un proyecto en Google Cloud,
 // una cuenta de servicio y guardar credenciales — mucho más trabajo y
 // mantenimiento para un beneficio similar), se embebe un reporte hecho en
@@ -11,7 +17,7 @@ import Shell from '../../components/Shell';
 // GA4 que ya está instalada en geekstore.com.co). Una sola vez se crea el
 // reporte y se pega el enlace acá; después queda disponible siempre en
 // esta pantalla, sin volver a tocar nada.
-export default function AnaliticasPage() {
+function GoogleAnalyticsLooker() {
   const [urlEmbed, setUrlEmbed] = useState('');
   const [cargando, setCargando] = useState(true);
   const [editando, setEditando] = useState(false);
@@ -58,14 +64,14 @@ export default function AnaliticasPage() {
 
   if (cargando) {
     return (
-      <Shell title="Analíticas">
+      <>
         <p>Cargando...</p>
-      </Shell>
+      </>
     );
   }
 
   return (
-    <Shell title="Analíticas">
+    <>
       {editando ? (
         <div style={styles.tarjeta}>
           <p style={{ marginTop: 0 }}>
@@ -124,6 +130,39 @@ export default function AnaliticasPage() {
           </div>
         </>
       )}
+    </>
+  );
+}
+
+export default function AnaliticasPage() {
+  const [pestana, setPestana] = useState('tienda');
+  return (
+    <Shell title="Analíticas">
+      <div style={{ display: 'flex', gap: '4px', borderBottom: '2px solid var(--border)', marginBottom: '16px' }}>
+        {[
+          ['tienda', 'Tienda online'],
+          ['google', 'Google Analytics'],
+        ].map(([id, nombre]) => (
+          <button
+            key={id}
+            onClick={() => setPestana(id)}
+            style={{
+              padding: '9px 16px',
+              border: 'none',
+              background: 'none',
+              cursor: 'pointer',
+              fontSize: '15px',
+              fontWeight: pestana === id ? 700 : 500,
+              color: pestana === id ? 'var(--teal-dark)' : 'var(--text-secondary)',
+              borderBottom: pestana === id ? '2px solid var(--teal-dark)' : '2px solid transparent',
+              marginBottom: '-2px',
+            }}
+          >
+            {nombre}
+          </button>
+        ))}
+      </div>
+      {pestana === 'tienda' ? <AnaliticasTienda /> : <GoogleAnalyticsLooker />}
     </Shell>
   );
 }
