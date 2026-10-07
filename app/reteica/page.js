@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Shell from '../../components/Shell';
 import RetencionesSinFactura from '../../components/RetencionesSinFactura';
+import { opcionesBimestres, nombreBimestre } from '../../lib/bimestres';
 
 // Fecha de HOY en hora de Colombia (AAAA-MM-DD). Antes usaba
 // toISOString(), que da la fecha en hora UTC (5 horas adelante): después de
@@ -53,6 +54,9 @@ export default function ReteicaPage() {
 
   const [empresaConfigurada, setEmpresaConfigurada] = useState(true);
 
+  // Bimestres para elegir el período de un clic (ver lib/bimestres.js).
+  const [bimestres] = useState(() => opcionesBimestres(hoyISO()));
+
   useEffect(() => {
     fetch('/api/proveedores')
       .then((r) => r.json())
@@ -92,8 +96,27 @@ export default function ReteicaPage() {
 
   async function actualizarPeriodo(e) {
     e.preventDefault();
-    cargarResumen(desde, hasta);
+    aplicarPeriodo(desde, hasta);
   }
+
+  // Cambia el período y recarga el resumen y, si hay un certificado
+  // abierto, también ese certificado con el período nuevo.
+  function aplicarPeriodo(d, h) {
+    setDesde(d);
+    setHasta(h);
+    cargarResumen(d, h);
+    if (datos) consultarProveedor(datos.proveedor.id, d, h);
+  }
+
+  function elegirBimestre(clave) {
+    if (clave === 'anio') return aplicarPeriodo(haceUnAñoISO(), hoyISO());
+    const b = bimestres.lista.find((x) => x.clave === clave);
+    if (b) aplicarPeriodo(b.desde, b.hasta);
+  }
+
+  const claveElegida =
+    bimestres.lista.find((b) => b.desde === desde && b.hasta === hasta)?.clave ||
+    (desde === haceUnAñoISO() && hasta === hoyISO() ? 'anio' : '');
 
   async function consultarProveedor(id, desdeParam, hastaParam) {
     setError('');
@@ -155,6 +178,19 @@ export default function ReteicaPage() {
 
       <form onSubmit={actualizarPeriodo} style={styles.barra}>
         <label>
+          Período
+          <select value={claveElegida} onChange={(e) => elegirBimestre(e.target.value)} style={styles.input}>
+            {claveElegida === '' && <option value="">Fechas personalizadas</option>}
+            {bimestres.lista.map((b) => (
+              <option key={b.clave} value={b.clave}>{b.etiqueta}</option>
+            ))}
+            <option value="anio">Último año</option>
+          </select>
+        </label>
+        <button type="button" onClick={() => elegirBimestre(bimestres.anterior.clave)} style={{ ...styles.btnSecundario, height: '38px' }}>
+          Bimestre anterior
+        </button>
+        <label>
           Desde
           <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} style={styles.input} />
         </label>
@@ -165,7 +201,9 @@ export default function ReteicaPage() {
         <button type="submit" disabled={cargandoResumen} style={styles.btnPrimario}>
           {cargandoResumen ? 'Actualizando...' : 'Actualizar período'}
         </button>
-        <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Por defecto se muestra el último año.</span>
+        <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+          Se filtra por la fecha de la factura. Por defecto se muestra el último año.
+        </span>
       </form>
 
       {errorResumen && <p style={{ color: 'var(--danger)' }}>{errorResumen}</p>}
@@ -175,6 +213,9 @@ export default function ReteicaPage() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <strong>Proveedores con retención en el período</strong>
             <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+              {nombreBimestre(resumen.periodo.desde, resumen.periodo.hasta)
+                ? `Bimestre ${nombreBimestre(resumen.periodo.desde, resumen.periodo.hasta)} · `
+                : ''}
               {String(resumen.periodo.desde)} a {String(resumen.periodo.hasta)}
             </span>
           </div>
@@ -276,6 +317,11 @@ export default function ReteicaPage() {
               {datos.proveedor.identificacion && (
                 <span style={{ color: 'var(--text-secondary)' }}> — {datos.proveedor.identificacion}</span>
               )}
+              <div style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '2px' }}>
+                {nombreBimestre(datos.periodo.desde, datos.periodo.hasta)
+                  ? `Bimestre ${nombreBimestre(datos.periodo.desde, datos.periodo.hasta)} (${datos.periodo.desde} a ${datos.periodo.hasta})`
+                  : `Período ${datos.periodo.desde} a ${datos.periodo.hasta}`}
+              </div>
             </div>
             <button onClick={descargarPdf} disabled={generandoPdf} style={styles.btnPrimario}>
               {generandoPdf ? 'Generando...' : '⬇ Descargar certificado (PDF)'}
