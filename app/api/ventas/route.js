@@ -23,6 +23,10 @@ export async function GET(request) {
               v.creado_en,
               v.anulada,
               v.anulada_en,
+              -- Ventas de eventos (ej. SOFA 2026, ver /ventas/rapida). Se
+              -- lee así para que no falle si aún no se corrió
+              -- migracion_ventas_evento.sql.
+              (to_jsonb(v) ->> 'evento') AS evento,
               (SELECT COUNT(*) FROM movimientos_stock m WHERE m.venta_id = v.id) AS items
             FROM ventas v
             LEFT JOIN vendedores ve ON ve.id = v.vendedor_id
@@ -38,6 +42,10 @@ export async function GET(request) {
               v.creado_en,
               v.anulada,
               v.anulada_en,
+              -- Ventas de eventos (ej. SOFA 2026, ver /ventas/rapida). Se
+              -- lee así para que no falle si aún no se corrió
+              -- migracion_ventas_evento.sql.
+              (to_jsonb(v) ->> 'evento') AS evento,
               (SELECT COUNT(*) FROM movimientos_stock m WHERE m.venta_id = v.id) AS items
             FROM ventas v
             LEFT JOIN vendedores ve ON ve.id = v.vendedor_id

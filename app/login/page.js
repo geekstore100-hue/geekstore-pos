@@ -30,7 +30,7 @@ export default function LoginPage() {
     setCargando(false);
 
     if (res.ok) {
-      router.push('/ventas');
+      router.push('/');
       router.refresh();
     } else {
       // El servidor puede decir algo más específico que "Clave incorrecta"

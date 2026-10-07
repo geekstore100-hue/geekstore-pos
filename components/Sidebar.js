@@ -4,8 +4,13 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 
-const links = [
+// Exportado también para el panel de inicio del celular (app/inicio), que
+// muestra "Todas las opciones" con esta misma lista.
+export const links = [
   { href: '/ventas', label: 'Vender', icon: IconCart },
+  // Venta rápida (octubre 2026): pantalla para el celular y para eventos
+  // como SOFA (ventas por fuera del turno, eligiendo la bodega).
+  { href: '/ventas/rapida', label: 'Venta rápida / eventos', icon: IconCelular },
   {
     href: '/productos',
     label: 'Inventario',
@@ -45,6 +50,7 @@ const links = [
     children: [
       { href: '/historial', label: 'Ventas', icon: IconHistorial },
       { href: '/turnos', label: 'Turnos', icon: IconTurno },
+      { href: '/eventos', label: 'Ventas de eventos', icon: IconHistorial },
     ],
   },
   { href: '/devoluciones', label: 'Devoluciones', icon: IconDevolucion },
@@ -349,6 +355,15 @@ const styles = {
     borderRadius: '8px',
   },
 };
+
+function IconCelular() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="6" y="2" width="12" height="20" rx="2.5" />
+      <path d="M11 18h2" />
+    </svg>
+  );
+}
 
 function IconHome() {
   return (

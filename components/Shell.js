@@ -1,12 +1,15 @@
 'use client';
 
 import { useEffect } from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
 import PanicoBoton from './PanicoBoton';
 import PanicoReceptor from './PanicoReceptor';
 import AvisoPedidoDistribuidor from './AvisoPedidoDistribuidor';
 
 export default function Shell({ title, children }) {
+  const pathname = usePathname();
   // Evita el problema clásico de los navegadores: si el mouse queda sobre un
   // <input type="number"> y la persona hace scroll con la rueda del mouse
   // para bajar la página, el navegador cambia el número en vez de scrollear.
@@ -80,6 +83,21 @@ export default function Shell({ title, children }) {
           flex-shrink: 0;
         }
         .pos-main { flex: 1; padding: 24px; min-width: 0; }
+        /* Celular (octubre 2026): sin la barra lateral de iconos. En su
+           lugar, arriba a la izquierda, el botón "Inicio" lleva al panel de
+           botones grandes (/inicio), donde también están "Todas las
+           opciones". */
+        .pos-boton-inicio { display: none; }
+        .pos-aviso-movil { display: none; }
+        @media (max-width: 768px) {
+          .pos-barra-lateral { display: none; }
+          .pos-boton-inicio {
+            display: inline-flex; align-items: center; gap: 6px; margin-right: 10px;
+            padding: 7px 10px; border-radius: 10px; border: 1px solid var(--border);
+            background: #fff; color: var(--text); font-weight: 600; font-size: 13px; text-decoration: none;
+          }
+          .pos-aviso-movil { display: block; }
+        }
         @media (max-width: 640px) {
           .pos-topbar { padding: 0 12px; }
           .pos-topbar .pos-title { font-size: 14px; }
@@ -87,13 +105,27 @@ export default function Shell({ title, children }) {
           .pos-main { padding: 12px; }
         }
       `}</style>
-      <div className="pos-no-imprimir"><Sidebar /></div>
+      <div className="pos-no-imprimir pos-barra-lateral"><Sidebar /></div>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <header className="pos-no-imprimir pos-topbar">
-          <span className="pos-title" style={styles.title}>{title}</span>
+          <span style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+            {pathname !== '/inicio' && (
+              <Link href="/inicio" className="pos-boton-inicio" aria-label="Ir al inicio">
+                <span aria-hidden="true">☰</span> Inicio
+              </Link>
+            )}
+            <span className="pos-title" style={styles.title}>{title}</span>
+          </span>
           <span className="pos-badge" style={styles.badge}>Geek Store</span>
         </header>
-        <main className="pos-main">{children}</main>
+        <main className="pos-main">
+          {pathname === '/ventas' && (
+            <Link href="/ventas/rapida" className="pos-aviso-movil pos-no-imprimir" style={styles.avisoMovil}>
+              📱 Estás en el celular: abre la <strong>Venta rápida</strong>, hecha para vender desde aquí →
+            </Link>
+          )}
+          {children}
+        </main>
       </div>
       {/* Botón de pánico: PanicoBoton es el control remoto (solo se ve/hace
           algo en celular) y PanicoReceptor es la pantalla que se oculta
@@ -110,7 +142,17 @@ export default function Shell({ title, children }) {
 }
 
 const styles = {
-  title: { fontWeight: 600, fontSize: '16px' },
+  title: { fontWeight: 600, fontSize: '16px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  avisoMovil: {
+    background: 'var(--teal-light)',
+    border: '1px solid var(--teal)',
+    color: 'var(--teal-dark)',
+    borderRadius: '10px',
+    padding: '10px 12px',
+    marginBottom: '12px',
+    fontSize: '14px',
+    textDecoration: 'none',
+  },
   badge: {
     background: '#111827',
     color: '#fff',

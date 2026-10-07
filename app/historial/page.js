@@ -132,6 +132,11 @@ export default function HistorialPage() {
                 <td style={styles.td} onClick={() => abrirDetalle(v.id)}>{moneda(v.total)}</td>
                 <td style={styles.td} onClick={() => abrirDetalle(v.id)}>
                   {v.anulada ? <span style={styles.badgeAnulada}>Anulada</span> : <span style={styles.badgeActiva}>Activa</span>}
+                  {v.evento ? (
+                    <span style={{ ...styles.badgeActiva, background: '#eef2ff', color: '#4338ca', marginLeft: '6px' }} title="Venta de evento: no está en el turno de la tienda">
+                      {v.evento}
+                    </span>
+                  ) : null}
                 </td>
                 <td style={styles.td}>
                   {!v.anulada && esHoy(v.creado_en) && (
