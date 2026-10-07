@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../../lib/db';
 import { leerDatosEmpresa } from '../../../../lib/datosEmpresa';
+import { retencionesDelPeriodo } from '../../../../lib/retencionesReteica';
 
 // Datos para armar el certificado de retención de ReteICA de un proveedor
 // en un período (Reportes > Certificados ReteICA / módulo /reteica). Junta
@@ -30,15 +31,10 @@ export async function GET(request) {
       return NextResponse.json({ ok: false, error: 'El proveedor no existe' }, { status: 404 });
     }
 
-    const facturas = await sql`
-      SELECT id, numero, fecha_creacion, retencion_porcentaje, retencion_base, retencion_valor
-      FROM facturas_compra
-      WHERE proveedor_id = ${proveedorId}
-        AND fecha_creacion >= ${desde}
-        AND fecha_creacion <= ${hasta}
-        AND retencion_valor > 0
-      ORDER BY fecha_creacion ASC
-    `;
+    // Facturas de compra del POS con retención + retenciones registradas
+    // sin factura de compra (Eve Jeans u otras): mismo NIT, mismo
+    // certificado. Ver lib/retencionesReteica.js.
+    const facturas = await retencionesDelPeriodo({ desde, hasta, proveedorId });
 
     const totalBase = facturas.reduce((acc, f) => acc + Number(f.retencion_base || 0), 0);
     const totalRetenido = facturas.reduce((acc, f) => acc + Number(f.retencion_valor || 0), 0);

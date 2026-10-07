@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Shell from '../../components/Shell';
+import RetencionesSinFactura from '../../components/RetencionesSinFactura';
 
 // Fecha de HOY en hora de Colombia (AAAA-MM-DD). Antes usaba
 // toISOString(), que da la fecha en hora UTC (5 horas adelante): después de
@@ -19,6 +20,14 @@ function moneda(n) {
   return `$${Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
 }
 
+// Las filas vienen de dos fuentes: 'f-12' = factura de compra del POS y
+// 'r-5' = retención registrada sin factura (Eve Jeans u otras).
+function numeroFactura(f) {
+  if (f.numero) return String(f.numero);
+  const id = String(f.id);
+  return id.startsWith('f-') ? `#${id.slice(2)}` : '—';
+}
+
 // Certificado de retención de ReteICA para un proveedor, por período. Al
 // entrar se ve de una vez el resumen de TODOS los proveedores que tuvieron
 // retención en el último año (sin necesidad de buscar primero); se hace
@@ -32,6 +41,8 @@ export default function ReteicaPage() {
   const [hasta, setHasta] = useState(hoyISO());
 
   const [resumen, setResumen] = useState(null);
+  // El período que de verdad se consultó (no el que se está escribiendo).
+  const [periodo, setPeriodo] = useState({ desde: haceUnAñoISO(), hasta: hoyISO() });
   const [cargandoResumen, setCargandoResumen] = useState(false);
   const [errorResumen, setErrorResumen] = useState('');
 
@@ -54,6 +65,7 @@ export default function ReteicaPage() {
   async function cargarResumen(desdeParam, hastaParam) {
     setErrorResumen('');
     setCargandoResumen(true);
+    setPeriodo({ desde: desdeParam, hasta: hastaParam });
     try {
       const res = await fetch(`/api/reteica/resumen?desde=${desdeParam}&hasta=${hastaParam}`);
       const data = await res.json();
@@ -129,9 +141,9 @@ export default function ReteicaPage() {
   return (
     <Shell title="Certificados ReteICA">
       <p style={{ color: 'var(--text-secondary)', marginTop: 0 }}>
-        Genera el certificado de retención en la fuente por ICA de un proveedor, para un período de fechas, con las
-        facturas de compra que tuvieron retención practicada. Se descarga como PDF para que lo envíes tú al
-        proveedor (por ahora no se envía por correo automáticamente).
+        Todas las retenciones de ReteICA que practicas: las de las facturas de compra de Geek Store y las que registras
+        abajo sin factura de compra (Eve Jeans). Con el total del período sabes cuánto declarar, y por cada proveedor
+        puedes descargar el certificado en PDF para enviárselo tú (por ahora no se envía por correo automáticamente).
       </p>
 
       {!empresaConfigurada && (
@@ -170,6 +182,7 @@ export default function ReteicaPage() {
             <thead>
               <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
                 <th style={styles.th}>Proveedor</th>
+                <th style={styles.th}>Negocio</th>
                 <th style={styles.th}>Identificación</th>
                 <th style={styles.th}>Facturas</th>
                 <th style={styles.th}>Base retención</th>
@@ -181,6 +194,7 @@ export default function ReteicaPage() {
               {resumen.proveedores.map((p) => (
                 <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={styles.td}>{p.nombre}</td>
+                  <td style={styles.td}>{(p.negocios || ['Geek Store']).join(' + ')}</td>
                   <td style={styles.td}>{p.identificacion || '—'}</td>
                   <td style={styles.td}>{p.facturas}</td>
                   <td style={styles.td}>{moneda(p.total_base)}</td>
@@ -198,14 +212,22 @@ export default function ReteicaPage() {
               ))}
               {resumen.proveedores.length === 0 && (
                 <tr>
-                  <td style={styles.td} colSpan={6}>Ningún proveedor tuvo retención practicada en este período.</td>
+                  <td style={styles.td} colSpan={7}>Ningún proveedor tuvo retención practicada en este período.</td>
                 </tr>
               )}
             </tbody>
             {resumen.proveedores.length > 0 && (
               <tfoot>
+                {Object.entries(resumen.totales.porNegocio || {}).length > 1 &&
+                  Object.entries(resumen.totales.porNegocio).map(([negocio, valor]) => (
+                    <tr key={negocio} style={{ color: 'var(--text-secondary)' }}>
+                      <td style={styles.td} colSpan={5}>Retenido por {negocio}</td>
+                      <td style={styles.td}>{moneda(valor)}</td>
+                      <td style={styles.td}></td>
+                    </tr>
+                  ))}
                 <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 'bold' }}>
-                  <td style={styles.td} colSpan={4}>Total retenido</td>
+                  <td style={styles.td} colSpan={5}>Total retenido (a declarar)</td>
                   <td style={styles.td}>{moneda(resumen.totales.retenido)}</td>
                   <td style={styles.td}></td>
                 </tr>
@@ -214,6 +236,17 @@ export default function ReteicaPage() {
           </table>
         </div>
       )}
+
+      <RetencionesSinFactura
+        desde={periodo.desde}
+        hasta={periodo.hasta}
+        proveedores={proveedores}
+        setProveedores={setProveedores}
+        onCambio={() => {
+          cargarResumen(periodo.desde, periodo.hasta);
+          if (datos) consultarProveedor(datos.proveedor.id, periodo.desde, periodo.hasta);
+        }}
+      />
 
       <form onSubmit={consultar} style={styles.barra}>
         <label>
@@ -253,6 +286,7 @@ export default function ReteicaPage() {
             <thead>
               <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
                 <th style={styles.th}>Fecha</th>
+                <th style={styles.th}>Negocio</th>
                 <th style={styles.th}>N.° factura</th>
                 <th style={styles.th}>Base retención</th>
                 <th style={styles.th}>Tarifa</th>
@@ -263,7 +297,8 @@ export default function ReteicaPage() {
               {datos.facturas.map((f) => (
                 <tr key={f.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={styles.td}>{String(f.fecha_creacion).slice(0, 10)}</td>
-                  <td style={styles.td}>{f.numero || `#${f.id}`}</td>
+                  <td style={styles.td}>{f.negocio || 'Geek Store'}</td>
+                  <td style={styles.td}>{numeroFactura(f)}</td>
                   <td style={styles.td}>{moneda(f.retencion_base)}</td>
                   <td style={styles.td}>{Number(f.retencion_porcentaje).toLocaleString('es-CO', { maximumFractionDigits: 2 })}%</td>
                   <td style={styles.td}>{moneda(f.retencion_valor)}</td>
@@ -271,13 +306,13 @@ export default function ReteicaPage() {
               ))}
               {datos.facturas.length === 0 && (
                 <tr>
-                  <td style={styles.td} colSpan={5}>No hay facturas con retención de este proveedor en ese período.</td>
+                  <td style={styles.td} colSpan={6}>No hay retenciones de este proveedor en ese período.</td>
                 </tr>
               )}
             </tbody>
             <tfoot>
               <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 'bold' }}>
-                <td style={styles.td} colSpan={4}>Total retenido</td>
+                <td style={styles.td} colSpan={5}>Total retenido</td>
                 <td style={styles.td}>{moneda(datos.totales.retenido)}</td>
               </tr>
             </tfoot>
