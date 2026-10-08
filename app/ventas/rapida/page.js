@@ -401,7 +401,7 @@ export default function VentaRapidaPage() {
     setTimeout(() => buscador.current?.focus(), 50);
   }
 
-  const textoWhatsapp = hecha ? textoComprobante(hecha, empresa) + (cuponVenta ? `\n${lineaCuponComprobante(cuponVenta)}` : '') : '';
+  const textoWhatsapp = hecha ? textoComprobante(hecha, empresa, cuponVenta ? lineaCuponComprobante(cuponVenta) : '') : '';
   const nombreCorto = (b) => (b === 'Bodega Distribuidor' ? 'Distribuidor' : b);
 
   return (
