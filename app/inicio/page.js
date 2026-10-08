@@ -17,6 +17,8 @@ const PRINCIPALES = [
   { href: '/lista-compras', label: 'Lista de compras', emoji: '📝', color: '#ec4899' },
   { href: '/reteica', label: 'Certificados ReteICA', emoji: '🧾', color: '#0ea5e9' },
   { href: '/analiticas', label: 'Analíticas', emoji: '📈', color: '#22c55e' },
+  { href: '/cupones', label: 'Cupones', emoji: '🎟️', color: '#ef4444' },
+  { href: '/eventos', label: 'Ventas de eventos', emoji: '📊', color: '#8b5cf6' },
 ];
 
 export default function InicioPage() {
