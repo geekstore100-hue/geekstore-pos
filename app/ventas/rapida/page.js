@@ -729,7 +729,7 @@ export default function VentaRapidaPage() {
                   <div style={{ fontSize: '13px', color: '#8a5a00', marginTop: '4px' }}>Este celular ya tenía cupón: es el mismo (uno por persona).</div>
                 )}
                 <a
-                  href={enlaceWhatsapp(dcTel, textoCuponWhatsapp(dcCupon))}
+                  href={enlaceWhatsapp(dcTel, textoCuponWhatsapp({ ...dcCupon, cliente_nombre: dcNombre.trim() || dcCupon.cliente_nombre }))}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="vr-principal"
