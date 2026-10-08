@@ -11,6 +11,8 @@ export const links = [
   // Venta rápida (octubre 2026): pantalla para el celular y para eventos
   // como SOFA (ventas por fuera del turno, eligiendo la bodega).
   { href: '/ventas/rapida', label: 'Venta rápida / eventos', icon: IconCelular },
+  // Cupones (octubre 2026): canjear y ver la campaña (SOFA 2026).
+  { href: '/cupones', label: 'Cupones', icon: IconTag },
   {
     href: '/productos',
     label: 'Inventario',

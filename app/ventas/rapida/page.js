@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import Shell from '../../../components/Shell';
 import { textoComprobante, enlaceWhatsapp } from '../../../lib/comprobanteWhatsapp';
+import { textoCuponWhatsapp, lineaCuponComprobante } from '../../../lib/cuponTexto';
 
 // VENTA RÁPIDA para el celular (octubre 2026) — pensada para vender en
 // eventos como SOFA 2026 parado en el stand, con una mano:
@@ -88,6 +89,15 @@ export default function VentaRapidaPage() {
   const [guardando, setGuardando] = useState(false);
   const [errorVenta, setErrorVenta] = useState('');
   const [hecha, setHecha] = useState(null);
+  // Cupones (octubre 2026): el de la venta (va en el comprobante) y el
+  // de "Dar cupón" (a quien no compra).
+  const [cuponVenta, setCuponVenta] = useState(null);
+  const [darCupon, setDarCupon] = useState(false);
+  const [dcTel, setDcTel] = useState('');
+  const [dcNombre, setDcNombre] = useState('');
+  const [dcCupon, setDcCupon] = useState(null);
+  const [dcError, setDcError] = useState('');
+  const [dcCargando, setDcCargando] = useState(false);
 
   const [pendientes, setPendientes] = useState([]);
   const enviando = useRef(false);
@@ -312,6 +322,7 @@ export default function VentaRapidaPage() {
       }
       descontarLocal();
       setHecha({ ...resumen, numero: d.ventaId });
+      if (modo === 'evento') crearCuponDeVenta(clienteTel, clienteNombre.trim(), d.ventaId);
       cargar();
     } catch {
       // Sin internet: se guarda en el celular y se envía sola después.
@@ -326,6 +337,45 @@ export default function VentaRapidaPage() {
     } finally {
       setGuardando(false);
     }
+  }
+
+  // Cupón de regreso para quien compra en el evento: va en el comprobante.
+  async function pedirCupon(datos) {
+    const r = await fetch('/api/cupones', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(datos) });
+    return r.json().catch(() => ({}));
+  }
+  async function crearCuponDeVenta(tel, nombre, ventaId) {
+    try {
+      let d = await pedirCupon({ telefono: tel, nombre, venta_id: ventaId });
+      // Si el celular quedó mal escrito, igual se entrega el cupón (sin celular).
+      if (!d.ok && tel) d = await pedirCupon({ nombre, venta_id: ventaId });
+      if (d.ok) setCuponVenta(d.cupon);
+    } catch {
+      // sin internet o sin la migración: el comprobante sale sin cupón
+    }
+  }
+
+  async function entregarCupon() {
+    setDcError('');
+    const digitos = dcTel.replace(/\D/g, '');
+    if (digitos && !/^(57)?3\d{9}$/.test(digitos)) return setDcError('El celular debe tener 10 dígitos y empezar por 3');
+    setDcCargando(true);
+    try {
+      const d = await pedirCupon({ telefono: digitos, nombre: dcNombre.trim() });
+      if (!d.ok) return setDcError(d.error || 'No se pudo crear el cupón');
+      setDcCupon({ ...d.cupon, _existente: Boolean(d.existente) });
+    } catch {
+      setDcError('Sin internet: el cupón necesita conexión para crearse.');
+    } finally {
+      setDcCargando(false);
+    }
+  }
+  function cerrarDarCupon() {
+    setDarCupon(false);
+    setDcTel('');
+    setDcNombre('');
+    setDcCupon(null);
+    setDcError('');
   }
 
   // Descuenta en pantalla el stock vendido (la próxima carga trae el real).
@@ -344,13 +394,14 @@ export default function VentaRapidaPage() {
   function nuevaVenta() {
     setCarrito([]);
     setHecha(null);
+    setCuponVenta(null);
     setCobrando(false);
     setClienteNombre('');
     setClienteTel('');
     setTimeout(() => buscador.current?.focus(), 50);
   }
 
-  const textoWhatsapp = hecha ? textoComprobante(hecha, empresa) : '';
+  const textoWhatsapp = hecha ? textoComprobante(hecha, empresa) + (cuponVenta ? `\n${lineaCuponComprobante(cuponVenta)}` : '') : '';
   const nombreCorto = (b) => (b === 'Bodega Distribuidor' ? 'Distribuidor' : b);
 
   return (
@@ -407,9 +458,12 @@ export default function VentaRapidaPage() {
                 <span style={{ color: 'var(--text-secondary)' }}>Evento:</span>
                 <strong>{evento || '—'}</strong>
                 <button type="button" className="vr-chip" onClick={() => setEditandoEvento(true)}>Cambiar</button>
-                <Link href={`/eventos?evento=${encodeURIComponent(evento)}`} className="vr-chip" style={{ marginLeft: 'auto', textDecoration: 'none' }}>
-                  📊 Resumen
-                </Link>
+                <span style={{ marginLeft: 'auto', display: 'flex', gap: '6px' }}>
+                  <button type="button" className="vr-chip on" onClick={() => setDarCupon(true)}>🎟️ Dar cupón</button>
+                  <Link href={`/eventos?evento=${encodeURIComponent(evento)}`} className="vr-chip" style={{ textDecoration: 'none' }}>
+                    📊
+                  </Link>
+                </span>
               </>
             )}
           </div>
@@ -636,7 +690,58 @@ export default function VentaRapidaPage() {
               Enviar comprobante por WhatsApp
             </a>
             {!hecha.clienteTel && <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '6px 0 0' }}>Sin número: WhatsApp te deja elegir el contacto.</p>}
+            {cuponVenta && (
+              <p style={{ fontSize: '13px', color: 'var(--teal-dark)', margin: '8px 0 0', fontWeight: 600 }}>
+                🎟️ El comprobante incluye su cupón de regreso: {cuponVenta.codigo}
+              </p>
+            )}
             <button type="button" className="vr-sec" style={{ marginTop: '10px' }} onClick={nuevaVenta}>Nueva venta</button>
+          </div>
+        </div>
+      )}
+      {/* Dar cupón (a quien no compra) */}
+      {darCupon && (
+        <div className="vr-fondo" onClick={(e) => e.target === e.currentTarget && cerrarDarCupon()}>
+          <div className="vr-hoja">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <strong style={{ fontSize: '18px' }}>🎟️ Dar cupón</strong>
+              <button type="button" onClick={cerrarDarCupon} style={{ border: 'none', background: 'none', fontSize: '15px', color: 'var(--text-secondary)' }}>Cerrar</button>
+            </div>
+            {!dcCupon ? (
+              <>
+                <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: '6px 0 0' }}>
+                  Se crea un código único y se abre WhatsApp con el mensaje listo: descuento en la página, bono y doble garantía en servicio técnico, y el video de cómo trabajamos.
+                </p>
+                <label className="vr-label">Celular / WhatsApp</label>
+                <input className="vr-input" type="tel" inputMode="tel" value={dcTel} onChange={(e) => setDcTel(e.target.value)} placeholder="300 123 4567" autoFocus />
+                <label className="vr-label">Nombre (opcional)</label>
+                <input className="vr-input" value={dcNombre} onChange={(e) => setDcNombre(e.target.value)} placeholder="Nombre" autoComplete="off" />
+                {dcError && <div className="vr-error">{dcError}</div>}
+                <button type="button" className="vr-principal" style={{ marginTop: '14px' }} onClick={entregarCupon} disabled={dcCargando}>
+                  {dcCargando ? 'Creando...' : 'Crear cupón'}
+                </button>
+              </>
+            ) : (
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '10px' }}>Código</div>
+                <div style={{ fontSize: '30px', fontWeight: 800, letterSpacing: '1px' }}>{dcCupon.codigo}</div>
+                {dcCupon._existente && (
+                  <div style={{ fontSize: '13px', color: '#8a5a00', marginTop: '4px' }}>Este celular ya tenía cupón: es el mismo (uno por persona).</div>
+                )}
+                <a
+                  href={enlaceWhatsapp(dcTel, textoCuponWhatsapp(dcCupon))}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="vr-principal"
+                  style={{ display: 'block', textDecoration: 'none', background: '#25d366', marginTop: '14px' }}
+                >
+                  Enviar cupón por WhatsApp
+                </a>
+                <button type="button" className="vr-sec" style={{ marginTop: '10px' }} onClick={() => { setDcCupon(null); setDcTel(''); setDcNombre(''); }}>
+                  Otro cupón
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
