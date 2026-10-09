@@ -11,7 +11,8 @@ import Shell from '../../components/Shell';
 //      registrado que el cupón ya se usó.
 //   2) El reporte de la campaña: cuántos se entregaron, cuántos se usaron
 //      (en la página, en la tienda, en servicio técnico) y cuánto vendieron.
-// Los cupones se entregan desde Venta rápida ("🎟️ Dar cupón", o solos en
+// Los cupones se entregan desde Venta rápida ("🎟️ Dar cupón", que también
+// se abre directo con /ventas/rapida?cupon=1 desde aquí y desde el Inicio, o solos en
 // el comprobante de cada venta del evento).
 
 function moneda(n) {
@@ -247,7 +248,7 @@ export default function CuponesPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
               <h3 style={{ margin: 0 }}>Campaña {datos.campana}</h3>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <Link href="/ventas/rapida" className="cp-sec">🎟️ Dar cupón</Link>
+                <Link href="/ventas/rapida?cupon=1" className="cp-sec">🎟️ Dar cupón</Link>
                 <button type="button" className="cp-sec" onClick={csvContactos}>⬇ Contactos (CSV)</button>
               </div>
             </div>

@@ -39,6 +39,7 @@ export default function InicioPage() {
         .ini-emoji { width: 46px; height: 46px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
         .ini-texto { font-weight: 700; font-size: 16px; line-height: 1.2; }
         .ini-todas { grid-column: 1 / -1; min-height: 0; flex-direction: row; align-items: center; justify-content: flex-start; gap: 12px; padding: 14px 16px; width: 100%; font: inherit; cursor: pointer; text-align: left; }
+        .ini-cupon { border: 2px dashed #ef4444; background: #fef2f2; color: #b91c1c; }
         .ini-lista { background: #fff; border: 1px solid var(--border); border-radius: 16px; margin-top: 12px; overflow: hidden; }
         .ini-lista a { display: flex; align-items: center; gap: 12px; padding: 13px 16px; color: var(--text); text-decoration: none; border-bottom: 1px solid var(--border); font-size: 15px; }
         .ini-grupo { padding: 12px 16px 4px; font-size: 12px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .04em; }
@@ -46,6 +47,13 @@ export default function InicioPage() {
       `}</style>
       <div className="ini">
         <div className="ini-grid">
+          {/* Dar cupón (octubre 2026): de primero y a todo el ancho, abre el
+              formulario directo en Venta rápida. */}
+          <Link href="/ventas/rapida?cupon=1" className="ini-boton ini-todas ini-cupon">
+            <span className="ini-emoji" style={{ background: '#ef44441f' }}>🎟️</span>
+            <span className="ini-texto" style={{ flex: 1 }}>Dar cupón</span>
+            <span style={{ fontSize: '20px', color: '#b91c1c' }}>›</span>
+          </Link>
           {PRINCIPALES.map((b) => (
             <Link key={b.href} href={b.href} className="ini-boton">
               <span className="ini-emoji" style={{ background: `${b.color}1f` }}>{b.emoji}</span>

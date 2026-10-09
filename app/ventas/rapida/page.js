@@ -115,6 +115,19 @@ export default function VentaRapidaPage() {
     if (cache?.productos) setProductos(cache.productos);
     if (cache?.bodegas) setBodegas(cache.bodegas);
     setListo(true);
+    // /ventas/rapida?cupon=1 abre de una vez el formulario de "Dar cupón"
+    // (botón del Inicio y de la página de Cupones). Se quita del enlace para
+    // que no vuelva a abrirse al recargar.
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get('cupon')) {
+        setDarCupon(true);
+        url.searchParams.delete('cupon');
+        window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+      }
+    } catch {
+      /* sin URL: no pasa nada */
+    }
   }, []);
   useEffect(() => { if (listo) guardar(K.modo, modo); }, [modo, listo]);
   useEffect(() => { if (listo) guardar(K.evento, evento); }, [evento, listo]);
@@ -429,6 +442,8 @@ export default function VentaRapidaPage() {
         .vr-principal { border: none; background: var(--teal); color: #fff; font-size: 18px; font-weight: 700; padding: 15px; border-radius: 12px; width: 100%; }
         .vr-principal:disabled { opacity: .5; }
         .vr-sec { border: 1px solid var(--border); background: #fff; color: var(--text); font-size: 16px; font-weight: 600; padding: 13px; border-radius: 12px; width: 100%; }
+        .vr-dar-cupon { display: block; width: 100%; margin: 0 0 10px; padding: 12px; border: 2px dashed #ef4444; border-radius: 12px; background: #fef2f2; color: #b91c1c; font-size: 16px; font-weight: 800; }
+        .vr-dar-cupon:active { transform: scale(.99); }
         .vr-fondo { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 50; display: flex; align-items: flex-end; justify-content: center; }
         .vr-hoja { background: #fff; width: 100%; max-width: 640px; max-height: 92dvh; overflow-y: auto; border-radius: 18px 18px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); }
         .vr-medios { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -459,7 +474,6 @@ export default function VentaRapidaPage() {
                 <strong>{evento || '—'}</strong>
                 <button type="button" className="vr-chip" onClick={() => setEditandoEvento(true)}>Cambiar</button>
                 <span style={{ marginLeft: 'auto', display: 'flex', gap: '6px' }}>
-                  <button type="button" className="vr-chip on" onClick={() => setDarCupon(true)}>🎟️ Dar cupón</button>
                   <Link href={`/eventos?evento=${encodeURIComponent(evento)}`} className="vr-chip" style={{ textDecoration: 'none' }}>
                     📊
                   </Link>
@@ -472,6 +486,9 @@ export default function VentaRapidaPage() {
             {turnoAbierto ? 'Las ventas entran al turno de caja abierto de la tienda.' : 'No hay turno abierto en la tienda: ábrelo en Vender o usa el modo Evento.'}
           </p>
         )}
+        {/* Dar cupón: botón grande y visible en los dos modos (antes era un
+            chip pequeño que solo salía en modo Evento). */}
+        <button type="button" className="vr-dar-cupon" onClick={() => setDarCupon(true)}>🎟️ Dar cupón</button>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', fontSize: '13px', flexWrap: 'wrap' }}>
           <span style={{ color: 'var(--text-secondary)' }}>Sale por defecto de:</span>
           {['Principal', 'Bodega Distribuidor'].map((b) => (
@@ -710,7 +727,7 @@ export default function VentaRapidaPage() {
             {!dcCupon ? (
               <>
                 <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: '6px 0 0' }}>
-                  Se crea un código único y se abre WhatsApp con el mensaje listo: descuento en la página, bono y doble garantía en servicio técnico, y el video de cómo trabajamos.
+                  Se crea un código único y se abre WhatsApp con el mensaje listo: descuento en la página y bono + doble garantía en servicio técnico.
                 </p>
                 <label className="vr-label">Celular / WhatsApp</label>
                 <input className="vr-input" type="tel" inputMode="tel" value={dcTel} onChange={(e) => setDcTel(e.target.value)} placeholder="300 123 4567" autoFocus />
