@@ -209,6 +209,8 @@ export default function HistorialPage() {
                   <span>Total</span><span>{moneda(detalle.venta.total)}</span>
                 </div>
 
+                <CostoYGanancia detalle={detalle} moneda={moneda} />
+
                 {!detalle.venta.anulada && esHoy(detalle.venta.creado_en) && (
                   <button
                     onClick={() => anularVenta(detalle.venta.id)}
@@ -226,6 +228,96 @@ export default function HistorialPage() {
     </Shell>
   );
 }
+
+// Desplegable "Costo y ganancia" (octubre 2026): debajo del total de cada
+// venta, cerrado por defecto. Muestra el costo de la mercancía vendida
+// (costo promedio de cada producto × cantidad) y la ganancia bruta.
+//   - Vendido: el total cobrado de la venta.
+//   - El costo es el costo promedio ACTUAL del producto (el POS no guarda
+//     el costo del día de la venta), así que en ventas viejas es un
+//     estimado.
+//   - Los servicios (no inventariables) no tienen costo; los productos
+//     inventariables sin costo registrado se avisan aparte, porque inflan
+//     la ganancia.
+function CostoYGanancia({ detalle, moneda }) {
+  const [abierto, setAbierto] = useState(false);
+  const items = detalle.items || [];
+  const lineas = items.map((it) => {
+    const cantidad = Number(it.cantidad) || 0;
+    const servicio = it.costo_unitario === null || it.costo_unitario === undefined || it.es_inventariable === false;
+    const unitario = servicio ? 0 : Number(it.costo_unitario) || 0;
+    return { ...it, cantidad, servicio, unitario, total: unitario * cantidad, sinCosto: !servicio && unitario <= 0 };
+  });
+  const costo = lineas.reduce((a, l) => a + l.total, 0);
+  const vendido = Number(detalle.venta.total) || 0;
+  const ganancia = vendido - costo;
+  const margen = vendido > 0 ? (ganancia / vendido) * 100 : 0;
+  const sinCosto = lineas.filter((l) => l.sinCosto).length;
+  const servicios = lineas.filter((l) => l.servicio).length;
+
+  return (
+    <div style={estilosCosto.caja}>
+      <button type="button" style={estilosCosto.titulo} onClick={() => setAbierto((a) => !a)} aria-expanded={abierto}>
+        <span>{abierto ? '▾' : '▸'} 💰 Costo y ganancia</span>
+        <span style={{ color: ganancia >= 0 ? 'var(--teal-dark)' : 'var(--danger)' }}>{moneda(ganancia)}</span>
+      </button>
+      {abierto && (
+      <>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', marginTop: '8px' }}>
+        <thead>
+          <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+            <th style={estilosCosto.th}>Producto</th>
+            <th style={{ ...estilosCosto.th, textAlign: 'right' }}>Cant.</th>
+            <th style={{ ...estilosCosto.th, textAlign: 'right' }}>Costo unit.</th>
+            <th style={{ ...estilosCosto.th, textAlign: 'right' }}>Costo total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lineas.map((l, i) => (
+            <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+              <td style={estilosCosto.td}>{l.nombre}</td>
+              <td style={{ ...estilosCosto.td, textAlign: 'right' }}>{l.cantidad}</td>
+              <td style={{ ...estilosCosto.td, textAlign: 'right' }}>
+                {l.servicio ? <span style={{ color: 'var(--text-secondary)' }}>Servicio</span> : l.sinCosto ? <span style={{ color: '#b45309' }}>Sin costo</span> : moneda(l.unitario)}
+              </td>
+              <td style={{ ...estilosCosto.td, textAlign: 'right' }}>{l.servicio ? '—' : moneda(l.total)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div style={estilosCosto.fila}><span>Vendido</span><strong>{moneda(vendido)}</strong></div>
+      <div style={estilosCosto.fila}><span>Costo de la mercancía</span><strong>{moneda(costo)}</strong></div>
+      <div style={{ ...estilosCosto.fila, borderTop: '1px solid var(--border)', marginTop: '4px', paddingTop: '8px' }}>
+        <span>Ganancia bruta</span>
+        <strong style={{ color: ganancia >= 0 ? 'var(--teal-dark)' : 'var(--danger)' }}>
+          {moneda(ganancia)} {vendido > 0 ? `(${margen.toFixed(1).replace('.', ',')} %)` : ''}
+        </strong>
+      </div>
+      {sinCosto > 0 && (
+        <div style={estilosCosto.aviso}>
+          {sinCosto === 1 ? '1 producto no tiene' : `${sinCosto} productos no tienen`} costo registrado: la ganancia sale más alta de lo real. Ponle el costo en Productos.
+        </div>
+      )}
+      <p style={estilosCosto.nota}>
+        Costo promedio actual de cada producto (no el del día de la venta).
+        {servicios > 0 ? ' Los servicios no tienen costo de mercancía.' : ''}
+        {detalle.venta.anulada ? ' Esta venta está anulada: no cuenta como ganancia.' : ''}
+      </p>
+      </>
+      )}
+    </div>
+  );
+}
+
+const estilosCosto = {
+  caja: { marginTop: '14px', border: '1px solid var(--border)', borderRadius: '10px', padding: '10px 12px', background: '#fafafa' },
+  titulo: { cursor: 'pointer', fontWeight: 700, fontSize: '14px', display: 'flex', justifyContent: 'space-between', gap: '8px', width: '100%', border: 'none', background: 'none', padding: 0, color: 'inherit', textAlign: 'left' },
+  th: { padding: '6px 4px', fontSize: '12px', color: 'var(--text-secondary)' },
+  td: { padding: '6px 4px', fontSize: '13px' },
+  fila: { display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: '14px' },
+  aviso: { marginTop: '8px', background: '#fff7e6', border: '1px solid #f5c377', color: '#8a5a00', borderRadius: '8px', padding: '8px 10px', fontSize: '12px' },
+  nota: { margin: '8px 0 0', fontSize: '11px', color: 'var(--text-secondary)' },
+};
 
 const styles = {
   input: { display: 'block', padding: '9px', marginTop: '4px', borderRadius: '8px', border: '1px solid var(--border)' },

@@ -24,7 +24,12 @@ export async function GET(request, { params }) {
         m.bodega_id,
         m.cantidad,
         m.precio_unitario,
-        m.descuento_porcentaje
+        m.descuento_porcentaje,
+        -- Costo (promedio) del producto, para el desplegable "Costo y
+        -- ganancia" del detalle de la venta. Es el costo ACTUAL del
+        -- producto: el POS no guarda el costo del día de la venta. Los
+        -- productos no inventariables (servicios) no tienen costo.
+        CASE WHEN p.es_inventariable = false THEN NULL ELSE COALESCE(p.precio_costo, 0) END AS costo_unitario
       FROM movimientos_stock m
       JOIN productos p ON p.id = m.producto_id
       WHERE m.venta_id = ${id}
