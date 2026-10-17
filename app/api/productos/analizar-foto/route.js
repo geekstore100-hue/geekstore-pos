@@ -1,7 +1,6 @@
-import { analizarFotoProducto } from '../../../../lib/mistralVision';
-import { analizarFotoProductoGemini } from '../../../../lib/geminiVision';
-import { analizarFotoProductoGroq } from '../../../../lib/groqVision';
 import { leerConfigIA } from '../../../../lib/iaArticulo';
+import { preguntarEnCadena } from '../../../../lib/iaCadena';
+import { interpretarRespuestaIA } from '../../../../lib/respuestaIA';
 import { leerPaginaFabricante, ErrorPagina, MAX_CARACTERES_TEXTO } from '../../../../lib/leerPaginaFabricante';
 import { guiaDeCamposParaIA } from '../../../../lib/plantillasFicha';
 
@@ -22,7 +21,9 @@ import { guiaDeCamposParaIA } from '../../../../lib/plantillasFicha';
 // - infoAdicional: notas libres de quien crea el producto.
 //
 // El modelo, el prompt y el proveedor por defecto se traen de
-// Configuraciones (ver lib/iaArticulo.js). Además, al final del prompt se
+// Configuraciones (ver lib/iaArticulo.js). Octubre 2026: si la IA elegida
+// falla o se llena, contesta la siguiente sola (lib/iaCadena.js): Mistral
+// Large → Gemini → Groq → Ministral 14B → Ministral 8B. Además, al final del prompt se
 // agrega SIEMPRE el bloque FORMATO_RESPUESTA (fijo, no editable): así la
 // ficha técnica y la regla de no inventar datos aplican aunque el prompt
 // guardado en Configuraciones sea uno viejo.
@@ -54,7 +55,6 @@ export async function POST(request) {
     const {
       imagenBase64,
       infoAdicional,
-      proveedor: proveedorElegido,
       enlaceFabricante,
       textoFabricante,
     } = await request.json();
@@ -98,11 +98,10 @@ export async function POST(request) {
       }
     }
 
-    const { modelo, modeloGemini, modeloGroq, proveedor: proveedorConfig, prompt } = await leerConfigIA();
-    // Desde "Nuevo producto" se puede elegir cuál IA usar solo para este
-    // análisis (selector simple, no toca la config guardada); si no manda
-    // nada válido, se usa el proveedor por defecto de Configuraciones.
-    const proveedor = ['mistral', 'gemini', 'groq'].includes(proveedorElegido) ? proveedorElegido : proveedorConfig;
+    const config = await leerConfigIA();
+    const { prompt } = config;
+    // Todo automático: siempre arranca con Mistral Large y sigue la cadena.
+    const proveedor = 'mistral';
 
     const bloques = [prompt];
     if (!imagenBase64) {
@@ -121,14 +120,24 @@ export async function POST(request) {
     bloques.push(FORMATO_RESPUESTA);
     const promptFinal = bloques.join('\n\n');
 
-    const imagen = imagenBase64 || null;
-    const sugerencia = proveedor === 'gemini'
-      ? await analizarFotoProductoGemini(imagen, { modelo: modeloGemini, prompt: promptFinal })
-      : proveedor === 'groq'
-      ? await analizarFotoProductoGroq(imagen, { modelo: modeloGroq, prompt: promptFinal })
-      : await analizarFotoProducto(imagen, { modelo, prompt: promptFinal });
+    const r = await preguntarEnCadena({
+      config,
+      primero: proveedor,
+      prompt: promptFinal,
+      imagenBase64: imagenBase64 || null,
+      maxTokens: 1800,
+      // Si una IA no devuelve un JSON válido, se prueba la siguiente.
+      interpretar: (texto, nombre) => interpretarRespuestaIA(texto, nombre),
+    });
 
-    return Response.json({ ok: true, proveedorUsado: proveedor, fuenteFabricante, ...sugerencia });
+    return Response.json({
+      ok: true,
+      proveedorUsado: r.proveedor === 'ministral' ? 'mistral' : r.proveedor,
+      iaUsada: `${r.nombre} (${r.modelo})`,
+      intentosFallidos: r.errores,
+      fuenteFabricante,
+      ...r.resultado,
+    });
   } catch (e) {
     return Response.json({ ok: false, error: e.message }, { status: 500 });
   }

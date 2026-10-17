@@ -942,38 +942,19 @@ export default function ConfiguracionesPage() {
               <h2 style={{ marginTop: 0 }}>Inteligencia artificial</h2>
               <p style={{ color: 'var(--text-secondary)', marginTop: '-8px' }}>
                 En Productos &gt; Nuevo producto se puede subir una foto para que la IA sugiera el nombre y la
-                descripción. Acá se configura qué modelo usa y las instrucciones (prompt) que sigue. Necesita que
-                hayas configurado la variable de entorno correspondiente en Netlify, en el proyecto de este POS:
-                MISTRAL_API_KEY, GEMINI_API_KEY o GROQ_API_KEY según el proveedor que elijas abajo.
+                descripción. La IA se elige sola: primero Mistral Large, y si falla o se llena, Gemini, Groq,
+                Ministral 14B y Ministral 8B, en ese orden. Acá se ajustan los modelos y las instrucciones (prompt).
+                Necesita las variables MISTRAL_API_KEY, GEMINI_API_KEY y GROQ_API_KEY en Netlify, en el proyecto de este POS.
               </p>
 
               {cargandoIA ? (
                 <p>Cargando...</p>
               ) : (
                 <form onSubmit={guardarConfigIA} style={{ ...styles.formCard, maxWidth: '640px' }}>
-                  <label style={{ display: 'block', marginBottom: '10px' }}>Proveedor de IA</label>
-                  <div style={{ display: 'flex', gap: '16px', marginBottom: '14px' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-                      <input type="radio" name="proveedor-ia" checked={proveedorIA === 'mistral'} onChange={() => setProveedorIA('mistral')} />
-                      Mistral
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-                      <input type="radio" name="proveedor-ia" checked={proveedorIA === 'gemini'} onChange={() => setProveedorIA('gemini')} />
-                      Google Gemini (respaldo)
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-                      <input type="radio" name="proveedor-ia" checked={proveedorIA === 'groq'} onChange={() => setProveedorIA('groq')} />
-                      Groq (respaldo, gratis sin tarjeta)
-                    </label>
-                  </div>
-                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '-10px', marginBottom: '14px' }}>
-                    Si se te acaban los créditos de uno, cambia acá a otro — usan el mismo prompt de abajo.
-                  </p>
-
                   <label style={{ display: 'block', marginBottom: '10px' }}>
                     Modelo de Mistral
                     <input value={modeloIA} onChange={(e) => setModeloIA(e.target.value)} style={styles.input} />
-                    <small style={{ color: 'var(--text-secondary)' }}>Ej. mistral-small-latest — tiene que ser un modelo con visión.</small>
+                    <small style={{ color: 'var(--text-secondary)' }}>Recomendado: mistral-large-2512 (si dejas mistral-small-latest, se usa Large). Tiene que ser un modelo con visión.</small>
                   </label>
                   <label style={{ display: 'block', marginBottom: '10px' }}>
                     Modelo de Gemini

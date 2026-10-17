@@ -62,7 +62,6 @@ export default function ProductosPage() {
   const [subcategoriaSugeridaIA, setSubcategoriaSugeridaIA] = useState('');
   // Cuál de las 3 IA usar para este análisis puntual (no toca la config
   // guardada en Configuraciones, solo elige cuál usar esta vez).
-  const [proveedorIA, setProveedorIA] = useState('mistral');
 
   // Si está activo, el precio de distribuidor se recalcula solo (costo +
   // 40%) cada vez que cambia el precio de costo, como sugerencia editable.
@@ -148,7 +147,6 @@ export default function ProductosPage() {
     setSubcategoriaSugeridaIA('');
     setImagenProductoNueva(null);
     setRecortarActivo(true);
-    setProveedorIA('mistral');
     setAutoDistribuidor(false);
     setMostrarForm(true);
 
@@ -472,7 +470,6 @@ export default function ProductosPage() {
         body: JSON.stringify({
           imagenBase64: imagenAnalisis,
           infoAdicional: infoAdicionalIA,
-          proveedor: proveedorIA,
           enlaceFabricante: enlaceFabricante.trim() || undefined,
           textoFabricante: textoFabricante.trim() || undefined,
         }),
@@ -515,7 +512,9 @@ export default function ProductosPage() {
           setSubcategoriaSugeridaIA(data.subcategoria || '');
         }
 
-        const nombreProveedor = data.proveedorUsado === 'gemini' ? 'Gemini' : data.proveedorUsado === 'groq' ? 'Groq' : 'Mistral';
+        // La IA se elige sola (Mistral Large → Gemini → Groq → Ministral): se
+        // muestra cuál fue la que contestó.
+        const nombreProveedor = data.iaUsada || (data.proveedorUsado === 'gemini' ? 'Gemini' : data.proveedorUsado === 'groq' ? 'Groq' : 'Mistral');
         const sinFicha = !(Array.isArray(data.especificaciones) && data.especificaciones.length > 0);
         setMensajeIA(
           `Listo, revisa y ajusta lo que sugirió la IA (usando ${nombreProveedor}) antes de guardar.` +
@@ -852,14 +851,6 @@ export default function ProductosPage() {
                 página del fabricante, o las dos cosas — y te sugiere nombre, descripción y ficha técnica. Nada se
                 guarda hasta que le des Guardar (la foto de aquí tampoco: solo la mira la IA).
               </p>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', marginBottom: '10px' }}>
-                Proveedor
-                <select value={proveedorIA} onChange={(e) => setProveedorIA(e.target.value)} style={{ ...styles.input, width: 'auto' }}>
-                  <option value="mistral">Mistral</option>
-                  <option value="gemini">Gemini</option>
-                  <option value="groq">Groq</option>
-                </select>
-              </label>
               <div
                 onDragOver={(e) => { e.preventDefault(); setArrastrandoAnalisis(true); }}
                 onDragLeave={() => setArrastrandoAnalisis(false)}

@@ -30,7 +30,6 @@ function palabrasCambiadas(actual, sugerido) {
 }
 
 export default function RevisarNombresPage() {
-  const [proveedor, setProveedor] = useState('');
   const [sugerencias, setSugerencias] = useState([]); // {id, referencia, actual, sugerido, motivo, cortado, aprobado, editado}
   const [progreso, setProgreso] = useState({ revisados: 0, total: 0 });
   const [revisando, setRevisando] = useState(false);
@@ -59,7 +58,7 @@ export default function RevisarNombresPage() {
         const res = await fetch('/api/productos/revisar-nombres', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ desde: siguienteRef.current, proveedor: proveedor || undefined }),
+          body: JSON.stringify({ desde: siguienteRef.current }),
         });
         const data = await res.json().catch(() => ({ ok: false, error: 'Respuesta inválida del servidor' }));
         if (!data.ok) {
@@ -162,12 +161,6 @@ export default function RevisarNombresPage() {
           volverá a tocar.
         </p>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <select value={proveedor} onChange={(e) => setProveedor(e.target.value)} style={styles.select} disabled={revisando}>
-            <option value="">IA por defecto (Configuraciones)</option>
-            <option value="mistral">Mistral</option>
-            <option value="gemini">Gemini</option>
-            <option value="groq">Groq</option>
-          </select>
           {revisando ? (
             <button type="button" style={styles.btnSecundario} onClick={() => { detenerRef.current = true; }}>
               Pausar
