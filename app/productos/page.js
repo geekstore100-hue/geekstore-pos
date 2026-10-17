@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Shell from '../../components/Shell';
 import { tipoDeProducto, camposFaltantes } from '../../lib/plantillasFicha';
+import { quitarFondoFoto } from '../../lib/quitarFondoCliente';
 
 const vacio = {
   id: null,
@@ -60,13 +61,16 @@ export default function ProductosPage() {
   const [mensajeIA, setMensajeIA] = useState('');
   const [categoriaSugeridaIA, setCategoriaSugeridaIA] = useState('');
   const [subcategoriaSugeridaIA, setSubcategoriaSugeridaIA] = useState('');
-  // Cuál de las 3 IA usar para este análisis puntual (no toca la config
-  // guardada en Configuraciones, solo elige cuál usar esta vez).
 
   // Si está activo, el precio de distribuidor se recalcula solo (costo +
   // 40%) cada vez que cambia el precio de costo, como sugerencia editable.
   const [autoDistribuidor, setAutoDistribuidor] = useState(false);
   const [imagenProductoNueva, setImagenProductoNueva] = useState(null);
+  // Quitar el fondo con IA (lib/quitarFondoCliente.js): la foto antes de
+  // quitarle el fondo, para poder deshacer.
+  const [fotoAntesDeFondo, setFotoAntesDeFondo] = useState(null);
+  const [quitandoFondo, setQuitandoFondo] = useState(false);
+  const [mensajeFondo, setMensajeFondo] = useState('');
   const [recortarActivo, setRecortarActivo] = useState(true);
   const [arrastrandoAnalisis, setArrastrandoAnalisis] = useState(false);
   const [arrastrandoProductoNueva, setArrastrandoProductoNueva] = useState(false);
@@ -146,6 +150,8 @@ export default function ProductosPage() {
     setCategoriaSugeridaIA('');
     setSubcategoriaSugeridaIA('');
     setImagenProductoNueva(null);
+    setFotoAntesDeFondo(null);
+    setMensajeFondo('');
     setRecortarActivo(true);
     setAutoDistribuidor(false);
     setMostrarForm(true);
@@ -400,8 +406,38 @@ export default function ProductosPage() {
     });
   }
 
+  // Foto nueva de portada: quitarle el fondo con IA (queda en fondo blanco).
+  async function quitarFondoNueva() {
+    if (!imagenProductoNueva || quitandoFondo) return;
+    setQuitandoFondo(true);
+    setMensajeFondo('Quitando el fondo…');
+    const antes = imagenProductoNueva;
+    try {
+      const r = await quitarFondoFoto(antes, { onProgreso: setMensajeFondo });
+      setFotoAntesDeFondo(antes);
+      setImagenProductoNueva(r.imagen);
+      setMensajeFondo(
+        r.metodo === 'removebg'
+          ? 'Listo: fondo quitado con remove.bg.'
+          : 'Listo: fondo quitado con la IA del navegador. Si no quedó bien, deshazlo o prueba con otra foto.'
+      );
+    } catch (e) {
+      setMensajeFondo(`No se pudo quitar el fondo: ${e?.message || 'error'}`);
+    }
+    setQuitandoFondo(false);
+  }
+
+  function deshacerFondoNueva() {
+    if (!fotoAntesDeFondo) return;
+    setImagenProductoNueva(fotoAntesDeFondo);
+    setFotoAntesDeFondo(null);
+    setMensajeFondo('');
+  }
+
   async function procesarFotoProductoNueva(file) {
     if (!file) return;
+    setFotoAntesDeFondo(null);
+    setMensajeFondo('');
     const reader = new FileReader();
     reader.onload = async () => {
       const original = reader.result;
@@ -602,7 +638,9 @@ export default function ProductosPage() {
     cargarImagenes(p.id);
   }
 
-  async function subirImagen(e) {
+  // sinFondo=true: antes de subirla se le quita el fondo con IA (queda en
+  // fondo blanco, ver lib/quitarFondoCliente.js).
+  async function subirImagen(e, sinFondo = false) {
     const archivo = e.target.files?.[0];
     e.target.value = '';
     if (!archivo || !form.id) return;
@@ -611,15 +649,30 @@ export default function ProductosPage() {
     // Se achica antes de subir (ver achicarFotoProducto); si no hace falta,
     // se sube el archivo original tal cual.
     let archivoFinal = archivo;
-    try {
-      const original = await leerComoDataUri(archivo);
-      const achicada = await achicarFotoProducto(original);
-      if (achicada !== original) {
+    if (sinFondo) {
+      try {
+        const original = await leerComoDataUri(archivo);
+        const r = await quitarFondoFoto(original, { onProgreso: setMensajeFondo });
         const base = (archivo.name || 'foto').replace(/\.[^.]+$/, '');
-        archivoFinal = await dataUriAFile(achicada, `${base}.jpg`);
+        archivoFinal = await dataUriAFile(r.imagen, `${base}-sin-fondo.jpg`);
+        setMensajeFondo('');
+      } catch (err) {
+        setMensajeFondo('');
+        setSubiendoImagen(false);
+        setErrorImagen(`No se pudo quitar el fondo: ${err?.message || 'error'}. Sube la foto normal o prueba con otra.`);
+        return;
       }
-    } catch {
-      archivoFinal = archivo;
+    } else {
+      try {
+        const original = await leerComoDataUri(archivo);
+        const achicada = await achicarFotoProducto(original);
+        if (achicada !== original) {
+          const base = (archivo.name || 'foto').replace(/\.[^.]+$/, '');
+          archivoFinal = await dataUriAFile(achicada, `${base}.jpg`);
+        }
+      } catch {
+        archivoFinal = archivo;
+      }
     }
     const cuerpo = new FormData();
     cuerpo.append('imagen', archivoFinal);
@@ -1216,7 +1269,21 @@ export default function ProductosPage() {
                   Recortar espacios en blanco alrededor
                 </label>
                 {imagenProductoNueva && (
-                  <img src={imagenProductoNueva} alt="Vista previa producto" style={styles.previewIA} />
+                  <>
+                    <img src={imagenProductoNueva} alt="Vista previa producto" style={styles.previewIA} />
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginTop: '8px' }}>
+                      {!fotoAntesDeFondo ? (
+                        <button type="button" onClick={quitarFondoNueva} disabled={quitandoFondo} style={{ ...styles.btnSecundario, marginLeft: 0 }}>
+                          {quitandoFondo ? 'Quitando fondo…' : '✨ Quitar fondo con IA'}
+                        </button>
+                      ) : (
+                        <button type="button" onClick={deshacerFondoNueva} style={{ ...styles.btnSecundario, marginLeft: 0 }}>
+                          ↩ Volver a la foto original
+                        </button>
+                      )}
+                    </div>
+                    {mensajeFondo && <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '6px 0 0' }}>{mensajeFondo}</p>}
+                  </>
                 )}
               </div>
             ) : (
@@ -1261,10 +1328,17 @@ export default function ProductosPage() {
                   </div>
                 )}
 
-                <label style={styles.btnSubirFoto}>
-                  {subiendoImagen ? 'Subiendo...' : '+ Agregar foto'}
-                  <input type="file" accept="image/*" onChange={subirImagen} disabled={subiendoImagen} style={{ display: 'none' }} />
-                </label>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <label style={styles.btnSubirFoto}>
+                    {subiendoImagen ? 'Subiendo...' : '+ Agregar foto'}
+                    <input type="file" accept="image/*" onChange={(e) => subirImagen(e)} disabled={subiendoImagen} style={{ display: 'none' }} />
+                  </label>
+                  <label style={styles.btnSubirFoto} title="Le quita el fondo con IA (queda en fondo blanco) antes de subirla">
+                    {subiendoImagen ? 'Procesando…' : '✨ Agregar foto sin fondo'}
+                    <input type="file" accept="image/*" onChange={(e) => subirImagen(e, true)} disabled={subiendoImagen} style={{ display: 'none' }} />
+                  </label>
+                </div>
+                {subiendoImagen && mensajeFondo && <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{mensajeFondo}</p>}
                 {errorImagen && <p style={{ color: 'var(--danger)', fontSize: '13px' }}>{errorImagen}</p>}
               </>
             )}
