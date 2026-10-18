@@ -1,0 +1,1909 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import Shell from '../../components/Shell';
+import { tipoDeProducto, camposFaltantes } from '../../lib/plantillasFicha';
+import { quitarFondoFoto } from '../../lib/quitarFondoCliente';
+
+const vacio = {
+  id: null,
+  referencia: '',
+  nombre: '',
+  descripcion: '',
+  categoria_id: '',
+  subcategoria_id: '',
+  precio_venta: '',
+  precio_costo: '',
+  precio_distribuidor: '',
+  // "Precio antes" para mostrar el producto EN OFERTA en la tienda.
+  precio_anterior: '',
+  activo: true,
+  es_inventariable: true,
+  mostrar_en_tienda: true,
+  es_gamer: false,
+  video_youtube: '',
+  // Ficha técnica: [{ nombre, valor }] — ver lib/especificaciones.js.
+  especificaciones: [],
+};
+
+export default function ProductosPage() {
+  const [productos, setProductos] = useState([]);
+  const [categorias, setCategorias] = useState([]);
+  const [subcategorias, setSubcategorias] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [form, setForm] = useState(vacio);
+  const [mostrarForm, setMostrarForm] = useState(false);
+  const [error, setError] = useState('');
+  const [guardando, setGuardando] = useState(false);
+
+  const [imagenes, setImagenes] = useState([]);
+  const [cargandoImagenes, setCargandoImagenes] = useState(false);
+  const [subiendoImagen, setSubiendoImagen] = useState(false);
+  const [errorImagen, setErrorImagen] = useState('');
+  const [procesandoImagenId, setProcesandoImagenId] = useState(null);
+  const [portadaActual, setPortadaActual] = useState(null);
+
+  // "Nuevo producto" con ayuda de IA: una foto para que la IA sugiera
+  // nombre/descripción (puede ser la caja con las especificaciones, nunca
+  // se guarda como foto del producto) y, por separado, la foto real que sí
+  // va a quedar como portada. Solo aplica al crear (no al editar): se sube
+  // apenas se guarda el producto, ya con su id.
+  const [imagenAnalisis, setImagenAnalisis] = useState(null);
+  const [infoAdicionalIA, setInfoAdicionalIA] = useState('');
+  // Página del fabricante como fuente para la IA (ver
+  // /api/productos/analizar-foto): el enlace, o el texto pegado a mano
+  // cuando esa página no se deja leer.
+  const [enlaceFabricante, setEnlaceFabricante] = useState('');
+  const [textoFabricante, setTextoFabricante] = useState('');
+  const [mostrarPegarTexto, setMostrarPegarTexto] = useState(false);
+  const [iaAbiertaEdicion, setIaAbiertaEdicion] = useState(false);
+  const [analizandoIA, setAnalizandoIA] = useState(false);
+  const [mensajeIA, setMensajeIA] = useState('');
+  const [categoriaSugeridaIA, setCategoriaSugeridaIA] = useState('');
+  const [subcategoriaSugeridaIA, setSubcategoriaSugeridaIA] = useState('');
+
+  // Si está activo, el precio de distribuidor se recalcula solo (costo +
+  // 40%) cada vez que cambia el precio de costo, como sugerencia editable.
+  const [autoDistribuidor, setAutoDistribuidor] = useState(false);
+  const [imagenProductoNueva, setImagenProductoNueva] = useState(null);
+  // Quitar el fondo con IA (lib/quitarFondoCliente.js): la foto antes de
+  // quitarle el fondo, para poder deshacer.
+  const [fotoAntesDeFondo, setFotoAntesDeFondo] = useState(null);
+  const [quitandoFondo, setQuitandoFondo] = useState(false);
+  const [mensajeFondo, setMensajeFondo] = useState('');
+  const [recortarActivo, setRecortarActivo] = useState(true);
+  const [arrastrandoAnalisis, setArrastrandoAnalisis] = useState(false);
+  const [arrastrandoProductoNueva, setArrastrandoProductoNueva] = useState(false);
+  const [errorReferenciaSugerida, setErrorReferenciaSugerida] = useState('');
+
+  // Búsqueda y paginación de la lista: antes se mostraban todos los
+  // productos de una sola vez, lo que hacía la página larguísima y además
+  // escondía el formulario de edición (que aparece arriba de la tabla) si
+  // se hacía clic en "Editar" estando muy abajo en la lista.
+  const [busqueda, setBusqueda] = useState('');
+  const [porPagina, setPorPagina] = useState(100);
+  const [pagina, setPagina] = useState(1);
+
+  // Ficha de detalle de un producto (se abre al hacer clic en el nombre o
+  // en la referencia): muestra la info completa, incluida la foto y el
+  // costo (promedio) sin necesidad de entrar a editar.
+  const [detalleProducto, setDetalleProducto] = useState(null);
+  const [tabFacturasDetalle, setTabFacturasDetalle] = useState('venta');
+  const [facturasVentas, setFacturasVentas] = useState([]);
+  const [facturasCompras, setFacturasCompras] = useState([]);
+  const [cargandoFacturasDetalle, setCargandoFacturasDetalle] = useState(false);
+
+  async function cargarProductos() {
+    setCargando(true);
+    const res = await fetch('/api/productos');
+    const data = await res.json();
+    if (data.ok) setProductos(data.productos);
+    setCargando(false);
+  }
+
+  async function cargarCategorias() {
+    const res = await fetch('/api/categorias');
+    const data = await res.json();
+    if (data.ok) setCategorias(data.categorias);
+  }
+
+  async function cargarSubcategorias(categoriaId) {
+    if (!categoriaId) {
+      setSubcategorias([]);
+      return [];
+    }
+    const res = await fetch(`/api/subcategorias?categoria_id=${categoriaId}`);
+    const data = await res.json();
+    if (data.ok) {
+      setSubcategorias(data.subcategorias);
+      return data.subcategorias;
+    }
+    return [];
+  }
+
+  useEffect(() => {
+    cargarProductos();
+    cargarCategorias();
+  }, []);
+
+  useEffect(() => {
+    if (form.id) {
+      const p = productos.find((x) => x.id === form.id);
+      if (p) setPortadaActual(p.imagen_key || null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productos, form.id]);
+
+  function nuevoProducto() {
+    setForm(vacio);
+    setSubcategorias([]);
+    setImagenes([]);
+    setErrorImagen('');
+    setError('');
+    setImagenAnalisis(null);
+    setInfoAdicionalIA('');
+    setEnlaceFabricante('');
+    setTextoFabricante('');
+    setMostrarPegarTexto(false);
+    setIaAbiertaEdicion(false);
+    setMensajeIA('');
+    setCategoriaSugeridaIA('');
+    setSubcategoriaSugeridaIA('');
+    setImagenProductoNueva(null);
+    setFotoAntesDeFondo(null);
+    setMensajeFondo('');
+    setRecortarActivo(true);
+    setAutoDistribuidor(false);
+    setMostrarForm(true);
+
+    // Sugiere la siguiente referencia disponible (a partir del catálogo
+    // actual); se puede cambiar a mano si no sirve.
+    setErrorReferenciaSugerida('');
+    fetch('/api/productos/siguiente-referencia')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.ok) setForm((f) => (f.id ? f : { ...f, referencia: d.siguiente }));
+        else setErrorReferenciaSugerida(d.error || 'No se pudo sugerir sola');
+      })
+      .catch(() => setErrorReferenciaSugerida('No se pudo sugerir sola'));
+  }
+
+  // El menú lateral (Inventario > Nuevo producto) enlaza a
+  // /productos?nuevo=1 para abrir este formulario directamente, sin tener
+  // que entrar primero a la lista y darle clic a "+ Nuevo producto". Se
+  // limpia la URL después de abrirlo para que un refresh de la página no
+  // lo vuelva a abrir solo.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (new URLSearchParams(window.location.search).get('nuevo') === '1') {
+      nuevoProducto();
+      window.history.replaceState({}, '', '/productos');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // /productos?editar=ID abre directo la edición de ese producto (lo usa el
+  // reporte "Fichas incompletas"). Se espera a que cargue el catálogo.
+  const [editarPendiente, setEditarPendiente] = useState(null);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const id = new URLSearchParams(window.location.search).get('editar');
+    if (id) setEditarPendiente(id);
+  }, []);
+  useEffect(() => {
+    if (!editarPendiente || productos.length === 0) return;
+    const p = productos.find((x) => String(x.id) === String(editarPendiente));
+    setEditarPendiente(null);
+    window.history.replaceState({}, '', '/productos');
+    if (p) editarProducto(p);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editarPendiente, productos]);
+
+  // Plantilla de ficha según el tipo de producto (cargador, cable, control…)
+  // y los campos que todavía le faltan — ver lib/plantillasFicha.js.
+  const plantillaFicha = useMemo(() => {
+    const cat = categorias.find((c) => String(c.id) === String(form.categoria_id));
+    const sub = subcategorias.find((x) => String(x.id) === String(form.subcategoria_id));
+    return tipoDeProducto({ nombre: form.nombre, categoria: cat?.nombre, subcategoria: sub?.nombre });
+  }, [form.nombre, form.categoria_id, form.subcategoria_id, categorias, subcategorias]);
+  const faltantesFicha = useMemo(
+    () => camposFaltantes(plantillaFicha, form.especificaciones || []),
+    [plantillaFicha, form.especificaciones]
+  );
+
+  function agregarCamposFicha(campos) {
+    setForm((f) => {
+      const filas = (f.especificaciones || []).filter((x) => x.nombre || x.valor);
+      const nombres = new Set(filas.map((x) => String(x.nombre).toLowerCase()));
+      const nuevas = campos.filter((c) => !nombres.has(c.nombre.toLowerCase())).map((c) => ({ nombre: c.nombre, valor: '' }));
+      return { ...f, especificaciones: [...filas, ...nuevas] };
+    });
+  }
+
+  // Lee un archivo de imagen como data URI (base64).
+  function leerArchivoComoDataUri(file, setter) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setter(reader.result);
+    reader.readAsDataURL(file);
+  }
+
+  // Achica la foto que se manda a analizar con IA (máximo 1280px en el lado
+  // más largo) antes de enviarla. Una foto de celular sin achicar (3000-4000px,
+  // varios MB) supera fácil el límite de tokens por minuto del plan gratis de
+  // Mistral en una sola llamada (Mistral cobra tokens de imagen según la
+  // resolución) — eso es lo que causaba el error "rate_limited" (429) aunque
+  // la cuenta tuviera crédito gratis disponible y nunca hubiera hecho ninguna
+  // llamada. No afecta la foto real del producto, esto es solo la copia que
+  // ve la IA. De paso también hace que Gemini y Groq analicen más rápido.
+  function redimensionarParaIA(dataUri, maxLado = 1280, calidad = 0.85) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const { naturalWidth: w, naturalHeight: h } = img;
+        if (!w || !h || (w <= maxLado && h <= maxLado)) {
+          resolve(dataUri);
+          return;
+        }
+        const escala = maxLado / Math.max(w, h);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(w * escala);
+        canvas.height = Math.round(h * escala);
+        try {
+          const ctx = canvas.getContext('2d');
+          // Fondo blanco: si la foto es un PNG con fondo transparente, al
+          // pasarla a JPG lo transparente quedaría NEGRO.
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/jpeg', calidad));
+        } catch {
+          resolve(dataUri); // por si el navegador bloquea el canvas
+        }
+      };
+      img.onerror = () => resolve(dataUri);
+      img.src = dataUri;
+    });
+  }
+
+  // Achica las fotos REALES del producto antes de subirlas (máximo 1600px
+  // en el lado más largo, JPG de buena calidad). Antes se guardaban tal
+  // cual llegaban — hasta 10 MB — y la pantalla de Vender cargaba hasta 60
+  // de golpe, en tamaño completo, solo para mostrarlas en recuadros
+  // pequeños: lento en celular y gasto de ancho de banda en Netlify. 1600px
+  // sigue siendo de sobra para la tienda (y para hacer zoom). Si la foto ya
+  // es liviana y de tamaño razonable, se sube tal cual, sin tocarla.
+  const FOTO_MAX_LADO = 1600;
+  const FOTO_MAX_BYTES = 1.2 * 1024 * 1024;
+  function achicarFotoProducto(dataUri) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const { naturalWidth: w, naturalHeight: h } = img;
+        const bytesAprox = Math.round(((dataUri.length - dataUri.indexOf(',') - 1) * 3) / 4);
+        if (!w || !h || (w <= FOTO_MAX_LADO && h <= FOTO_MAX_LADO && bytesAprox <= FOTO_MAX_BYTES)) {
+          resolve(dataUri);
+          return;
+        }
+        const escala = Math.min(1, FOTO_MAX_LADO / Math.max(w, h));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(w * escala);
+        canvas.height = Math.round(h * escala);
+        try {
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff'; // PNG transparente → fondo blanco, no negro
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
+        } catch {
+          resolve(dataUri);
+        }
+      };
+      img.onerror = () => resolve(dataUri);
+      img.src = dataUri;
+    });
+  }
+
+  function leerComoDataUri(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Recorta la imagen hasta el borde de donde empieza el contenido real,
+  // sacando el espacio en blanco alrededor (típico de fotos de proveedor
+  // con el producto chiquito en el centro de un fondo blanco enorme). No
+  // cambia nada dentro del recorte, solo achica el lienzo.
+  function recortarEspaciosBlancos(dataUri) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        // Fondo blanco primero: en un PNG con fondo transparente, lo
+        // transparente se leía como negro — no se recortaba y además la foto
+        // final (JPG) quedaba con fondo negro. Así queda blanco y se recorta
+        // igual que un fondo blanco normal.
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+        const { width, height } = canvas;
+        let datos;
+        try {
+          datos = ctx.getImageData(0, 0, width, height).data;
+        } catch {
+          resolve(dataUri); // por si el navegador bloquea el canvas
+          return;
+        }
+
+        const esBlanco = (r, g, b) => r > 245 && g > 245 && b > 245;
+
+        let minX = width, minY = height, maxX = 0, maxY = 0, encontrado = false;
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const i = (y * width + x) * 4;
+            if (!esBlanco(datos[i], datos[i + 1], datos[i + 2])) {
+              encontrado = true;
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (y < minY) minY = y;
+              if (y > maxY) maxY = y;
+            }
+          }
+        }
+
+        if (!encontrado) {
+          resolve(dataUri); // la foto es toda blanca, no hay nada que recortar
+          return;
+        }
+
+        const margen = Math.round(Math.max(width, height) * 0.02);
+        minX = Math.max(0, minX - margen);
+        minY = Math.max(0, minY - margen);
+        maxX = Math.min(width - 1, maxX + margen);
+        maxY = Math.min(height - 1, maxY + margen);
+
+        const anchoRecorte = maxX - minX + 1;
+        const altoRecorte = maxY - minY + 1;
+
+        const canvasRecorte = document.createElement('canvas');
+        canvasRecorte.width = anchoRecorte;
+        canvasRecorte.height = altoRecorte;
+        canvasRecorte.getContext('2d').drawImage(
+          canvas, minX, minY, anchoRecorte, altoRecorte, 0, 0, anchoRecorte, altoRecorte
+        );
+        resolve(canvasRecorte.toDataURL('image/jpeg', 0.92));
+      };
+      img.onerror = () => resolve(dataUri);
+      img.src = dataUri;
+    });
+  }
+
+  function onSeleccionarAnalisis(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    setMensajeIA('');
+    setCategoriaSugeridaIA('');
+    leerArchivoComoDataUri(file, (dataUri) => {
+      redimensionarParaIA(dataUri).then(setImagenAnalisis);
+    });
+  }
+
+  function onSoltarAnalisis(e) {
+    e.preventDefault();
+    setArrastrandoAnalisis(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    setMensajeIA('');
+    setCategoriaSugeridaIA('');
+    leerArchivoComoDataUri(file, (dataUri) => {
+      redimensionarParaIA(dataUri).then(setImagenAnalisis);
+    });
+  }
+
+  // Foto nueva de portada: quitarle el fondo con IA (queda en fondo blanco).
+  async function quitarFondoNueva() {
+    if (!imagenProductoNueva || quitandoFondo) return;
+    setQuitandoFondo(true);
+    setMensajeFondo('Quitando el fondo…');
+    const antes = imagenProductoNueva;
+    try {
+      const r = await quitarFondoFoto(antes, { onProgreso: setMensajeFondo });
+      setFotoAntesDeFondo(antes);
+      setImagenProductoNueva(r.imagen);
+      setMensajeFondo(
+        r.metodo === 'removebg'
+          ? 'Listo: fondo quitado con remove.bg.'
+          : 'Listo: fondo quitado con la IA del navegador. Si no quedó bien, deshazlo o prueba con otra foto.'
+      );
+    } catch (e) {
+      setMensajeFondo(`No se pudo quitar el fondo: ${e?.message || 'error'}`);
+    }
+    setQuitandoFondo(false);
+  }
+
+  function deshacerFondoNueva() {
+    if (!fotoAntesDeFondo) return;
+    setImagenProductoNueva(fotoAntesDeFondo);
+    setFotoAntesDeFondo(null);
+    setMensajeFondo('');
+  }
+
+  async function procesarFotoProductoNueva(file) {
+    if (!file) return;
+    setFotoAntesDeFondo(null);
+    setMensajeFondo('');
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const original = reader.result;
+      if (recortarActivo) {
+        const recortada = await recortarEspaciosBlancos(original);
+        setImagenProductoNueva(recortada);
+      } else {
+        setImagenProductoNueva(original);
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function onSeleccionarProductoNueva(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    procesarFotoProductoNueva(file);
+  }
+
+  function onSoltarProductoNueva(e) {
+    e.preventDefault();
+    setArrastrandoProductoNueva(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    procesarFotoProductoNueva(file);
+  }
+
+  // Quita tildes y pasa a minúsculas, para comparar nombres sin que un
+  // acento o mayúscula de más impida encontrar la coincidencia.
+  function normalizarTexto(s) {
+    return String(s || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .trim();
+  }
+
+  // Busca en una lista (categorías o subcategorías) algo cuyo nombre
+  // coincida, exacto o como parte del texto sugerido por la IA, en
+  // cualquiera de los dos sentidos (ej. IA dice "Mouse" y existe
+  // "Mouse y teclados", o al revés).
+  function buscarCoincidencia(lista, texto) {
+    const t = normalizarTexto(texto);
+    if (!t) return null;
+    return (
+      lista.find((x) => {
+        const n = normalizarTexto(x.nombre);
+        return n && (n === t || n.includes(t) || t.includes(n));
+      }) || null
+    );
+  }
+
+  async function analizarConIA() {
+    if (!imagenAnalisis && !enlaceFabricante.trim() && !textoFabricante.trim()) {
+      setMensajeIA('Sube una foto, pon el enlace del fabricante o pega el texto del producto.');
+      return;
+    }
+    setAnalizandoIA(true);
+    setMensajeIA('');
+    setCategoriaSugeridaIA('');
+    setSubcategoriaSugeridaIA('');
+    try {
+      const res = await fetch('/api/productos/analizar-foto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imagenBase64: imagenAnalisis,
+          infoAdicional: infoAdicionalIA,
+          enlaceFabricante: enlaceFabricante.trim() || undefined,
+          textoFabricante: textoFabricante.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        setMensajeIA(data.error || 'No se pudo analizar');
+        // La página del fabricante no se dejó leer: se abre de una vez el
+        // cuadro para pegar el texto a mano.
+        if (data.codigo === 'pagina_no_legible') setMostrarPegarTexto(true);
+      } else {
+        setForm((f) => ({
+          ...f,
+          nombre: data.nombre || f.nombre,
+          descripcion: (data.descripcion || '').slice(0, 600),
+          // La ficha técnica solo se reemplaza si la IA encontró datos; si
+          // no encontró ninguno verificable, se deja la que ya hubiera.
+          especificaciones:
+            Array.isArray(data.especificaciones) && data.especificaciones.length > 0
+              ? data.especificaciones
+              : f.especificaciones || [],
+        }));
+
+        // Si el nombre que sugirió la IA coincide con una categoría (y
+        // subcategoría) que ya existe en el catálogo, se selecciona sola;
+        // si no encuentra nada parecido, se deja solo como pista de texto
+        // para que la elijas a mano.
+        const catMatch = buscarCoincidencia(categorias, data.categoria);
+        if (catMatch) {
+          setForm((f) => ({ ...f, categoria_id: catMatch.id, subcategoria_id: '' }));
+          const listaSubcategorias = await cargarSubcategorias(catMatch.id);
+          const subMatch = buscarCoincidencia(listaSubcategorias, data.subcategoria);
+          if (subMatch) {
+            setForm((f) => ({ ...f, subcategoria_id: subMatch.id }));
+          } else if (data.subcategoria) {
+            setSubcategoriaSugeridaIA(data.subcategoria);
+          }
+        } else {
+          setCategoriaSugeridaIA(data.categoria || '');
+          setSubcategoriaSugeridaIA(data.subcategoria || '');
+        }
+
+        // La IA se elige sola (Mistral Large → Gemini → Groq → Ministral): se
+        // muestra cuál fue la que contestó.
+        const nombreProveedor = data.iaUsada || (data.proveedorUsado === 'gemini' ? 'Gemini' : data.proveedorUsado === 'groq' ? 'Groq' : 'Mistral');
+        const sinFicha = !(Array.isArray(data.especificaciones) && data.especificaciones.length > 0);
+        setMensajeIA(
+          `Listo, revisa y ajusta lo que sugirió la IA (usando ${nombreProveedor}) antes de guardar.` +
+            (sinFicha
+              ? ' No encontró datos técnicos que se puedan verificar, así que no llenó la ficha técnica — para eso sirve mucho el enlace del fabricante o una foto de la caja.'
+              : ' Revisa sobre todo la ficha técnica.')
+        );
+      }
+    } catch {
+      setMensajeIA('Error de conexión al analizar');
+    }
+    setAnalizandoIA(false);
+  }
+
+  // Pegar una captura de pantalla con Ctrl+V (ej. copiada de la página de
+  // un proveedor) va directo a la foto de análisis — no hace falta
+  // guardarla como archivo primero. Solo mientras el formulario de "Nuevo
+  // producto" está abierto.
+  useEffect(() => {
+    if (!mostrarForm || form.id) return undefined;
+    function onPaste(e) {
+      const item = [...(e.clipboardData?.items || [])].find((it) => it.type.startsWith('image/'));
+      if (!item) return;
+      const file = item.getAsFile();
+      if (!file) return;
+      e.preventDefault();
+      setMensajeIA('Captura pegada como foto de análisis.');
+      setCategoriaSugeridaIA('');
+      leerArchivoComoDataUri(file, setImagenAnalisis);
+    }
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [mostrarForm, form.id]);
+
+  // Convierte un data URI en un File para poder subirlo con el mismo
+  // endpoint que ya usa la galería de fotos (espera multipart/form-data).
+  async function dataUriAFile(dataUri, nombreArchivo) {
+    const res = await fetch(dataUri);
+    const blob = await res.blob();
+    return new File([blob], nombreArchivo, { type: blob.type || 'image/jpeg' });
+  }
+
+  async function cargarImagenes(productoId) {
+    setCargandoImagenes(true);
+    const res = await fetch(`/api/productos/${productoId}/imagenes`);
+    const data = await res.json();
+    if (data.ok) setImagenes(data.imagenes);
+    setCargandoImagenes(false);
+  }
+
+  function editarProducto(p) {
+    setForm({
+      id: p.id,
+      referencia: p.referencia,
+      nombre: p.nombre,
+      descripcion: p.descripcion || '',
+      categoria_id: p.categoria_id || '',
+      subcategoria_id: p.subcategoria_id || '',
+      precio_venta: p.precio_venta || '',
+      precio_costo: p.precio_costo || '',
+      precio_distribuidor: p.precio_distribuidor || '',
+      precio_anterior: p.precio_anterior || '',
+      activo: p.activo,
+      es_inventariable: p.es_inventariable === undefined || p.es_inventariable === null ? true : p.es_inventariable,
+      mostrar_en_tienda: p.mostrar_en_tienda === undefined || p.mostrar_en_tienda === null ? true : p.mostrar_en_tienda,
+      es_gamer: Boolean(p.es_gamer),
+      video_youtube: p.video_youtube || '',
+      especificaciones: Array.isArray(p.especificaciones) ? p.especificaciones : [],
+    });
+    setError('');
+    setErrorImagen('');
+    setPortadaActual(p.imagen_key || null);
+    setAutoDistribuidor(false);
+    setImagenAnalisis(null);
+    setInfoAdicionalIA('');
+    setEnlaceFabricante('');
+    setTextoFabricante('');
+    setMostrarPegarTexto(false);
+    setIaAbiertaEdicion(false);
+    setMensajeIA('');
+    setCategoriaSugeridaIA('');
+    setSubcategoriaSugeridaIA('');
+    setMostrarForm(true);
+    cargarSubcategorias(p.categoria_id || '');
+    cargarImagenes(p.id);
+  }
+
+  // sinFondo=true: antes de subirla se le quita el fondo con IA (queda en
+  // fondo blanco, ver lib/quitarFondoCliente.js).
+  async function subirImagen(e, sinFondo = false) {
+    const archivo = e.target.files?.[0];
+    e.target.value = '';
+    if (!archivo || !form.id) return;
+    setErrorImagen('');
+    setSubiendoImagen(true);
+    // Se achica antes de subir (ver achicarFotoProducto); si no hace falta,
+    // se sube el archivo original tal cual.
+    let archivoFinal = archivo;
+    if (sinFondo) {
+      try {
+        const original = await leerComoDataUri(archivo);
+        const r = await quitarFondoFoto(original, { onProgreso: setMensajeFondo });
+        const base = (archivo.name || 'foto').replace(/\.[^.]+$/, '');
+        archivoFinal = await dataUriAFile(r.imagen, `${base}-sin-fondo.jpg`);
+        setMensajeFondo('');
+      } catch (err) {
+        setMensajeFondo('');
+        setSubiendoImagen(false);
+        setErrorImagen(`No se pudo quitar el fondo: ${err?.message || 'error'}. Sube la foto normal o prueba con otra.`);
+        return;
+      }
+    } else {
+      try {
+        const original = await leerComoDataUri(archivo);
+        const achicada = await achicarFotoProducto(original);
+        if (achicada !== original) {
+          const base = (archivo.name || 'foto').replace(/\.[^.]+$/, '');
+          archivoFinal = await dataUriAFile(achicada, `${base}.jpg`);
+        }
+      } catch {
+        archivoFinal = archivo;
+      }
+    }
+    const cuerpo = new FormData();
+    cuerpo.append('imagen', archivoFinal);
+    const res = await fetch(`/api/productos/${form.id}/imagenes`, { method: 'POST', body: cuerpo });
+    const data = await res.json();
+    setSubiendoImagen(false);
+    if (data.ok) {
+      cargarImagenes(form.id);
+      cargarProductos();
+    } else {
+      setErrorImagen(data.error || 'No se pudo subir la imagen');
+    }
+  }
+
+  async function eliminarImagen(imgId) {
+    if (!window.confirm('¿Eliminar esta foto?')) return;
+    setProcesandoImagenId(imgId);
+    const res = await fetch(`/api/productos/${form.id}/imagenes/${imgId}`, { method: 'DELETE' });
+    const data = await res.json();
+    setProcesandoImagenId(null);
+    if (data.ok) {
+      cargarImagenes(form.id);
+      cargarProductos();
+    } else {
+      setErrorImagen(data.error || 'No se pudo eliminar la imagen');
+    }
+  }
+
+  async function hacerPortada(imgId) {
+    setProcesandoImagenId(imgId);
+    const res = await fetch(`/api/productos/${form.id}/imagenes/${imgId}`, { method: 'PATCH' });
+    const data = await res.json();
+    setProcesandoImagenId(null);
+    if (data.ok) {
+      cargarImagenes(form.id);
+      cargarProductos();
+    } else {
+      setErrorImagen(data.error || 'No se pudo cambiar la portada');
+    }
+  }
+
+  function cambiarCategoria(categoriaId) {
+    setForm({ ...form, categoria_id: categoriaId, subcategoria_id: '' });
+    cargarSubcategorias(categoriaId);
+  }
+
+  async function cargarFacturasProducto(productoId) {
+    setCargandoFacturasDetalle(true);
+    setFacturasVentas([]);
+    setFacturasCompras([]);
+    const res = await fetch(`/api/productos/${productoId}/facturas`);
+    const data = await res.json();
+    if (data.ok) {
+      setFacturasVentas(data.ventas || []);
+      setFacturasCompras(data.comprasFacturas || []);
+    }
+    setCargandoFacturasDetalle(false);
+  }
+
+  function abrirDetalle(p) {
+    setDetalleProducto(p);
+    setTabFacturasDetalle('venta');
+    cargarFacturasProducto(p.id);
+  }
+
+  function cerrarDetalle() {
+    setDetalleProducto(null);
+    setFacturasVentas([]);
+    setFacturasCompras([]);
+  }
+
+  function fecha(iso) {
+    if (!iso) return '-';
+    return new Date(iso).toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  }
+
+  const productosFiltrados = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return productos;
+    return productos.filter(
+      (p) => (p.referencia || '').toLowerCase().includes(q) || (p.nombre || '').toLowerCase().includes(q)
+    );
+  }, [productos, busqueda]);
+
+  const totalPaginas = Math.max(1, Math.ceil(productosFiltrados.length / porPagina));
+  const paginaSegura = Math.min(pagina, totalPaginas);
+  const productosPagina = productosFiltrados.slice((paginaSegura - 1) * porPagina, paginaSegura * porPagina);
+
+  useEffect(() => {
+    setPagina(1);
+  }, [busqueda, porPagina]);
+
+  async function guardar(e) {
+    e.preventDefault();
+    setError('');
+
+    if (form.es_inventariable && !(Number(form.precio_costo) > 0)) {
+      setError('El precio de costo es obligatorio para un producto inventariable');
+      return;
+    }
+
+    setGuardando(true);
+
+    const url = form.id ? `/api/productos/${form.id}` : '/api/productos';
+    const method = form.id ? 'PUT' : 'POST';
+
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(form),
+    });
+
+    const data = await res.json();
+
+    let fotoFallo = '';
+    if (data.ok && !form.id && imagenProductoNueva) {
+      // Recién creado y con una foto elegida antes de guardar: se sube
+      // ahora que ya existe el id.
+      try {
+        const fotoAchicada = await achicarFotoProducto(imagenProductoNueva);
+        const archivo = await dataUriAFile(fotoAchicada, `${form.referencia || 'producto'}.jpg`);
+        const cuerpo = new FormData();
+        cuerpo.append('imagen', archivo);
+        const resFoto = await fetch(`/api/productos/${data.producto.id}/imagenes`, { method: 'POST', body: cuerpo });
+        const dataFoto = await resFoto.json();
+        if (!dataFoto.ok) fotoFallo = dataFoto.error || 'error desconocido';
+      } catch {
+        fotoFallo = 'error de conexión';
+      }
+    }
+
+    setGuardando(false);
+
+    if (data.ok && fotoFallo) {
+      // El producto sí quedó creado; solo la foto falló. En vez de cerrar
+      // el formulario, se pasa a modo "editar" sobre el producto recién
+      // creado para que la foto se pueda reintentar ahí mismo. (Se llama
+      // primero para que su propio setError('') no borre el mensaje de
+      // abajo, que debe quedar visible.)
+      cargarProductos();
+      editarProducto({ ...form, id: data.producto.id });
+      setError(`El producto se creó, pero la foto no se pudo guardar (${fotoFallo}). Puedes intentar subirla de nuevo aquí abajo.`);
+    } else if (data.ok && data.aviso) {
+      // Se guardó, pero hay algo que avisar (ej. falta una migración).
+      cargarProductos();
+      setError(data.aviso);
+    } else if (data.ok) {
+      setMostrarForm(false);
+      cargarProductos();
+    } else {
+      setError(data.error || 'No se pudo guardar');
+    }
+  }
+
+  function moneda(n) {
+    return n ? `$${Number(n).toLocaleString('es-CO')}` : '-';
+  }
+
+  // Sugerencia de precio de distribuidor: costo + 40%.
+  function calcularDistribuidor(costo) {
+    const n = Number(costo);
+    if (!n || n <= 0) return '';
+    return Math.round(n * 1.4);
+  }
+
+  return (
+    <Shell title="Productos">
+      <div style={styles.header}>
+        <h2 style={{ margin: 0 }}>Catálogo</h2>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <a href="/productos/revisar-nombres" style={{ ...styles.btnSecundario, marginLeft: 0, textDecoration: 'none', color: 'inherit', fontSize: '14px' }}>
+            🪄 Revisar nombres con IA
+          </a>
+          <a href="/productos/fichas" style={{ ...styles.btnSecundario, marginLeft: 0, textDecoration: 'none', color: 'inherit', fontSize: '14px' }}>
+            📋 Fichas incompletas
+          </a>
+          <button onClick={nuevoProducto} style={styles.btnPrimario}>+ Nuevo producto</button>
+        </div>
+      </div>
+
+      {mostrarForm && (
+        // El formulario se muestra como ventana emergente centrada (en vez de
+        // aparecer arriba de la tabla) para que, sin importar qué tan abajo
+        // esté la persona en una lista larga, se note claramente que sí pasó
+        // algo al tocar el lápiz de editar.
+        <div style={styles.overlay} onMouseDown={() => setMostrarForm(false)}>
+        <form onSubmit={guardar} onMouseDown={(e) => e.stopPropagation()} style={{ ...styles.formCard, ...styles.formModal }}>
+          <h3 style={{ marginTop: 0 }}>{form.id ? 'Editar producto' : 'Nuevo producto'}</h3>
+
+          <label style={{ display: 'block', marginBottom: '8px' }}>Tipo de producto</label>
+          <div style={styles.tipoSelector}>
+            <button
+              type="button"
+              onClick={() => setForm({ ...form, es_inventariable: true })}
+              style={{ ...styles.btnTipo, ...(form.es_inventariable ? styles.btnTipoActivo : {}) }}
+            >
+              Producto inventariable
+            </button>
+            <button
+              type="button"
+              onClick={() => setForm({ ...form, es_inventariable: false, precio_costo: '' })}
+              style={{ ...styles.btnTipo, ...(!form.es_inventariable ? styles.btnTipoActivo : {}) }}
+            >
+              Servicio
+            </button>
+          </div>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px', marginBottom: '16px' }}>
+            {form.es_inventariable
+              ? 'Maneja stock y precio de compra, y no se puede vender si no hay existencias en Principal.'
+              : 'No maneja stock ni precio de compra, y nunca bloquea la venta por falta de existencias (por ejemplo servicio técnico o servicio de envío).'}
+          </p>
+
+          {/* Al editar un producto que ya existe, la ayuda de IA queda
+              plegada (un botón) para no estorbar; al crear, se ve de una. */}
+          {form.id && !iaAbiertaEdicion && (
+            <button
+              type="button"
+              onClick={() => setIaAbiertaEdicion(true)}
+              style={{ ...styles.btnSecundario, marginLeft: 0, marginBottom: '12px' }}
+            >
+              🪄 Regenerar descripción y ficha técnica con IA
+            </button>
+          )}
+          {(!form.id || iaAbiertaEdicion) && (
+            <div style={styles.tarjetaIA}>
+              <p style={{ margin: '0 0 4px', fontWeight: 600 }}>🪄 Ayuda de IA (opcional)</p>
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 10px' }}>
+                Dale a la IA una foto (puede ser la caja con las especificaciones), el enlace del producto en la
+                página del fabricante, o las dos cosas — y te sugiere nombre, descripción y ficha técnica. Nada se
+                guarda hasta que le des Guardar (la foto de aquí tampoco: solo la mira la IA).
+              </p>
+              <div
+                onDragOver={(e) => { e.preventDefault(); setArrastrandoAnalisis(true); }}
+                onDragLeave={() => setArrastrandoAnalisis(false)}
+                onDrop={onSoltarAnalisis}
+                style={{ ...styles.dropzone, ...(arrastrandoAnalisis ? styles.dropzoneActiva : {}) }}
+              >
+                Arrastra, pega (Ctrl+V) o elige un archivo
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
+                <input type="file" accept="image/*" onChange={onSeleccionarAnalisis} />
+                <input
+                  id="foto-analisis-camara"
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={onSeleccionarAnalisis}
+                  style={{ display: 'none' }}
+                />
+                <button type="button" onClick={() => document.getElementById('foto-analisis-camara').click()} style={styles.btnSecundario}>
+                  📷 Cámara
+                </button>
+              </div>
+              {imagenAnalisis && (
+                <img src={imagenAnalisis} alt="Vista previa análisis" style={styles.previewIA} />
+              )}
+              <label style={{ display: 'block', marginTop: '12px' }}>
+                Enlace del producto en la página del fabricante (opcional)
+                <input
+                  type="url"
+                  value={enlaceFabricante}
+                  onChange={(e) => setEnlaceFabricante(e.target.value)}
+                  placeholder="https://www.marca.com/producto/..."
+                  style={styles.input}
+                />
+                <small style={{ color: 'var(--text-secondary)' }}>
+                  Es la mejor fuente para la ficha técnica. Algunas páginas no se dejan leer; si pasa,
+                  copia el texto del producto y pégalo abajo.
+                </small>
+              </label>
+              {!mostrarPegarTexto ? (
+                <button
+                  type="button"
+                  onClick={() => setMostrarPegarTexto(true)}
+                  style={{ ...styles.btnSecundario, marginTop: '6px', marginLeft: 0 }}
+                >
+                  Pegar el texto de la página
+                </button>
+              ) : (
+                <label style={{ display: 'block', marginTop: '10px' }}>
+                  Texto del fabricante (copiado de su página)
+                  <textarea
+                    value={textoFabricante}
+                    onChange={(e) => setTextoFabricante(e.target.value)}
+                    placeholder="Pega aquí la descripción y las especificaciones que copiaste de la página del fabricante"
+                    style={{ ...styles.input, width: '100%', minHeight: '90px' }}
+                  />
+                  <small style={{ color: 'var(--text-secondary)' }}>
+                    Si pegas texto aquí, se usa este en vez del enlace.
+                  </small>
+                </label>
+              )}
+              <label style={{ display: 'block', marginTop: '10px' }}>
+                Información adicional para la IA (opcional)
+                <textarea
+                  value={infoAdicionalIA}
+                  onChange={(e) => setInfoAdicionalIA(e.target.value)}
+                  placeholder="Ej: es un mouse inalámbrico, marca Redragon, batería recargable de 500mAh"
+                  style={{ ...styles.input, width: '100%', minHeight: '40px' }}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={analizarConIA}
+                disabled={(!imagenAnalisis && !enlaceFabricante.trim() && !textoFabricante.trim()) || analizandoIA}
+                style={{ ...styles.btnPrimario, marginTop: '10px' }}
+              >
+                {analizandoIA ? 'Analizando...' : '🪄 Analizar con IA'}
+              </button>
+              {(categoriaSugeridaIA || subcategoriaSugeridaIA) && (
+                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                  {categoriaSugeridaIA && <>Categoría sugerida: <strong>{categoriaSugeridaIA}</strong>. </>}
+                  {subcategoriaSugeridaIA && <>Subcategoría sugerida: <strong>{subcategoriaSugeridaIA}</strong>. </>}
+                  No se encontró una igual en tu catálogo — elígela abajo si aplica, o créala en Configuraciones.
+                </p>
+              )}
+              {mensajeIA && <p style={{ fontSize: '13px', marginTop: '8px' }}>{mensajeIA}</p>}
+            </div>
+          )}
+
+          <div className="pos-grid2" style={styles.grid2}>
+            <label>
+              Referencia
+              <input required value={form.referencia} onChange={(e) => setForm({ ...form, referencia: e.target.value })} style={styles.input} />
+              {errorReferenciaSugerida && !form.id && (
+                <small style={{ display: 'block', color: '#b45309', fontWeight: 400 }}>
+                  No se pudo sugerir sola ({errorReferenciaSugerida}) — escríbela a mano.
+                </small>
+              )}
+            </label>
+            <label>
+              Nombre
+              <input required value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} style={styles.input} />
+            </label>
+            <label>
+              Categoría
+              <select value={form.categoria_id} onChange={(e) => cambiarCategoria(e.target.value)} style={styles.input}>
+                <option value="">Sin categoría</option>
+                {categorias.map((c) => (
+                  <option key={c.id} value={c.id}>{c.nombre}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Subcategoría
+              <select
+                value={form.subcategoria_id}
+                onChange={(e) => setForm({ ...form, subcategoria_id: e.target.value })}
+                style={styles.input}
+                disabled={!form.categoria_id}
+              >
+                <option value="">Sin subcategoría</option>
+                {subcategorias.map((s) => (
+                  <option key={s.id} value={s.id}>{s.nombre}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Precio de venta
+              <input type="number" step="0.01" value={form.precio_venta} onChange={(e) => setForm({ ...form, precio_venta: e.target.value })} style={styles.input} />
+            </label>
+            <label>
+              Precio antes (oferta)
+              <input
+                type="number"
+                step="1"
+                min="0"
+                value={form.precio_anterior}
+                placeholder="Vacío = sin oferta"
+                onChange={(e) => setForm({ ...form, precio_anterior: e.target.value })}
+                style={styles.input}
+              />
+              <span style={{ display: 'block', marginTop: '6px', fontWeight: 400, fontSize: '12px', color: 'var(--text-secondary)' }}>
+                {Number(form.precio_anterior) > Number(form.precio_venta) && Number(form.precio_venta) > 0
+                  ? `En la tienda sale en oferta: antes $${Number(form.precio_anterior).toLocaleString('es-CO')}, −${Math.round((1 - Number(form.precio_venta) / Number(form.precio_anterior)) * 100)}%.`
+                  : form.precio_anterior
+                    ? 'Tiene que ser mayor que el precio de venta para que salga en oferta.'
+                    : 'Si pones un precio mayor al de venta, la tienda lo muestra tachado y en la sección Ofertas.'}
+              </span>
+            </label>
+            {form.es_inventariable && (
+              <label>
+                Precio de costo *
+                <input
+                  required
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={form.precio_costo}
+                  onChange={(e) => {
+                    const valor = e.target.value;
+                    setForm((f) => ({
+                      ...f,
+                      precio_costo: valor,
+                      precio_distribuidor: autoDistribuidor ? calcularDistribuidor(valor) : f.precio_distribuidor,
+                    }));
+                  }}
+                  style={styles.input}
+                />
+              </label>
+            )}
+            <label>
+              Precio de distribuidor
+              <input type="number" step="0.01" value={form.precio_distribuidor} onChange={(e) => setForm({ ...form, precio_distribuidor: e.target.value })} style={styles.input} />
+              {form.es_inventariable && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', fontWeight: 400, fontSize: '13px' }}>
+                  <input
+                    type="checkbox"
+                    checked={autoDistribuidor}
+                    onChange={(e) => {
+                      const activo = e.target.checked;
+                      setAutoDistribuidor(activo);
+                      if (activo) {
+                        setForm((f) => ({ ...f, precio_distribuidor: calcularDistribuidor(f.precio_costo) }));
+                      }
+                    }}
+                  />
+                  Calcular automático (costo + 40%)
+                </span>
+              )}
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '20px' }}>
+              <input type="checkbox" checked={form.activo} onChange={(e) => setForm({ ...form, activo: e.target.checked })} />
+              Activo
+            </label>
+          </div>
+
+          {/* Estos dos se sacaron de la grilla de 2 columnas: sus textos de
+              ayuda son largos y quedaban ambiguos al lado de otro checkbox
+              en la misma fila (no se notaba a cuál de los dos aplicaba cada
+              explicación). Ahora cada uno va en su propia fila, de ancho
+              completo, con su explicación justo debajo. */}
+          <div style={styles.bloqueCheckbox}>
+            <label style={styles.filaCheckbox}>
+              <input
+                type="checkbox"
+                checked={form.mostrar_en_tienda}
+                onChange={(e) => setForm({ ...form, mostrar_en_tienda: e.target.checked })}
+              />
+              Mostrar en la tienda (geekstore.com.co)
+            </label>
+            <p style={styles.ayudaCheckbox}>
+              Desmárcalo para productos que quieras manejar solo aquí en el POS (o solo con
+              distribuidores) sin que aparezcan en la página pública — no afecta el portal de
+              distribuidores, que sigue su propio filtro de precio de distribuidor.
+            </p>
+          </div>
+          <div style={styles.bloqueCheckbox}>
+            <label style={styles.filaCheckbox}>
+              <input
+                type="checkbox"
+                checked={form.es_gamer}
+                onChange={(e) => setForm({ ...form, es_gamer: e.target.checked })}
+              />
+              Es artículo gamer (Zona Gamer)
+            </label>
+            <p style={styles.ayudaCheckbox}>
+              Márcalo si además de su categoría normal (por ejemplo, Accesorios PC &gt; Mouse) quieres
+              que el producto también se pueda encontrar como artículo de Zona Gamer.
+            </p>
+          </div>
+
+          <label style={{ display: 'block', marginTop: '10px' }}>
+            Descripción
+            <textarea
+              value={form.descripcion}
+              maxLength={600}
+              onChange={(e) => setForm({ ...form, descripcion: e.target.value.slice(0, 600) })}
+              style={{ ...styles.input, width: '100%', minHeight: '160px' }}
+            />
+            <small style={{ color: form.descripcion.length >= 600 ? 'var(--danger)' : 'var(--text-secondary)' }}>
+              {form.descripcion.length} / 600 caracteres — aquí van los beneficios (para vender); los datos técnicos van en la ficha técnica de abajo.
+            </small>
+          </label>
+
+          {/* Ficha técnica: filas "nombre: valor" (ej. Potencia: 20 W). La
+              tienda la muestra como tabla "Especificaciones técnicas" en la
+              página del producto. La puede llenar la IA, pero siempre se
+              revisa aquí antes de guardar. */}
+          <div style={{ marginTop: '14px' }}>
+            <label style={{ display: 'block', marginBottom: '6px' }}>Ficha técnica (especificaciones)</label>
+            {faltantesFicha.length > 0 && (
+              <div style={styles.cajaPlantilla}>
+                <div style={{ fontSize: '13px', marginBottom: '6px' }}>
+                  Tipo detectado: <b>{plantillaFicha.titulo}</b>. Campos recomendados que faltan
+                  {faltantesFicha.some((c) => c.clave) && <> (los marcados con <b>*</b> son los que el chat de la tienda necesita para recomendarlo bien)</>}:
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  {faltantesFicha.map((c) => (
+                    <button
+                      key={c.nombre}
+                      type="button"
+                      onClick={() => agregarCamposFicha([c])}
+                      style={{ ...styles.chipCampo, ...(c.clave ? styles.chipCampoClave : {}) }}
+                      title="Agregar esta fila a la ficha"
+                    >
+                      + {c.nombre}
+                      {c.clave ? ' *' : ''}
+                    </button>
+                  ))}
+                  {faltantesFicha.length > 1 && (
+                    <button type="button" onClick={() => agregarCamposFicha(faltantesFicha)} style={styles.chipTodos}>
+                      Agregar los que faltan
+                    </button>
+                  )}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                  Escribe los conectores así: USB-C, USB-A, Lightning, Micro USB. En “Compatible con” pon solo lo que estés seguro.
+                </div>
+              </div>
+            )}
+            {(form.especificaciones || []).length === 0 && (
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 8px' }}>
+                Sin especificaciones. Agrégalas a mano o déjalas a la IA (con el enlace del fabricante sale mucho mejor).
+              </p>
+            )}
+            {(form.especificaciones || []).map((fila, i) => (
+              <div key={i} style={{ display: 'flex', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
+                <input
+                  value={fila.nombre}
+                  placeholder="Ej. Potencia"
+                  maxLength={60}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      especificaciones: f.especificaciones.map((x, j) => (j === i ? { ...x, nombre: e.target.value } : x)),
+                    }))
+                  }
+                  style={{ ...styles.input, flex: '0 0 38%', minWidth: 0, marginTop: 0 }}
+                />
+                <input
+                  value={fila.valor}
+                  placeholder="Ej. 20 W"
+                  maxLength={200}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      especificaciones: f.especificaciones.map((x, j) => (j === i ? { ...x, valor: e.target.value } : x)),
+                    }))
+                  }
+                  style={{ ...styles.input, flex: 1, minWidth: 0, marginTop: 0 }}
+                />
+                <button
+                  type="button"
+                  aria-label="Quitar esta fila"
+                  title="Quitar esta fila"
+                  onClick={() => setForm((f) => ({ ...f, especificaciones: f.especificaciones.filter((_, j) => j !== i) }))}
+                  style={{ ...styles.btnSecundario, marginLeft: 0, color: 'var(--danger)' }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => setForm((f) => ({ ...f, especificaciones: [...(f.especificaciones || []), { nombre: '', valor: '' }] }))}
+              style={{ ...styles.btnSecundario, marginLeft: 0 }}
+            >
+              + Agregar especificación
+            </button>
+          </div>
+
+          <div style={{ marginTop: '16px' }}>
+            <label style={{ display: 'block', marginBottom: '8px' }}>Fotos</label>
+            {!form.id ? (
+              <div>
+                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: 0 }}>
+                  Esta foto queda como portada del producto (se sube apenas lo guardes).
+                </p>
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setArrastrandoProductoNueva(true); }}
+                  onDragLeave={() => setArrastrandoProductoNueva(false)}
+                  onDrop={onSoltarProductoNueva}
+                  style={{ ...styles.dropzone, ...(arrastrandoProductoNueva ? styles.dropzoneActiva : {}) }}
+                >
+                  Arrastra, pega o elige un archivo
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
+                  <input type="file" accept="image/*" onChange={onSeleccionarProductoNueva} />
+                  <input
+                    id="foto-producto-nueva-camara"
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={onSeleccionarProductoNueva}
+                    style={{ display: 'none' }}
+                  />
+                  <button type="button" onClick={() => document.getElementById('foto-producto-nueva-camara').click()} style={styles.btnSecundario}>
+                    📷 Cámara
+                  </button>
+                </div>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '8px', fontSize: '13px', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={recortarActivo} onChange={(e) => setRecortarActivo(e.target.checked)} />
+                  Recortar espacios en blanco alrededor
+                </label>
+                {imagenProductoNueva && (
+                  <>
+                    <img src={imagenProductoNueva} alt="Vista previa producto" style={styles.previewIA} />
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginTop: '8px' }}>
+                      {!fotoAntesDeFondo ? (
+                        <button type="button" onClick={quitarFondoNueva} disabled={quitandoFondo} style={{ ...styles.btnSecundario, marginLeft: 0 }}>
+                          {quitandoFondo ? 'Quitando fondo…' : '✨ Quitar fondo con IA'}
+                        </button>
+                      ) : (
+                        <button type="button" onClick={deshacerFondoNueva} style={{ ...styles.btnSecundario, marginLeft: 0 }}>
+                          ↩ Volver a la foto original
+                        </button>
+                      )}
+                    </div>
+                    {mensajeFondo && <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '6px 0 0' }}>{mensajeFondo}</p>}
+                  </>
+                )}
+              </div>
+            ) : (
+              <>
+                {cargandoImagenes ? (
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Cargando fotos...</p>
+                ) : (
+                  <div style={styles.galeria}>
+                    {imagenes.map((img) => {
+                      const esPortada = img.imagen_key === portadaActual;
+                      const procesando = procesandoImagenId === img.id;
+                      return (
+                        <div key={img.id} style={styles.fotoItem}>
+                          <img src={`/api/imagenes/${img.imagen_key}`} alt="" style={styles.fotoMiniatura} />
+                          {esPortada && <span style={styles.badgePortada}>Portada</span>}
+                          <div style={styles.fotoAcciones}>
+                            {!esPortada && (
+                              <button
+                                type="button"
+                                onClick={() => hacerPortada(img.id)}
+                                disabled={procesando}
+                                style={styles.btnFotoAccion}
+                              >
+                                Hacer portada
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => eliminarImagen(img.id)}
+                              disabled={procesando}
+                              style={{ ...styles.btnFotoAccion, color: 'var(--danger)' }}
+                            >
+                              Eliminar
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {imagenes.length === 0 && (
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Este producto no tiene fotos todavía.</p>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <label style={styles.btnSubirFoto}>
+                    {subiendoImagen ? 'Subiendo...' : '+ Agregar foto'}
+                    <input type="file" accept="image/*" onChange={(e) => subirImagen(e)} disabled={subiendoImagen} style={{ display: 'none' }} />
+                  </label>
+                  <label style={styles.btnSubirFoto} title="Le quita el fondo con IA (queda en fondo blanco) antes de subirla">
+                    {subiendoImagen ? 'Procesando…' : '✨ Agregar foto sin fondo'}
+                    <input type="file" accept="image/*" onChange={(e) => subirImagen(e, true)} disabled={subiendoImagen} style={{ display: 'none' }} />
+                  </label>
+                </div>
+                {subiendoImagen && mensajeFondo && <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{mensajeFondo}</p>}
+                {errorImagen && <p style={{ color: 'var(--danger)', fontSize: '13px' }}>{errorImagen}</p>}
+              </>
+            )}
+          </div>
+
+          <label style={{ display: 'block', marginTop: '16px' }}>
+            Video de YouTube (opcional)
+            <input
+              type="url"
+              value={form.video_youtube}
+              onChange={(e) => setForm({ ...form, video_youtube: e.target.value })}
+              placeholder="https://www.youtube.com/watch?v=..."
+              style={styles.input}
+            />
+            <small style={{ color: 'var(--text-secondary)' }}>
+              Pega el enlace del video (de youtube.com o youtu.be) — se muestra en la ficha del producto en la tienda
+              online, además de las fotos.
+            </small>
+          </label>
+
+          {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
+
+          <div style={{ marginTop: '12px' }}>
+            <button type="submit" disabled={guardando} style={styles.btnPrimario}>{guardando ? 'Guardando...' : 'Guardar'}</button>
+            <button type="button" onClick={() => setMostrarForm(false)} style={styles.btnSecundario}>Cancelar</button>
+          </div>
+        </form>
+        </div>
+      )}
+
+      <div style={styles.barraLista}>
+        <input
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          placeholder="Buscar por referencia o nombre..."
+          style={styles.buscador}
+        />
+        <a href="/etiquetas" style={styles.btnImprimirEtiquetas}>
+          🏷️ Imprimir etiquetas
+        </a>
+        <label style={styles.selectorPorPagina}>
+          Ver por página
+          <select value={porPagina} onChange={(e) => setPorPagina(Number(e.target.value))} style={styles.selectPorPagina}>
+            <option value={100}>100</option>
+            <option value={200}>200</option>
+            <option value={300}>300</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="pos-tabla-scroll" style={styles.tableCard}>
+        {cargando ? (
+          <p>Cargando...</p>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                <th style={styles.th}></th>
+                <th style={styles.th}>Referencia</th>
+                <th style={styles.th}>Nombre</th>
+                <th style={styles.th}>Categoría</th>
+                <th style={styles.th}>Precio venta</th>
+                <th style={styles.th}>Costo (promedio)</th>
+                <th style={styles.th}>Precio distribuidor</th>
+                <th style={styles.th}>Stock</th>
+                <th style={styles.th}>Activo</th>
+                <th style={styles.th}>En tienda</th>
+                <th style={styles.th}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {productosPagina.map((p) => (
+                <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={styles.td}>
+                    {p.imagen_key ? (
+                      <img src={`/api/imagenes/${p.imagen_key}`} alt="" style={styles.miniatura} />
+                    ) : (
+                      <div style={styles.miniaturaVacia} />
+                    )}
+                  </td>
+                  <td style={styles.td}>
+                    <span onClick={() => abrirDetalle(p)} style={styles.clicable}>{p.referencia}</span>
+                  </td>
+                  <td style={styles.td}>
+                    <span onClick={() => abrirDetalle(p)} style={styles.clicable}>{p.nombre}</span>
+                    {p.es_inventariable === false && <span style={styles.tagServicio}>Servicio</span>}
+                    {p.es_gamer && <span style={styles.tagGamer}>Zona Gamer</span>}
+                  </td>
+                  <td style={styles.td}>{p.categoria_nombre || '-'}</td>
+                  <td style={styles.td}>{moneda(p.precio_venta)}</td>
+                  <td style={styles.td}>{p.es_inventariable === false ? '—' : moneda(p.precio_costo)}</td>
+                  <td style={styles.td}>{moneda(p.precio_distribuidor)}</td>
+                  <td style={styles.td}>{p.es_inventariable === false ? '—' : p.stock}</td>
+                  <td style={styles.td}>{p.activo ? 'Sí' : 'No'}</td>
+                  <td style={styles.td}>
+                    {p.mostrar_en_tienda === false ? (
+                      <span style={styles.tagOculto}>No</span>
+                    ) : (
+                      'Sí'
+                    )}
+                  </td>
+                  <td style={styles.td}>
+                    <button onClick={() => editarProducto(p)} title="Editar producto" style={styles.btnLapiz}>✏️</button>
+                  </td>
+                </tr>
+              ))}
+              {productosPagina.length === 0 && (
+                <tr>
+                  <td style={styles.td} colSpan={11}>
+                    {productos.length === 0 ? 'No hay productos todavía.' : 'Ningún producto coincide con la búsqueda.'}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        )}
+
+        {!cargando && productosFiltrados.length > 0 && (
+          <div style={styles.paginacion}>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+              {productosFiltrados.length} producto(s) · página {paginaSegura} de {totalPaginas}
+            </span>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => setPagina((n) => Math.max(1, n - 1))}
+                disabled={paginaSegura <= 1}
+                style={styles.btnSecundario}
+              >
+                Anterior
+              </button>
+              <button
+                onClick={() => setPagina((n) => Math.min(totalPaginas, n + 1))}
+                disabled={paginaSegura >= totalPaginas}
+                style={styles.btnSecundario}
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {detalleProducto && (
+        <div style={styles.overlay} onMouseDown={cerrarDetalle}>
+          <div style={styles.modalDetalle} onMouseDown={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <h3 style={{ marginTop: 0, marginBottom: '2px' }}>{detalleProducto.nombre}</h3>
+              <button onClick={cerrarDetalle} style={styles.btnCerrarModal}>✕</button>
+            </div>
+            <p style={{ color: 'var(--text-secondary)', marginTop: 0, fontSize: '13px' }}>
+              Ref. {detalleProducto.referencia}
+              {detalleProducto.es_inventariable === false && <span style={styles.tagServicio}>Servicio</span>}
+            </p>
+
+            {detalleProducto.imagen_key ? (
+              <img src={`/api/imagenes/${detalleProducto.imagen_key}`} alt="" style={styles.fotoDetalle} />
+            ) : (
+              <div style={{ ...styles.fotoDetalle, ...styles.fotoDetalleVacia }}>Sin foto</div>
+            )}
+
+            <div style={styles.filaDetalle}><span>Categoría</span><strong>{detalleProducto.categoria_nombre || '-'}</strong></div>
+            {detalleProducto.subcategoria_nombre && (
+              <div style={styles.filaDetalle}><span>Subcategoría</span><strong>{detalleProducto.subcategoria_nombre}</strong></div>
+            )}
+            {detalleProducto.es_gamer && (
+              <div style={styles.filaDetalle}><span>Zona Gamer</span><strong>Sí</strong></div>
+            )}
+            <div style={styles.filaDetalle}><span>Precio de venta</span><strong>{moneda(detalleProducto.precio_venta)}</strong></div>
+            {detalleProducto.es_inventariable !== false && (
+              <div style={styles.filaDetalle}><span>Costo (promedio)</span><strong>{moneda(detalleProducto.precio_costo)}</strong></div>
+            )}
+            <div style={styles.filaDetalle}><span>Precio distribuidor</span><strong>{moneda(detalleProducto.precio_distribuidor)}</strong></div>
+            {detalleProducto.es_inventariable === false ? (
+              <div style={styles.filaDetalle}><span>Stock</span><strong>—</strong></div>
+            ) : (
+              <>
+                <div style={styles.filaDetalle}><span>Stock Principal</span><strong>{detalleProducto.stock_principal ?? '-'}</strong></div>
+                <div style={styles.filaDetalle}><span>Stock Distribuidor</span><strong>{detalleProducto.stock_distribuidor ?? '-'}</strong></div>
+              </>
+            )}
+            <div style={styles.filaDetalle}><span>Activo</span><strong>{detalleProducto.activo ? 'Sí' : 'No'}</strong></div>
+            <div style={styles.filaDetalle}>
+              <span>Mostrar en la tienda</span>
+              <strong>{detalleProducto.mostrar_en_tienda === false ? 'No' : 'Sí'}</strong>
+            </div>
+            {detalleProducto.descripcion && (
+              <div style={{ marginTop: '10px' }}>
+                <div style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '2px' }}>Descripción</div>
+                <div style={{ whiteSpace: 'pre-line' }}>{detalleProducto.descripcion}</div>
+              </div>
+            )}
+            {Array.isArray(detalleProducto.especificaciones) && detalleProducto.especificaciones.length > 0 && (
+              <div style={{ marginTop: '10px' }}>
+                <div style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '4px' }}>Ficha técnica</div>
+                {detalleProducto.especificaciones.map((e) => (
+                  <div key={e.nombre} style={styles.filaDetalle}>
+                    <span>{e.nombre}</span>
+                    <strong style={{ textAlign: 'right' }}>{e.valor}</strong>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Facturas de venta / de compra en las que aparece este
+                producto — mismo espíritu que la ficha de un ítem en
+                Alegra, con pestañas para no mezclar las dos listas. */}
+            <div style={{ marginTop: '18px' }}>
+              <div style={styles.tabsFacturas}>
+                <button
+                  type="button"
+                  onClick={() => setTabFacturasDetalle('venta')}
+                  style={{ ...styles.tabFactura, ...(tabFacturasDetalle === 'venta' ? styles.tabFacturaActiva : {}) }}
+                >
+                  Facturas de venta {facturasVentas.length > 0 ? `(${facturasVentas.length})` : ''}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTabFacturasDetalle('compra')}
+                  style={{ ...styles.tabFactura, ...(tabFacturasDetalle === 'compra' ? styles.tabFacturaActiva : {}) }}
+                >
+                  Facturas de compra {facturasCompras.length > 0 ? `(${facturasCompras.length})` : ''}
+                </button>
+              </div>
+
+              {cargandoFacturasDetalle ? (
+                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '10px' }}>Cargando...</p>
+              ) : (
+                <div style={{ overflowX: 'auto', marginTop: '10px' }}>
+                  {tabFacturasDetalle === 'venta' ? (
+                    <table style={styles.tablaFacturas}>
+                      <thead>
+                        <tr>
+                          <th style={styles.thFactura}>Venta</th>
+                          <th style={styles.thFactura}>Fecha</th>
+                          <th style={styles.thFactura}>Cant.</th>
+                          <th style={styles.thFactura}>Precio unit.</th>
+                          <th style={styles.thFactura}>Subtotal</th>
+                          <th style={styles.thFactura}>Medio de pago</th>
+                          <th style={styles.thFactura}>Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {facturasVentas.map((v, i) => (
+                          <tr key={i}>
+                            <td style={styles.tdFactura}>#{v.venta_id}</td>
+                            <td style={styles.tdFactura}>{fecha(v.creado_en)}</td>
+                            <td style={styles.tdFactura}>{v.cantidad}</td>
+                            <td style={styles.tdFactura}>{moneda(v.precio_unitario)}</td>
+                            <td style={styles.tdFactura}>{moneda(v.subtotal)}</td>
+                            <td style={styles.tdFactura}>{v.medio_pago || '-'}</td>
+                            <td style={styles.tdFactura}>
+                              {v.anulada ? <span style={styles.tagOculto}>Anulada</span> : 'Cobrada'}
+                            </td>
+                          </tr>
+                        ))}
+                        {facturasVentas.length === 0 && (
+                          <tr>
+                            <td style={styles.tdFactura} colSpan={7}>Este producto todavía no se ha vendido.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <table style={styles.tablaFacturas}>
+                      <thead>
+                        <tr>
+                          <th style={styles.thFactura}>Factura</th>
+                          <th style={styles.thFactura}>Proveedor</th>
+                          <th style={styles.thFactura}>Creación</th>
+                          <th style={styles.thFactura}>Vencimiento</th>
+                          <th style={styles.thFactura}>Cant.</th>
+                          <th style={styles.thFactura}>Precio unit.</th>
+                          <th style={styles.thFactura}>Total factura</th>
+                          <th style={styles.thFactura}>Por pagar</th>
+                          <th style={styles.thFactura}>Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {facturasCompras.map((f, i) => (
+                          <tr key={i}>
+                            <td style={styles.tdFactura}>{f.numero || `#${f.factura_id}`}</td>
+                            <td style={styles.tdFactura}>{f.proveedor_nombre}</td>
+                            <td style={styles.tdFactura}>{fecha(f.fecha_creacion)}</td>
+                            <td style={styles.tdFactura}>{fecha(f.fecha_vencimiento)}</td>
+                            <td style={styles.tdFactura}>{f.cantidad}</td>
+                            <td style={styles.tdFactura}>{moneda(f.precio_unitario)}</td>
+                            <td style={styles.tdFactura}>{moneda(f.total_factura)}</td>
+                            <td style={styles.tdFactura}>{moneda(f.por_pagar)}</td>
+                            <td style={styles.tdFactura}>
+                              {f.estado_pago === 'pagado' ? 'Pagada' : 'Pendiente'}
+                            </td>
+                          </tr>
+                        ))}
+                        {facturasCompras.length === 0 && (
+                          <tr>
+                            <td style={styles.tdFactura} colSpan={9}>Este producto todavía no tiene facturas de compra.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div style={{ marginTop: '16px' }}>
+              <button
+                onClick={() => {
+                  cerrarDetalle();
+                  editarProducto(detalleProducto);
+                }}
+                style={styles.btnPrimario}
+              >
+                Editar este producto
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </Shell>
+  );
+}
+
+const styles = {
+  tarjetaIA: {
+    background: '#faf5ff',
+    border: '1px solid #e9d5ff',
+    borderRadius: '10px',
+    padding: '14px',
+    marginBottom: '18px',
+  },
+  dropzone: {
+    border: '2px dashed var(--border)',
+    borderRadius: '8px',
+    padding: '14px',
+    textAlign: 'center',
+    fontSize: '13px',
+    color: 'var(--text-secondary)',
+    background: '#fff',
+    cursor: 'default',
+  },
+  dropzoneActiva: { borderColor: 'var(--teal)', background: 'var(--teal-light)' },
+  previewIA: { display: 'block', maxWidth: '160px', maxHeight: '160px', objectFit: 'contain', marginTop: '10px', borderRadius: '6px', border: '1px solid var(--border)', background: '#fff' },
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' },
+  formCard: { background: '#fff', border: '1px solid var(--border)', padding: '20px', borderRadius: 'var(--radius)', marginBottom: '24px' },
+  // El formulario de nuevo/editar producto y la ficha de detalle se muestran
+  // como ventana emergente centrada sobre un fondo oscuro.
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.4)',
+    zIndex: 100,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '20px',
+  },
+  formModal: {
+    marginBottom: 0,
+    width: '980px',
+    maxWidth: '100%',
+    maxHeight: '90vh',
+    overflowY: 'auto',
+    boxShadow: '0 12px 40px rgba(0,0,0,0.2)',
+  },
+  bloqueCheckbox: { marginTop: '14px' },
+  filaCheckbox: { display: 'flex', alignItems: 'center', gap: '8px' },
+  ayudaCheckbox: { fontSize: '13px', color: 'var(--text-secondary)', margin: '4px 0 0 24px' },
+  modalDetalle: {
+    background: '#fff',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius)',
+    padding: '20px',
+    // Se amplió de 420px a 720px para que quepan las tablas de
+    // facturas de venta/compra sin quedar demasiado apretadas.
+    width: '720px',
+    maxWidth: '100%',
+    maxHeight: '90vh',
+    overflowY: 'auto',
+    boxShadow: '0 12px 40px rgba(0,0,0,0.2)',
+  },
+  btnCerrarModal: { border: 'none', background: 'none', cursor: 'pointer', fontSize: '16px', color: 'var(--text-secondary)' },
+  // Transparente (antes 'var(--bg)') para que no se vea un recuadro gris
+  // alrededor de fotos que no son cuadradas — ver ventas/page.js (fotoTarjeta).
+  // El estado "Sin foto" recupera el gris abajo, como placeholder.
+  fotoDetalle: { width: '100%', height: '200px', objectFit: 'contain', background: 'transparent', borderRadius: '8px', margin: '10px 0' },
+  fotoDetalleVacia: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', fontSize: '13px', background: 'var(--bg)' },
+  filaDetalle: { display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: '14px', borderBottom: '1px solid var(--border)' },
+  barraLista: { display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap' },
+  buscador: { flex: 1, minWidth: '220px', padding: '10px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', boxSizing: 'border-box', background: '#fff' },
+  selectorPorPagina: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-secondary)' },
+  selectPorPagina: { padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '14px' },
+  clicable: { cursor: 'pointer', color: 'var(--teal-dark)' },
+  btnLapiz: { border: '1px solid var(--border)', background: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', padding: '6px 9px', lineHeight: 1 },
+  btnImprimirEtiquetas: {
+    padding: '9px 14px',
+    borderRadius: '8px',
+    border: 'none',
+    background: 'var(--teal)',
+    color: '#fff',
+    cursor: 'pointer',
+    fontWeight: 600,
+    fontSize: '13px',
+    textDecoration: 'none',
+    whiteSpace: 'nowrap',
+  },
+  paginacion: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 4px' },
+  tableCard: { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '8px 16px' },
+  input: { display: 'block', width: '100%', padding: '9px', marginTop: '4px', borderRadius: '8px', border: '1px solid var(--border)', boxSizing: 'border-box' },
+  // gridTemplateColumns viene de la clase CSS "pos-grid2" (globals.css),
+  // que en celular pasa a una sola columna.
+  grid2: { gap: '12px' },
+  tipoSelector: { display: 'flex', gap: '10px', marginBottom: '4px', flexWrap: 'wrap' },
+  btnTipo: {
+    flex: 1,
+    padding: '12px',
+    borderRadius: '8px',
+    border: '1px solid var(--border)',
+    background: '#fff',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: 600,
+    color: 'var(--text-secondary)',
+  },
+  btnTipoActivo: { background: 'var(--teal)', color: '#fff', border: '1px solid var(--teal)' },
+  th: { padding: '10px 8px', fontSize: '13px', color: 'var(--text-secondary)' },
+  td: { padding: '10px 8px', fontSize: '14px' },
+  btnPrimario: { padding: '9px 16px', borderRadius: '8px', border: 'none', background: 'var(--teal)', color: '#fff', cursor: 'pointer', fontWeight: 600 },
+  btnSecundario: { padding: '9px 16px', borderRadius: '8px', border: '1px solid var(--border)', background: '#fff', marginLeft: '8px', cursor: 'pointer' },
+  miniatura: { width: '36px', height: '36px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border)' },
+  miniaturaVacia: { width: '36px', height: '36px', borderRadius: '6px', background: 'var(--bg)', border: '1px solid var(--border)' },
+  tagServicio: {
+    marginLeft: '8px',
+    fontSize: '11px',
+    fontWeight: 600,
+    color: 'var(--teal-dark)',
+    background: 'var(--teal-light)',
+    borderRadius: '999px',
+    padding: '2px 8px',
+  },
+  tagOculto: {
+    fontSize: '11px',
+    fontWeight: 600,
+    color: 'var(--danger)',
+    background: '#fdeaea',
+    borderRadius: '999px',
+    padding: '2px 8px',
+  },
+  tagGamer: {
+    marginLeft: '8px',
+    fontSize: '11px',
+    fontWeight: 600,
+    color: '#6b21a8',
+    background: '#f3e8ff',
+    borderRadius: '999px',
+    padding: '2px 8px',
+  },
+  tabsFacturas: { display: 'flex', gap: '6px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' },
+  tabFactura: {
+    padding: '8px 14px',
+    border: 'none',
+    background: 'none',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: 600,
+    color: 'var(--text-secondary)',
+    borderBottom: '2px solid transparent',
+    marginBottom: '-1px',
+  },
+  tabFacturaActiva: { color: 'var(--teal-dark)', borderBottom: '2px solid var(--teal)' },
+  tablaFacturas: { width: '100%', borderCollapse: 'collapse', fontSize: '13px', whiteSpace: 'nowrap' },
+  thFactura: {
+    textAlign: 'left',
+    padding: '8px 10px',
+    color: 'var(--text-secondary)',
+    fontWeight: 600,
+    borderBottom: '1px solid var(--border)',
+  },
+  tdFactura: { padding: '8px 10px', borderBottom: '1px solid var(--border)' },
+  galeria: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '12px',
+    marginBottom: '10px',
+  },
+  fotoItem: {
+    position: 'relative',
+    width: '120px',
+    border: '1px solid var(--border)',
+    borderRadius: '8px',
+    padding: '6px',
+    textAlign: 'center',
+    background: 'var(--bg)',
+  },
+  fotoMiniatura: {
+    width: '100%',
+    height: '90px',
+    objectFit: 'contain',
+    background: '#fff',
+    borderRadius: '6px',
+  },
+  badgePortada: {
+    display: 'inline-block',
+    marginTop: '4px',
+    fontSize: '11px',
+    fontWeight: 600,
+    color: 'var(--teal-dark)',
+    background: 'var(--teal-light)',
+    borderRadius: '999px',
+    padding: '1px 8px',
+  },
+  fotoAcciones: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    marginTop: '6px',
+  },
+  btnFotoAccion: {
+    border: 'none',
+    background: 'none',
+    color: 'var(--teal-dark)',
+    cursor: 'pointer',
+    fontSize: '12px',
+    padding: '2px 0',
+  },
+  btnSubirFoto: {
+    display: 'inline-block',
+    padding: '9px 16px',
+    borderRadius: '8px',
+    border: '1px solid var(--border)',
+    background: '#fff',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: 600,
+    color: 'var(--teal-dark)',
+  },
+  cajaPlantilla: {
+    border: '1px dashed var(--border)',
+    borderRadius: '10px',
+    padding: '10px',
+    marginBottom: '10px',
+    background: 'var(--bg-secondary, transparent)',
+  },
+  chipCampo: {
+    padding: '4px 10px',
+    borderRadius: '999px',
+    border: '1px solid var(--border)',
+    background: 'transparent',
+    color: 'inherit',
+    cursor: 'pointer',
+    fontSize: '12px',
+  },
+  chipCampoClave: {
+    borderColor: 'var(--teal-dark)',
+    color: 'var(--teal-dark)',
+    fontWeight: 600,
+  },
+  chipTodos: {
+    padding: '4px 10px',
+    borderRadius: '999px',
+    border: 'none',
+    background: 'var(--teal-dark)',
+    color: '#fff',
+    cursor: 'pointer',
+    fontSize: '12px',
+    fontWeight: 600,
+  },
+};
