@@ -24,6 +24,9 @@ const vacio = {
   video_youtube: '',
   // Ficha técnica: [{ nombre, valor }] — ver lib/especificaciones.js.
   especificaciones: [],
+  // Solo al CREAR: si el precio lleva IVA, para crearlo igual en Alegra
+  // (facturación electrónica). null = sin elegir. Ver lib/alegraFacturacion.js.
+  con_iva: null,
 };
 
 export default function ProductosPage() {
@@ -773,6 +776,10 @@ export default function ProductosPage() {
       setError('El precio de costo es obligatorio para un producto inventariable');
       return;
     }
+    if (!form.id && form.con_iva !== true && form.con_iva !== false) {
+      setError('Elige si el precio lleva IVA o no (el producto también se crea en Alegra para la factura electrónica).');
+      return;
+    }
 
     setGuardando(true);
 
@@ -804,6 +811,29 @@ export default function ProductosPage() {
       }
     }
 
+    // Todo producto nuevo se crea TAMBIÉN en Alegra (facturación
+    // electrónica), con la misma referencia, después de subir la foto para
+    // que vaya con ella. Si falla, el producto igual queda en el POS y se
+    // puede reintentar en "Pendientes en Alegra".
+    let alegraFallo = '';
+    if (data.ok && !form.id) {
+      try {
+        const resAlegra = await fetch(`/api/productos/${data.producto.id}/alegra`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conIva: form.con_iva }),
+        });
+        const dataAlegra = await resAlegra.json();
+        if (!dataAlegra.ok) alegraFallo = dataAlegra.error || 'error desconocido';
+        else if (dataAlegra.fotoError) alegraFallo = `se creó, pero la foto no subió (${dataAlegra.fotoError})`;
+      } catch {
+        alegraFallo = 'error de conexión';
+      }
+    }
+    const avisoAlegra = alegraFallo
+      ? ` ⚠️ Alegra: ${alegraFallo}. Puedes reintentarlo en "🧾 Pendientes en Alegra".`
+      : '';
+
     setGuardando(false);
 
     if (data.ok && fotoFallo) {
@@ -814,11 +844,13 @@ export default function ProductosPage() {
       // abajo, que debe quedar visible.)
       cargarProductos();
       editarProducto({ ...form, id: data.producto.id });
-      setError(`El producto se creó, pero la foto no se pudo guardar (${fotoFallo}). Puedes intentar subirla de nuevo aquí abajo.`);
-    } else if (data.ok && data.aviso) {
-      // Se guardó, pero hay algo que avisar (ej. falta una migración).
+      setError(`El producto se creó, pero la foto no se pudo guardar (${fotoFallo}). Puedes intentar subirla de nuevo aquí abajo.${avisoAlegra}`);
+    } else if (data.ok && (data.aviso || avisoAlegra)) {
+      // Se guardó, pero hay algo que avisar (ej. falta una migración, o
+      // no se pudo crear en Alegra).
       cargarProductos();
-      setError(data.aviso);
+      if (alegraFallo && !form.id) editarProducto({ ...form, id: data.producto.id });
+      setError(`${data.aviso || 'El producto se guardó en el POS.'}${avisoAlegra}`);
     } else if (data.ok) {
       setMostrarForm(false);
       cargarProductos();
@@ -848,6 +880,9 @@ export default function ProductosPage() {
           </a>
           <a href="/productos/fichas" style={{ ...styles.btnSecundario, marginLeft: 0, textDecoration: 'none', color: 'inherit', fontSize: '14px' }}>
             📋 Fichas incompletas
+          </a>
+          <a href="/productos/alegra" style={{ ...styles.btnSecundario, marginLeft: 0, textDecoration: 'none', color: 'inherit', fontSize: '14px' }}>
+            🧾 Pendientes en Alegra
           </a>
           <button onClick={nuevoProducto} style={styles.btnPrimario}>+ Nuevo producto</button>
         </div>
@@ -1034,6 +1069,31 @@ export default function ProductosPage() {
               Precio de venta
               <input type="number" step="0.01" value={form.precio_venta} onChange={(e) => setForm({ ...form, precio_venta: e.target.value })} style={styles.input} />
             </label>
+            {!form.id && (
+              // div (no label): dentro de un label, tocar el texto "presionaría" el primer botón.
+              <div>
+                ¿El precio lleva IVA? *
+                <div style={{ ...styles.tipoSelector, marginTop: '6px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, con_iva: true })}
+                    style={{ ...styles.btnTipo, ...(form.con_iva === true ? styles.btnTipoActivo : {}) }}
+                  >
+                    Con IVA (19%)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, con_iva: false })}
+                    style={{ ...styles.btnTipo, ...(form.con_iva === false ? styles.btnTipoActivo : {}) }}
+                  >
+                    Sin IVA
+                  </button>
+                </div>
+                <span style={{ display: 'block', marginTop: '6px', fontWeight: 400, fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  El producto también se crea en Alegra (factura electrónica) con este precio final.
+                </span>
+              </div>
+            )}
             <label>
               Precio antes (oferta)
               <input
