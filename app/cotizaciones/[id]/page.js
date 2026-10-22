@@ -11,6 +11,18 @@ import { generarPdfCotizacion, numeroCotizacion, pesos } from '../../../lib/coti
 // y se descarga el PDF con el diseño "Poder" (lib/cotizacionPdf.js).
 
 const NOTAS_POR_DEFECTO = 'Precios sujetos a disponibilidad de inventario. Garantía según el producto.';
+const NOTA_TOTAL_POR_DEFECTO = 'Valores en pesos colombianos (COP), IVA incluido.';
+
+// El texto debajo del total que se usó la última vez queda como sugerido
+// para la siguiente cotización nueva (solo en este navegador).
+function notaTotalGuardada() {
+  try {
+    const v = localStorage.getItem('cotizacionNotaTotal');
+    return v === null ? NOTA_TOTAL_POR_DEFECTO : v;
+  } catch {
+    return NOTA_TOTAL_POR_DEFECTO;
+  }
+}
 
 function normalizar(t) {
   return String(t || '')
@@ -58,6 +70,7 @@ export default function EditarCotizacionPage() {
   const [vendedor, setVendedor] = useState('');
   const [validez, setValidez] = useState(8);
   const [notas, setNotas] = useState(NOTAS_POR_DEFECTO);
+  const [notaTotal, setNotaTotal] = useState(NOTA_TOTAL_POR_DEFECTO);
   const [guardada, setGuardada] = useState(null); // la cotización tal como quedó en la base
   const [cambios, setCambios] = useState(false);
   const [cargando, setCargando] = useState(!esNueva);
@@ -67,6 +80,7 @@ export default function EditarCotizacionPage() {
   const buscadorRef = useRef(null);
 
   useEffect(() => {
+    if (esNueva) setNotaTotal(notaTotalGuardada());
     fetch('/api/productos?para=venta')
       .then((r) => r.json())
       .then((d) => d.ok && setProductos(d.productos || []))
@@ -106,6 +120,7 @@ export default function EditarCotizacionPage() {
     setVendedor(c.vendedor || '');
     setValidez(c.validez_dias || 8);
     setNotas(c.notas || '');
+    setNotaTotal(c.nota_total == null ? NOTA_TOTAL_POR_DEFECTO : c.nota_total);
     setLineas((c.items || []).map((it, i) => ({ ...it, clave: `g${i}-${it.producto_id || 'libre'}` })));
     setCambios(false);
   }
@@ -197,6 +212,7 @@ export default function EditarCotizacionPage() {
         vendedor,
         validez_dias: Number(validez) || 8,
         notas,
+        nota_total: notaTotal,
         items: lineas.map(({ producto_id, referencia, nombre, cantidad, precio_unitario, descuento_pct }) => ({
           producto_id,
           referencia,
@@ -421,7 +437,19 @@ export default function EditarCotizacionPage() {
                 <span>TOTAL</span>
                 <span style={{ color: '#19c3ff' }}>{pesos(total)}</span>
               </div>
-              <div style={{ fontSize: '12px', color: '#a3aec2', marginTop: '4px' }}>{lineas.length} producto{lineas.length === 1 ? '' : 's'} · IVA incluido</div>
+              <div style={{ fontSize: '12px', color: '#a3aec2', marginTop: '4px' }}>{lineas.length} producto{lineas.length === 1 ? '' : 's'}</div>
+              <label style={{ display: 'block', fontSize: '12px', color: '#a3aec2', marginTop: '12px' }}>
+                Texto debajo del total (sale en el PDF; vacío = nada)
+                <input
+                  value={notaTotal}
+                  onChange={(e) => {
+                    setNotaTotal(e.target.value);
+                    try { localStorage.setItem('cotizacionNotaTotal', e.target.value); } catch {}
+                    marcar();
+                  }}
+                  style={{ ...s.input, marginTop: '4px', background: '#0f1626', color: '#fff', borderColor: '#2a3550' }}
+                />
+              </label>
             </div>
 
             <div style={s.card}>

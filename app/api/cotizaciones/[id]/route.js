@@ -32,7 +32,7 @@ export async function PUT(request, { params }) {
       UPDATE cotizaciones_cliente SET
         cliente_nombre = ${c.cliente_nombre}, cliente_documento = ${c.cliente_documento},
         cliente_telefono = ${c.cliente_telefono}, cliente_email = ${c.cliente_email},
-        vendedor = ${c.vendedor}, notas = ${c.notas}, validez_dias = ${c.validez_dias},
+        vendedor = ${c.vendedor}, notas = ${c.notas}, nota_total = ${c.nota_total}, validez_dias = ${c.validez_dias},
         items = ${JSON.stringify(c.items)}::jsonb, subtotal = ${c.subtotal}, descuento = ${c.descuento},
         total = ${c.total}, editada_en = now()
       WHERE id = ${id}

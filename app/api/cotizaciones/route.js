@@ -37,9 +37,9 @@ export async function POST(request) {
     const c = await prepararCotizacion(await request.json());
     const [fila] = await sql`
       INSERT INTO cotizaciones_cliente
-        (cliente_nombre, cliente_documento, cliente_telefono, cliente_email, vendedor, notas, validez_dias, items, subtotal, descuento, total)
+        (cliente_nombre, cliente_documento, cliente_telefono, cliente_email, vendedor, notas, nota_total, validez_dias, items, subtotal, descuento, total)
       VALUES
-        (${c.cliente_nombre}, ${c.cliente_documento}, ${c.cliente_telefono}, ${c.cliente_email}, ${c.vendedor}, ${c.notas},
+        (${c.cliente_nombre}, ${c.cliente_documento}, ${c.cliente_telefono}, ${c.cliente_email}, ${c.vendedor}, ${c.notas}, ${c.nota_total},
          ${c.validez_dias}, ${JSON.stringify(c.items)}::jsonb, ${c.subtotal}, ${c.descuento}, ${c.total})
       RETURNING *
     `;
