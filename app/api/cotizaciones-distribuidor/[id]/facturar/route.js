@@ -22,6 +22,11 @@ import {
 //   - registra los movimientos y deja la cotización con las líneas finales
 //     y enlazada a la venta.
 // Si algo falla, no se guarda nada.
+//
+// Modo AUTOMÁTICO (bodega_id = 'auto', octubre 2026): cada producto sale
+// primero de Bodega Distribuidor y lo que falte, de Principal. Así no hay
+// que facturar dos veces cuando algunos productos no están en la bodega del
+// distribuidor. Cada parte queda registrada con su bodega real.
 
 const MEDIOS = new Set(['Efectivo', 'Tarjeta', 'Transferencia', 'Otro']);
 
@@ -41,24 +46,74 @@ export async function POST(request, { params }) {
       return NextResponse.json({ ok: false, error: 'Debes abrir un turno de caja antes de facturar (Vender → abrir turno).' }, { status: 409 });
     }
 
-    const [bodega] = await sql`SELECT id, nombre FROM bodegas WHERE id = ${Number(bodega_id) || 0}`;
-    if (!bodega || bodega.nombre === 'Garantías con Proveedor') {
-      return NextResponse.json({ ok: false, error: 'Elige la bodega de donde sale la mercancía' }, { status: 400 });
-    }
+    const automatico = bodega_id === 'auto';
+    let bodega = null;
+    let distribuidor = null;
+    let principal = null;
+    let lineas;
+    let total;
+    // Por cada línea: de qué bodega(s) sale → [{ bodega, cantidad }]
+    const partes = new Map();
 
-    const { lineas, total } = await prepararLineas(items, { bodegaId: bodega.id });
-
-    // Stock suficiente en la bodega elegida (sumando líneas del mismo producto).
-    const pedido = new Map();
-    for (const l of lineas) if (l.inventariable) pedido.set(l.producto_id, (pedido.get(l.producto_id) || 0) + l.cantidad);
-    for (const [productoId, cantidad] of pedido) {
-      const l = lineas.find((x) => x.producto_id === productoId);
-      if (l.disponible < cantidad) {
-        return NextResponse.json(
-          { ok: false, error: `No alcanza el stock de "${l.nombre}" en ${bodega.nombre}: hay ${l.disponible} y se necesitan ${cantidad}.` },
-          { status: 409 }
-        );
+    if (automatico) {
+      const bodegasPorNombre = await sql`SELECT id, nombre FROM bodegas WHERE nombre IN ('Bodega Distribuidor', 'Principal')`;
+      distribuidor = bodegasPorNombre.find((b) => b.nombre === 'Bodega Distribuidor');
+      principal = bodegasPorNombre.find((b) => b.nombre === 'Principal');
+      if (!distribuidor || !principal) {
+        return NextResponse.json({ ok: false, error: 'No se encontraron las bodegas "Bodega Distribuidor" y "Principal"' }, { status: 500 });
       }
+      ({ lineas, total } = await prepararLineas(items));
+      const ids = [...new Set(lineas.filter((l) => l.inventariable).map((l) => l.producto_id))];
+      const filas = ids.length
+        ? await sql`SELECT producto_id, bodega_id, cantidad FROM stock WHERE producto_id = ANY(${ids}::int[]) AND bodega_id IN (${distribuidor.id}, ${principal.id})`
+        : [];
+      const quedan = new Map(); // `${producto}:${bodega}` → unidades libres
+      for (const f of filas) quedan.set(`${f.producto_id}:${f.bodega_id}`, Math.max(0, Number(f.cantidad) || 0));
+      for (const l of lineas) {
+        if (!l.inventariable) {
+          partes.set(l, [{ bodega: principal, cantidad: l.cantidad }]);
+          continue;
+        }
+        const kd = `${l.producto_id}:${distribuidor.id}`;
+        const kp = `${l.producto_id}:${principal.id}`;
+        const deDist = Math.min(l.cantidad, quedan.get(kd) || 0);
+        const dePpal = l.cantidad - deDist;
+        if (dePpal > (quedan.get(kp) || 0)) {
+          const hayD = (quedan.get(kd) || 0);
+          const hayP = (quedan.get(kp) || 0);
+          return NextResponse.json(
+            { ok: false, error: `No alcanza el stock de "${l.nombre}": hay ${hayD} en Bodega Distribuidor y ${hayP} en Principal, y se necesitan ${l.cantidad}.` },
+            { status: 409 }
+          );
+        }
+        quedan.set(kd, (quedan.get(kd) || 0) - deDist);
+        quedan.set(kp, (quedan.get(kp) || 0) - dePpal);
+        partes.set(l, [
+          ...(deDist > 0 ? [{ bodega: distribuidor, cantidad: deDist }] : []),
+          ...(dePpal > 0 ? [{ bodega: principal, cantidad: dePpal }] : []),
+        ]);
+      }
+    } else {
+      [bodega] = await sql`SELECT id, nombre FROM bodegas WHERE id = ${Number(bodega_id) || 0}`;
+      if (!bodega || bodega.nombre === 'Garantías con Proveedor') {
+        return NextResponse.json({ ok: false, error: 'Elige la bodega de donde sale la mercancía' }, { status: 400 });
+      }
+
+      ({ lineas, total } = await prepararLineas(items, { bodegaId: bodega.id }));
+
+      // Stock suficiente en la bodega elegida (sumando líneas del mismo producto).
+      const pedido = new Map();
+      for (const l of lineas) if (l.inventariable) pedido.set(l.producto_id, (pedido.get(l.producto_id) || 0) + l.cantidad);
+      for (const [productoId, cantidad] of pedido) {
+        const l = lineas.find((x) => x.producto_id === productoId);
+        if (l.disponible < cantidad) {
+          return NextResponse.json(
+            { ok: false, error: `No alcanza el stock de "${l.nombre}" en ${bodega.nombre}: hay ${l.disponible} y se necesitan ${cantidad}.` },
+            { status: 409 }
+          );
+        }
+      }
+      for (const l of lineas) partes.set(l, [{ bodega, cantidad: l.cantidad }]);
     }
 
     // Pagos (igual que en Vender).
@@ -109,21 +164,23 @@ export async function POST(request, { params }) {
       ),
     ];
     for (const l of lineas) {
-      if (l.inventariable) {
+      for (const parte of partes.get(l)) {
+        if (l.inventariable) {
+          consultas.push(sql`
+            WITH descontado AS (
+              UPDATE stock SET cantidad = cantidad - ${parte.cantidad}
+              WHERE producto_id = ${l.producto_id} AND bodega_id = ${parte.bodega.id} AND cantidad >= ${parte.cantidad}
+              RETURNING 1
+            )
+            SELECT 1 / c.n AS ok FROM (SELECT COUNT(*)::int AS n FROM descontado) c
+          `);
+        }
         consultas.push(sql`
-          WITH descontado AS (
-            UPDATE stock SET cantidad = cantidad - ${l.cantidad}
-            WHERE producto_id = ${l.producto_id} AND bodega_id = ${bodega.id} AND cantidad >= ${l.cantidad}
-            RETURNING 1
-          )
-          SELECT 1 / c.n AS ok FROM (SELECT COUNT(*)::int AS n FROM descontado) c
+          INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, descuento_porcentaje, venta_id, nota)
+          VALUES (${l.producto_id}, ${parte.bodega.id}, 'venta', ${parte.cantidad}, ${l.precio_unitario}, 0, current_setting('pos.id_venta')::int,
+                  ${`Cotización distribuidor ${cotizacion.numero} — ${cotizacion.distribuidor_nombre}`})
         `);
       }
-      consultas.push(sql`
-        INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, descuento_porcentaje, venta_id, nota)
-        VALUES (${l.producto_id}, ${bodega.id}, 'venta', ${l.cantidad}, ${l.precio_unitario}, 0, current_setting('pos.id_venta')::int,
-                ${`Cotización distribuidor ${cotizacion.numero} — ${cotizacion.distribuidor_nombre}`})
-      `);
     }
     // 3) La cotización queda con las líneas finales y enlazada a la venta.
     consultas.push(...consultasReemplazarLineas(id, lineas));
@@ -145,7 +202,14 @@ export async function POST(request, { params }) {
       throw error;
     }
     const ventaId = resultados[1][0].id;
-    return NextResponse.json({ ok: true, ventaId, total, bodega: bodega.nombre });
+    let textoBodega = bodega?.nombre || '';
+    if (automatico) {
+      const dePrincipal = lineas.filter((l) => l.inventariable && partes.get(l).some((p) => p.bodega.id === principal.id)).length;
+      textoBodega = dePrincipal
+        ? `Bodega Distribuidor y Principal (${dePrincipal} producto${dePrincipal === 1 ? '' : 's'} salieron total o parcialmente de Principal)`
+        : 'Bodega Distribuidor';
+    }
+    return NextResponse.json({ ok: true, ventaId, total, bodega: textoBodega });
   } catch (error) {
     if (error instanceof ErrorCotizacion) return NextResponse.json({ ok: false, error: error.message }, { status: error.status });
     if (faltaMigracion(error)) return NextResponse.json({ ok: false, error: MENSAJE_MIGRACION }, { status: 500 });

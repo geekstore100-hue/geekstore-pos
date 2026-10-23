@@ -19,7 +19,7 @@ const moneda = (n) => `$${Math.round(Number(n) || 0).toLocaleString('es-CO')}`;
 const MEDIOS = ['Transferencia', 'Efectivo', 'Tarjeta', 'Otro'];
 const normalizar = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
-function EditorLineas({ lineas, setLineas, productos, stockDe }) {
+function EditorLineas({ lineas, setLineas, productos, stockDe, repartoDe }) {
   const [buscar, setBuscar] = useState('');
   const resultados = useMemo(() => {
     const q = normalizar(buscar).trim();
@@ -66,7 +66,20 @@ function EditorLineas({ lineas, setLineas, productos, stockDe }) {
                 </td>
                 {stockDe ? (
                   <td style={{ ...styles.td, textAlign: 'center', color: falta ? '#b42318' : '#667', fontWeight: falta ? 700 : 400 }}>
-                    {stock === null || stock === undefined ? '—' : stock}
+                    {(() => {
+                      const r = repartoDe ? repartoDe(l.producto_id, l.cantidad) : null;
+                      if (!r) return stock === null || stock === undefined ? '—' : stock;
+                      return (
+                        <span style={{ fontSize: '0.8rem', lineHeight: 1.3, display: 'inline-block' }}>
+                          <span title="Bodega Distribuidor">Dist. {r.hayDist}</span> · <span title="Principal">Ppal. {r.hayPpal}</span>
+                          {!falta && r.dePpal > 0 ? (
+                            <span style={{ display: 'block', color: '#b54708', fontWeight: 700 }}>
+                              {r.deDist > 0 ? `${r.deDist} de Dist. + ` : ''}{r.dePpal} de Principal
+                            </span>
+                          ) : null}
+                        </span>
+                      );
+                    })()}
                   </td>
                 ) : null}
                 <td style={{ ...styles.td, textAlign: 'center' }}>
@@ -183,21 +196,34 @@ export default function CotizacionDistribuidorPage({ params }) {
       setProductos(dp.productos || []);
       const lista = (db.bodegas || []).filter((b) => b.nombre !== 'Garantías con Proveedor');
       setBodegas(lista);
-      setBodegaId((actual) => actual || String((lista.find((b) => b.nombre === 'Bodega Distribuidor') || lista[0] || {}).id || ''));
+      // Por defecto: automático (primero Bodega Distribuidor, lo que falte de Principal).
+      setBodegaId((actual) => actual || 'auto');
       setVendedores((dv.vendedores || []).filter((v) => v.activo !== false));
     }
   }
 
   const sinProductoId = lineas.some((l) => !l.producto_id);
   const total = lineas.reduce((a, l) => a + (Number(l.cantidad) || 0) * (Number(l.precio_unitario) || 0), 0);
-  const bodegaElegida = bodegas.find((b) => String(b.id) === String(bodegaId));
+  const automatico = bodegaId === 'auto';
+  const bodegaElegida = automatico ? { nombre: 'Bodega Distribuidor + Principal' } : bodegas.find((b) => String(b.id) === String(bodegaId));
   const stockDe = (productoId) => {
     const p = productos.find((x) => Number(x.id) === Number(productoId));
     if (!p || !bodegaElegida) return null;
     if (p.es_inventariable === false) return null;
+    if (automatico) return Number(p.stock_distribuidor) + Number(p.stock_principal);
     if (bodegaElegida.nombre === 'Bodega Distribuidor') return Number(p.stock_distribuidor);
     if (bodegaElegida.nombre === 'Principal') return Number(p.stock_principal);
     return null;
+  };
+  // Modo automático: de dónde sale cada línea (para mostrarlo en la tabla).
+  const repartoDe = (productoId, cantidad) => {
+    if (!automatico) return null;
+    const p = productos.find((x) => Number(x.id) === Number(productoId));
+    if (!p || p.es_inventariable === false) return null;
+    const c = Number(cantidad) || 0;
+    const deDist = Math.min(c, Math.max(0, Number(p.stock_distribuidor) || 0));
+    const dePpal = c - deDist;
+    return { deDist, dePpal, hayDist: Number(p.stock_distribuidor) || 0, hayPpal: Number(p.stock_principal) || 0 };
   };
   const faltaStock =
     modo === 'facturar' &&
@@ -239,7 +265,7 @@ export default function CotizacionDistribuidorPage({ params }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           items: lineasParaEnviar(),
-          bodega_id: Number(bodegaId),
+          bodega_id: bodegaId === 'auto' ? 'auto' : Number(bodegaId),
           medio_pago: medioPago,
           vendedor_id: vendedorId ? Number(vendedorId) : null,
         }),
@@ -316,16 +342,17 @@ export default function CotizacionDistribuidorPage({ params }) {
             </h2>
             {modo === 'facturar' ? (
               <p style={{ color: '#667', marginTop: 0, fontSize: '0.9rem' }}>
-                Revisa y ajusta lo que vas a entregar. Al guardar se crea la venta en el POS y se descuenta el inventario de la bodega elegida.
+                Revisa y ajusta lo que vas a entregar. Al guardar se crea la venta en el POS y se descuenta el inventario. En automático, cada producto sale de Bodega Distribuidor y lo que falte, de Principal.
               </p>
             ) : null}
-            <EditorLineas lineas={lineas} setLineas={setLineas} productos={productos} stockDe={modo === 'facturar' ? stockDe : null} />
+            <EditorLineas lineas={lineas} setLineas={setLineas} productos={productos} stockDe={modo === 'facturar' ? stockDe : null} repartoDe={modo === 'facturar' ? repartoDe : null} />
 
             {modo === 'facturar' ? (
               <div style={styles.camposFactura}>
                 <label style={styles.campo}>
                   Sale de la bodega
                   <select value={bodegaId} onChange={(e) => setBodegaId(e.target.value)} style={styles.input}>
+                    <option value="auto">Automático: Distribuidor y lo que falte de Principal</option>
                     {bodegas.map((b) => (
                       <option key={b.id} value={b.id}>{b.nombre}</option>
                     ))}
@@ -353,7 +380,9 @@ export default function CotizacionDistribuidorPage({ params }) {
 
             {faltaStock ? (
               <p style={{ color: '#b42318', fontSize: '0.9rem' }}>
-                Hay productos sin stock suficiente en {bodegaElegida?.nombre}: baja la cantidad, quítalos o elige otra bodega.
+                {automatico
+                  ? 'Hay productos que no alcanzan ni sumando Bodega Distribuidor y Principal: baja la cantidad o quítalos.'
+                  : `Hay productos sin stock suficiente en ${bodegaElegida?.nombre}: baja la cantidad, quítalos o elige otra bodega.`}
               </p>
             ) : null}
             {sinProductoId ? (
