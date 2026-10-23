@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Shell from '../../../components/Shell';
 import { descargarExcelEtiquetas } from '../../../lib/etiquetasOpenLabel';
+import { achicarFoto, dataUrlABlob, fotosAPdf, cabeEnUnaSubida } from '../../../lib/manifiestoFotos';
 
 // Fecha de HOY en hora de Colombia (AAAA-MM-DD). Antes usaba
 // toISOString(), que da la fecha en hora UTC (5 horas adelante): después de
@@ -65,6 +66,12 @@ export default function FacturasCompraPage() {
   const [cargandoManifiestos, setCargandoManifiestos] = useState(false);
   const [subiendoManifiesto, setSubiendoManifiesto] = useState(false);
   const [errorManifiesto, setErrorManifiesto] = useState('');
+  // Fotos del manifiesto tomadas con el celular, antes de subirlas (oct 2026):
+  // se pueden tomar varias (una por hoja) y guardarlas como UN solo PDF.
+  const [paginasManifiesto, setPaginasManifiesto] = useState([]); // { dataUrl, ancho, alto }
+  const [estadoManifiesto, setEstadoManifiesto] = useState('');
+  const camaraManifiestoRef = useRef(null);
+  const archivosManifiestoRef = useRef(null);
 
   async function cargarFacturas() {
     setCargando(true);
@@ -337,7 +344,9 @@ export default function FacturasCompraPage() {
     try {
       const res = await fetch(`/api/facturas-compra/${id}`);
       const data = await res.json();
-      if (data.ok) setDetalleFactura(data);
+      // Se conserva el id: la respuesta trae { factura, items } pero no "id", y
+      // sin él no funcionaban los manifiestos ni la retención del detalle.
+      if (data.ok) setDetalleFactura({ ...data, id });
       else setDetalleFactura(null);
     } catch {
       setDetalleFactura(null);
@@ -358,28 +367,117 @@ export default function FacturasCompraPage() {
     }
   }
 
-  async function subirManifiesto(e) {
-    const archivo = e.target.files?.[0];
+  // Sube UN archivo (PDF o foto) como manifiesto de esta factura.
+  async function enviarManifiesto(archivo, nombre) {
+    const formData = new FormData();
+    formData.append('archivo', archivo, nombre);
+    const res = await fetch(`/api/facturas-compra/${detalleFactura.id}/manifiestos`, { method: 'POST', body: formData });
+    if (res.status === 413) throw new Error('El archivo es muy pesado para subirlo (máx. ~5 MB).');
+    const data = await res.json().catch(() => ({ ok: false, error: `El servidor respondió ${res.status}` }));
+    if (!data.ok) throw new Error(data.error || 'No se pudo subir el manifiesto');
+    setManifiestos((actual) => [...actual, data.manifiesto]);
+  }
+
+  // Foto con la cámara: se achica y queda en "páginas por subir".
+  async function onCamaraManifiesto(e) {
+    const archivos = [...(e.target.files || [])];
     e.target.value = '';
-    if (!archivo || !detalleFactura?.id) return;
+    await agregarArchivosManifiesto(archivos);
+  }
+
+  // Elegir archivos (varios a la vez): los PDF se suben de una; las fotos
+  // quedan en "páginas por subir" para unirlas en un PDF.
+  async function onElegirManifiesto(e) {
+    const archivos = [...(e.target.files || [])];
+    e.target.value = '';
+    await agregarArchivosManifiesto(archivos);
+  }
+
+  async function agregarArchivosManifiesto(archivos) {
+    if (!archivos.length || !detalleFactura?.id) return;
     setErrorManifiesto('');
     setSubiendoManifiesto(true);
     try {
-      const formData = new FormData();
-      formData.append('archivo', archivo);
-      const res = await fetch(`/api/facturas-compra/${detalleFactura.id}/manifiestos`, {
-        method: 'POST',
-        body: formData,
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setManifiestos((actual) => [...actual, data.manifiesto]);
-      } else {
-        setErrorManifiesto(data.error || 'No se pudo subir el manifiesto');
+      for (let i = 0; i < archivos.length; i++) {
+        const a = archivos[i];
+        const esPdf = a.type === 'application/pdf' || /\.pdf$/i.test(a.name || '');
+        if (esPdf) {
+          setEstadoManifiesto(`Subiendo PDF ${a.name || ''}…`);
+          await enviarManifiesto(a, a.name || 'manifiesto.pdf');
+        } else {
+          setEstadoManifiesto(`Preparando foto ${i + 1} de ${archivos.length}…`);
+          const pagina = await achicarFoto(a);
+          setPaginasManifiesto((l) => [...l, pagina]);
+        }
       }
-    } catch {
-      setErrorManifiesto('No se pudo subir el manifiesto');
+    } catch (err) {
+      setErrorManifiesto(err?.message || 'No se pudo subir el manifiesto');
     } finally {
+      setEstadoManifiesto('');
+      setSubiendoManifiesto(false);
+    }
+  }
+
+  // Une las fotos en PDF(s) y las sube. Si todo junto pesa demasiado, se
+  // parte en varios PDF (parte 1, parte 2...).
+  async function guardarPaginasComoPdf() {
+    if (!paginasManifiesto.length) return;
+    setErrorManifiesto('');
+    setSubiendoManifiesto(true);
+    try {
+      const base = `manifiesto-${detalleFactura.factura?.numero || detalleFactura.id}`.replace(/[^\w-]+/g, '_');
+      let grupos = [paginasManifiesto];
+      for (let intento = 0; intento < 6; intento++) {
+        setEstadoManifiesto('Armando el PDF…');
+        const blobs = [];
+        let muyGrande = false;
+        for (const g of grupos) {
+          const blob = await fotosAPdf(g);
+          if (!cabeEnUnaSubida(blob) && g.length > 1) {
+            muyGrande = true;
+            break;
+          }
+          blobs.push(blob);
+        }
+        if (muyGrande) {
+          const tam = Math.ceil(grupos[0].length / 2);
+          const nuevos = [];
+          for (let i = 0; i < paginasManifiesto.length; i += tam) nuevos.push(paginasManifiesto.slice(i, i + tam));
+          grupos = nuevos;
+          continue;
+        }
+        for (let i = 0; i < blobs.length; i++) {
+          setEstadoManifiesto(blobs.length > 1 ? `Subiendo parte ${i + 1} de ${blobs.length}…` : 'Subiendo PDF…');
+          await enviarManifiesto(blobs[i], blobs.length > 1 ? `${base}-parte${i + 1}.pdf` : `${base}.pdf`);
+        }
+        setPaginasManifiesto([]);
+        return;
+      }
+      throw new Error('Las fotos pesan demasiado. Súbelas por separado.');
+    } catch (err) {
+      setErrorManifiesto(err?.message || 'No se pudo subir el manifiesto');
+    } finally {
+      setEstadoManifiesto('');
+      setSubiendoManifiesto(false);
+    }
+  }
+
+  async function guardarPaginasSeparadas() {
+    if (!paginasManifiesto.length) return;
+    setErrorManifiesto('');
+    setSubiendoManifiesto(true);
+    try {
+      const base = `manifiesto-${detalleFactura.factura?.numero || detalleFactura.id}`.replace(/[^\w-]+/g, '_');
+      const pendientes = [...paginasManifiesto];
+      for (let i = 0; i < pendientes.length; i++) {
+        setEstadoManifiesto(`Subiendo foto ${i + 1} de ${pendientes.length}…`);
+        await enviarManifiesto(dataUrlABlob(pendientes[i].dataUrl), `${base}-${i + 1}.jpg`);
+        setPaginasManifiesto((l) => l.slice(1));
+      }
+    } catch (err) {
+      setErrorManifiesto(err?.message || 'No se pudo subir el manifiesto');
+    } finally {
+      setEstadoManifiesto('');
       setSubiendoManifiesto(false);
     }
   }
@@ -392,6 +490,8 @@ export default function FacturasCompraPage() {
   }
 
   function cerrarDetalle() {
+    if (paginasManifiesto.length && !window.confirm('Hay fotos del manifiesto sin guardar. ¿Cerrar de todas formas?')) return;
+    setPaginasManifiesto([]);
     setDetalleFactura(null);
     setEditandoRetencion(false);
     setManifiestos([]);
@@ -993,16 +1093,66 @@ export default function FacturasCompraPage() {
                       ))}
                     </>
                   )}
-                  <label style={{ ...styles.btnSecundario, display: 'inline-block', marginTop: '8px', cursor: 'pointer' }}>
-                    {subiendoManifiesto ? 'Subiendo...' : '+ Adjuntar manifiesto'}
-                    <input
-                      type="file"
-                      accept="application/pdf,image/*"
-                      onChange={subirManifiesto}
+                  {/* Fotos tomadas, antes de subir: varias hojas → un solo PDF. */}
+                  {paginasManifiesto.length > 0 && (
+                    <div style={{ marginTop: '10px', padding: '10px', border: '1px dashed var(--teal)', borderRadius: '8px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>
+                        Páginas por subir ({paginasManifiesto.length})
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        {paginasManifiesto.map((pg, i) => (
+                          <div key={i} style={{ position: 'relative' }}>
+                            <img src={pg.dataUrl} alt={`Página ${i + 1}`} style={{ width: 64, height: 84, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)' }} />
+                            <span style={{ position: 'absolute', left: 4, bottom: 4, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 11, borderRadius: 4, padding: '0 4px' }}>{i + 1}</span>
+                            <button
+                              type="button"
+                              onClick={() => setPaginasManifiesto((l) => l.filter((_, j) => j !== i))}
+                              disabled={subiendoManifiesto}
+                              aria-label={`Quitar página ${i + 1}`}
+                              style={{ position: 'absolute', top: -6, right: -6, width: 22, height: 22, borderRadius: '50%', border: 'none', background: 'var(--danger, #c0392b)', color: '#fff', cursor: 'pointer', fontSize: 12 }}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px', alignItems: 'center' }}>
+                        <button type="button" onClick={guardarPaginasComoPdf} disabled={subiendoManifiesto} style={{ ...styles.btnPrimario, marginLeft: 0 }}>
+                          ⬆️ Guardar {paginasManifiesto.length === 1 ? 'como PDF' : `las ${paginasManifiesto.length} como un solo PDF`}
+                        </button>
+                        {paginasManifiesto.length > 1 && (
+                          <button type="button" onClick={guardarPaginasSeparadas} disabled={subiendoManifiesto} style={{ ...styles.btnMiniLink }}>
+                            o subirlas como fotos separadas
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={() => camaraManifiestoRef.current?.click()}
                       disabled={subiendoManifiesto}
-                      style={{ display: 'none' }}
-                    />
-                  </label>
+                      style={{ ...styles.btnSecundario, marginLeft: 0 }}
+                    >
+                      📷 {paginasManifiesto.length ? 'Tomar otra foto' : 'Tomar foto'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => archivosManifiestoRef.current?.click()}
+                      disabled={subiendoManifiesto}
+                      style={{ ...styles.btnSecundario, marginLeft: 0 }}
+                    >
+                      📎 Elegir fotos o PDF
+                    </button>
+                    <input ref={camaraManifiestoRef} type="file" accept="image/*" capture="environment" onChange={onCamaraManifiesto} style={{ display: 'none' }} />
+                    <input ref={archivosManifiestoRef} type="file" accept="application/pdf,image/*" multiple onChange={onElegirManifiesto} style={{ display: 'none' }} />
+                  </div>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '6px 0 0' }}>
+                    Si el manifiesto tiene varias hojas, toma una foto por hoja y al final toca &quot;Guardar como un solo PDF&quot;.
+                  </p>
+                  {estadoManifiesto && <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '6px 0 0' }}>{estadoManifiesto}</p>}
                   {errorManifiesto && <p style={{ color: 'var(--danger)', fontSize: '13px' }}>{errorManifiesto}</p>}
                 </div>
               </>
