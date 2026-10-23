@@ -6,9 +6,21 @@ export async function GET(request, { params }) {
     const { id } = await params;
 
     const [venta] = await sql`
-      SELECT v.id, v.total, v.medio_pago, ve.nombre AS vendedor_nombre, v.creado_en, v.anulada, v.anulada_en
+      SELECT v.id, v.total, v.medio_pago, ve.nombre AS vendedor_nombre, v.creado_en, v.anulada, v.anulada_en,
+             (to_jsonb(v) ->> 'evento') AS evento,
+             -- Cliente: el de la venta o el distribuidor del pedido (oct 2026).
+             COALESCE(NULLIF(to_jsonb(v) ->> 'cliente_nombre', ''), dist.distribuidor_nombre) AS cliente_nombre,
+             COALESCE(NULLIF(to_jsonb(v) ->> 'cliente_telefono', ''), '') AS cliente_telefono,
+             dist.distribuidor_cedula AS cliente_documento,
+             dist.numero AS cotizacion_numero
       FROM ventas v
       LEFT JOIN vendedores ve ON ve.id = v.vendedor_id
+      LEFT JOIN LATERAL (
+        SELECT cd.distribuidor_nombre, cd.distribuidor_cedula, cd.numero
+        FROM cotizaciones_distribuidor cd
+        WHERE (to_jsonb(cd) ->> 'venta_id')::int = v.id OR (to_jsonb(cd) ->> 'venta_principal_id')::int = v.id
+        LIMIT 1
+      ) dist ON true
       WHERE v.id = ${id}
     `;
     if (!venta) {
@@ -36,7 +48,12 @@ export async function GET(request, { params }) {
       ORDER BY m.id ASC
     `;
 
-    return NextResponse.json({ ok: true, venta, items });
+    // Pagos (para el comprobante imprimible: efectivo, tarjeta, etc.).
+    const pagos = await sql`
+      SELECT medio_pago, SUM(monto) AS monto FROM pagos_venta WHERE venta_id = ${id} GROUP BY medio_pago ORDER BY MIN(id)
+    `.catch(() => []);
+
+    return NextResponse.json({ ok: true, venta, items, pagos });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }

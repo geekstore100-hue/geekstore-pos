@@ -116,6 +116,7 @@ export default function HistorialPage() {
               <th style={styles.th}>Fecha y hora</th>
               <th style={styles.th}>Medio de pago</th>
               <th style={styles.th}>Vendedor</th>
+              <th style={styles.th}>Cliente</th>
               <th style={styles.th}>Ítems</th>
               <th style={styles.th}>Total</th>
               <th style={styles.th}>Estado</th>
@@ -128,6 +129,10 @@ export default function HistorialPage() {
                 <td style={styles.td} onClick={() => abrirDetalle(v.id)}>{fechaHora(v.creado_en)}</td>
                 <td style={styles.td} onClick={() => abrirDetalle(v.id)}>{v.medio_pago || '-'}</td>
                 <td style={styles.td} onClick={() => abrirDetalle(v.id)}>{v.vendedor_nombre || '-'}</td>
+                <td style={styles.td} onClick={() => abrirDetalle(v.id)} title={v.cotizacion_numero ? `Pedido de distribuidor ${v.cotizacion_numero}` : undefined}>
+                  {v.cliente_nombre || '-'}
+                  {v.cotizacion_numero ? <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)' }}>Distribuidor</span> : null}
+                </td>
                 <td style={styles.td} onClick={() => abrirDetalle(v.id)}>{v.items}</td>
                 <td style={styles.td} onClick={() => abrirDetalle(v.id)}>{moneda(v.total)}</td>
                 <td style={styles.td} onClick={() => abrirDetalle(v.id)}>
@@ -138,7 +143,17 @@ export default function HistorialPage() {
                     </span>
                   ) : null}
                 </td>
-                <td style={styles.td}>
+                <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
+                  <a
+                    href={`/historial/${v.id}/imprimir`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    title="Imprimir comprobante de venta"
+                    style={styles.btnImprimir}
+                  >
+                    🖨️
+                  </a>
                   {!v.anulada && esHoy(v.creado_en) && (
                     <button
                       onClick={(e) => { e.stopPropagation(); anularVenta(v.id); }}
@@ -153,7 +168,7 @@ export default function HistorialPage() {
             ))}
             {ventas.length === 0 && !cargando && (
               <tr>
-                <td style={styles.td} colSpan={7}>Sin ventas en ese rango.</td>
+                <td style={styles.td} colSpan={8}>Sin ventas en ese rango.</td>
               </tr>
             )}
           </tbody>
@@ -178,6 +193,23 @@ export default function HistorialPage() {
                 <div style={styles.filaResumen}><span>Fecha y hora</span><strong>{fechaHora(detalle.venta.creado_en)}</strong></div>
                 <div style={styles.filaResumen}><span>Medio de pago</span><strong>{detalle.venta.medio_pago || '-'}</strong></div>
                 <div style={styles.filaResumen}><span>Vendedor</span><strong>{detalle.venta.vendedor_nombre || '-'}</strong></div>
+                {detalle.venta.cliente_nombre ? (
+                  <div style={styles.filaResumen}>
+                    <span>Cliente</span>
+                    <strong>
+                      {detalle.venta.cliente_nombre}
+                      {detalle.venta.cotizacion_numero ? ` (pedido ${detalle.venta.cotizacion_numero})` : ''}
+                    </strong>
+                  </div>
+                ) : null}
+                <a
+                  href={`/historial/${detalle.venta.id}/imprimir`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ ...styles.btnImprimir, display: 'inline-block', marginTop: '10px', padding: '8px 14px' }}
+                >
+                  🖨️ Imprimir comprobante
+                </a>
 
                 <h4 style={{ marginTop: '20px', marginBottom: '8px' }}>Artículos</h4>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
@@ -320,6 +352,18 @@ const estilosCosto = {
 };
 
 const styles = {
+  btnImprimir: {
+    display: 'inline-block',
+    padding: '5px 9px',
+    marginRight: '6px',
+    borderRadius: '8px',
+    border: '1px solid var(--border)',
+    background: '#fff',
+    color: 'inherit',
+    textDecoration: 'none',
+    fontSize: '13px',
+    cursor: 'pointer',
+  },
   input: { display: 'block', padding: '9px', marginTop: '4px', borderRadius: '8px', border: '1px solid var(--border)' },
   th: { padding: '10px 8px', fontSize: '13px', color: 'var(--text-secondary)' },
   td: { padding: '10px 8px', fontSize: '14px' },
