@@ -475,11 +475,22 @@ export default function FacturasCompraPage() {
                     </span>
                   </td>
                   <td style={styles.td}>
-                    {f.estado_pago === 'pendiente' && (
-                      <button onClick={() => marcarPagada(f.id)} disabled={pagandoId === f.id} style={styles.btnSecundario}>
-                        {pagandoId === f.id ? 'Marcando...' : 'Marcar pagada'}
-                      </button>
-                    )}
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      {f.estado_pago === 'pendiente' && (
+                        <button onClick={() => marcarPagada(f.id)} disabled={pagandoId === f.id} style={styles.btnSecundario}>
+                          {pagandoId === f.id ? 'Marcando...' : 'Marcar pagada'}
+                        </button>
+                      )}
+                      <a
+                        href={`/gastos/facturas-compra/${f.id}/imprimir`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Imprimir factura"
+                        style={{ ...styles.btnSecundario, marginLeft: 0, textDecoration: 'none', color: 'inherit' }}
+                      >
+                        🖨️
+                      </a>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -781,7 +792,17 @@ export default function FacturasCompraPage() {
           <div style={styles.modalDetalle} onMouseDown={(e) => e.stopPropagation()}>
             <div style={styles.header}>
               <h3 style={{ margin: 0 }}>{detalleFactura.factura?.numero || `FC-${detalleFactura.id}`}</h3>
-              <button onClick={cerrarDetalle} style={styles.btnCerrarModal}>✕</button>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <a
+                  href={`/gastos/facturas-compra/${detalleFactura.id}/imprimir`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ ...styles.btnSecundario, marginLeft: 0, textDecoration: 'none', color: 'inherit' }}
+                >
+                  🖨️ Imprimir
+                </a>
+                <button onClick={cerrarDetalle} style={styles.btnCerrarModal}>✕</button>
+              </div>
             </div>
             {cargandoDetalle ? (
               <p>Cargando...</p>
