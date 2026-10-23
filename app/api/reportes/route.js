@@ -41,7 +41,8 @@ export async function GET(request) {
           pr.referencia,
           pr.nombre,
           SUM(m.cantidad) AS unidades,
-          SUM(m.cantidad * m.precio_unitario * (1 - COALESCE(m.descuento_porcentaje, 0) / 100)) AS total
+          -- precio_unitario ya trae el descuento aplicado (antes se descontaba dos veces).
+          SUM(m.cantidad * m.precio_unitario) AS total
         FROM movimientos_stock m
         JOIN ventas v ON v.id = m.venta_id
         JOIN productos pr ON pr.id = m.producto_id

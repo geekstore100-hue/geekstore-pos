@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Shell from '../../components/Shell';
+import { armarJournal, exportarJournalExcel } from '../../lib/journalVentas';
 
 // Fecha de HOY en hora de Colombia (AAAA-MM-DD). Antes usaba
 // toISOString(), que da la fecha en hora UTC (5 horas adelante): después de
@@ -17,6 +18,7 @@ const REPORTES = [
   { id: 'inventario', label: 'Valor de inventario actual' },
   { id: 'ventasItem', label: 'Ventas por ítem' },
   { id: 'ventasVendedor', label: 'Ventas por vendedor' },
+  { id: 'journal', label: '📒 Journal de ventas (Excel)' },
 ];
 
 // Antes, apenas se entraba a esta pantalla, se generaban los tres reportes
@@ -34,6 +36,9 @@ export default function ReportesPage() {
   const [inventario, setInventario] = useState(null);
   const [ventasPorItem, setVentasPorItem] = useState(null);
   const [ventasPorVendedor, setVentasPorVendedor] = useState(null);
+  const [journal, setJournal] = useState(null);
+  const [conAnuladas, setConAnuladas] = useState(false);
+  const [exportando, setExportando] = useState(false);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
 
@@ -79,8 +84,38 @@ export default function ReportesPage() {
     setError('');
   }
 
+  // Journal de ventas (octubre 2026): todas las ventas línea por línea, con
+  // resumen y exportación a Excel (ver lib/journalVentas.js).
+  async function generarJournal() {
+    setCargando(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/reportes/journal?desde=${desde}&hasta=${hasta}${conAnuladas ? '&anuladas=1' : ''}`);
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'No se pudo generar el reporte');
+      setJournal({ ...armarJournal(data), desde: data.desde, hasta: data.hasta });
+    } catch (e) {
+      setError(e.message || 'No se pudo generar el reporte');
+    } finally {
+      setCargando(false);
+    }
+  }
+
+  async function exportarJournal() {
+    if (!journal) return;
+    setExportando(true);
+    try {
+      await exportarJournalExcel(journal, { desde: journal.desde, hasta: journal.hasta });
+    } catch (e) {
+      setError(`No se pudo crear el Excel: ${e.message}`);
+    } finally {
+      setExportando(false);
+    }
+  }
+
   function generar() {
-    if (reporteActivo === 'ventasVendedor') generarVentasPorVendedor();
+    if (reporteActivo === 'journal') generarJournal();
+    else if (reporteActivo === 'ventasVendedor') generarVentasPorVendedor();
     else generarInventarioYVentasItem();
   }
 
@@ -88,11 +123,12 @@ export default function ReportesPage() {
     return `$${Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
   }
 
-  const necesitaFechas = reporteActivo === 'ventasItem' || reporteActivo === 'ventasVendedor';
+  const necesitaFechas = reporteActivo === 'ventasItem' || reporteActivo === 'ventasVendedor' || reporteActivo === 'journal';
   const yaGenerado =
     (reporteActivo === 'inventario' && inventario !== null) ||
     (reporteActivo === 'ventasItem' && ventasPorItem !== null) ||
-    (reporteActivo === 'ventasVendedor' && ventasPorVendedor !== null);
+    (reporteActivo === 'ventasVendedor' && ventasPorVendedor !== null) ||
+    (reporteActivo === 'journal' && journal !== null);
 
   const totalCosto = (inventario || []).reduce((acc, p) => acc + Number(p.valor_costo || 0), 0);
   const totalVenta = (inventario || []).reduce((acc, p) => acc + Number(p.valor_venta || 0), 0);
@@ -135,9 +171,20 @@ export default function ReportesPage() {
               </label>
             </>
           )}
+          {reporteActivo === 'journal' && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', height: '38px' }}>
+              <input type="checkbox" checked={conAnuladas} onChange={(e) => setConAnuladas(e.target.checked)} />
+              Incluir anuladas (marcadas, no suman)
+            </label>
+          )}
           <button onClick={generar} disabled={cargando} style={styles.btnPrimario}>
             {cargando ? 'Generando...' : yaGenerado ? 'Volver a generar' : 'Generar'}
           </button>
+          {reporteActivo === 'journal' && journal && (
+            <button onClick={exportarJournal} disabled={exportando} style={{ ...styles.btnPrimario, background: '#1d6f42' }}>
+              {exportando ? 'Creando Excel...' : '⬇️ Exportar a Excel'}
+            </button>
+          )}
         </div>
       )}
 
@@ -282,6 +329,106 @@ export default function ReportesPage() {
             </tfoot>
           </table>
         </div>
+      )}
+      {reporteActivo === 'journal' && journal !== null && (
+        <>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 10px' }}>
+            Del {journal.desde} al {journal.hasta}. El costo y la utilidad usan el costo actual de cada producto.
+          </p>
+          <div style={styles.resumenBodegas}>
+            <div style={{ ...styles.resumenTarjeta, ...styles.resumenTarjetaTotal }}>
+              <div style={styles.resumenTitulo}>Neto (después de devoluciones)</div>
+              <div style={{ fontSize: '22px', fontWeight: 800 }}>{moneda(journal.resumen.netoFinal)}</div>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                {journal.resumen.ventas} ventas · {journal.resumen.unidades} unidades · ticket {moneda(journal.resumen.ticket)}
+              </div>
+            </div>
+            <div style={styles.resumenTarjeta}>
+              <div style={styles.resumenTitulo}>Ventas</div>
+              <div>Brutas: <strong>{moneda(journal.resumen.bruto)}</strong></div>
+              <div>Descuentos: <strong>-{moneda(journal.resumen.descuento)}</strong></div>
+              <div>Devoluciones: <strong>-{moneda(journal.resumen.devoluciones)}</strong></div>
+            </div>
+            <div style={styles.resumenTarjeta}>
+              <div style={styles.resumenTitulo}>Utilidad</div>
+              <div>Costo: <strong>{moneda(journal.resumen.costo)}</strong></div>
+              <div>Utilidad: <strong>{moneda(journal.resumen.utilidad)}</strong></div>
+              <div>Margen: <strong>{(journal.resumen.margen * 100).toFixed(1)}%</strong></div>
+            </div>
+            <div style={styles.resumenTarjeta}>
+              <div style={styles.resumenTitulo}>Por medio de pago</div>
+              {journal.porMedio.length === 0 && <div>—</div>}
+              {journal.porMedio.map((m) => (
+                <div key={m.medio}>{m.medio}: <strong>{moneda(m.total)}</strong></div>
+              ))}
+              {journal.resumen.anuladas > 0 && (
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>{journal.resumen.anuladas} anulada(s), no suman</div>
+              )}
+            </div>
+          </div>
+
+          <div className="pos-tabla-scroll" style={styles.tableCard}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                  <th style={styles.th}>Fecha</th>
+                  <th style={styles.th}>Venta</th>
+                  <th style={styles.th}>Vendedor</th>
+                  <th style={styles.th}>Producto</th>
+                  <th style={styles.th}>Cant.</th>
+                  <th style={styles.th}>Precio</th>
+                  <th style={styles.th}>Desc.</th>
+                  <th style={styles.th}>Total</th>
+                  <th style={styles.th}>Pago</th>
+                </tr>
+              </thead>
+              <tbody>
+                {journal.lineas.slice(0, 300).map((l, i) => (
+                  <tr key={`${l.venta_id}-${i}`} style={{ borderBottom: '1px solid var(--border)', ...(l.anulada ? { opacity: 0.5, textDecoration: 'line-through' } : {}) }}>
+                    <td style={styles.td}>{l.fecha} {l.hora}</td>
+                    <td style={styles.td}>
+                      #{l.venta_id}
+                      {l.canal !== 'Mostrador' && <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{l.canal}</div>}
+                    </td>
+                    <td style={styles.td}>{l.vendedor}</td>
+                    <td style={styles.td}>
+                      {l.producto}
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Ref. {l.referencia} · {l.categoria}</div>
+                    </td>
+                    <td style={styles.td}>{l.cantidad}</td>
+                    <td style={styles.td}>{moneda(l.precio_neto)}</td>
+                    <td style={styles.td}>{l.descuento_pct ? `${l.descuento_pct}%` : '—'}</td>
+                    <td style={styles.td}><strong>{moneda(l.total)}</strong></td>
+                    <td style={styles.td}>{l.medio_pago}</td>
+                  </tr>
+                ))}
+                {journal.devoluciones.map((d) => (
+                  <tr key={`dev-${d.id}`} style={{ borderBottom: '1px solid var(--border)', color: 'var(--danger, #c0392b)' }}>
+                    <td style={styles.td}>{d.fecha} {d.hora}</td>
+                    <td style={styles.td}>Devolución</td>
+                    <td style={styles.td}>—</td>
+                    <td style={styles.td}>{d.producto}{d.motivo ? <div style={{ fontSize: '11px' }}>{d.motivo}</div> : null}</td>
+                    <td style={styles.td}>-{d.cantidad}</td>
+                    <td style={styles.td}></td>
+                    <td style={styles.td}></td>
+                    <td style={styles.td}><strong>-{moneda(d.monto)}</strong></td>
+                    <td style={styles.td}>Efectivo</td>
+                  </tr>
+                ))}
+                {journal.lineas.length === 0 && journal.devoluciones.length === 0 && (
+                  <tr>
+                    <td style={styles.td} colSpan={9}>Sin ventas en ese rango.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            {journal.lineas.length > 300 && (
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                Aquí se ven las primeras 300 líneas de {journal.lineas.length}. El Excel trae todas.
+              </p>
+            )}
+          </div>
+        </>
       )}
     </Shell>
   );

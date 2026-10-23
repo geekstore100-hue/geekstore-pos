@@ -24,7 +24,8 @@ export async function GET(request, { params }) {
         m.cantidad,
         m.precio_unitario,
         m.descuento_porcentaje,
-        (m.precio_unitario * (1 - COALESCE(m.descuento_porcentaje, 0) / 100) * m.cantidad) AS subtotal
+        -- En ventas, precio_unitario ya trae el descuento aplicado.
+        (m.precio_unitario * m.cantidad) AS subtotal
       FROM movimientos_stock m
       JOIN ventas v ON v.id = m.venta_id
       LEFT JOIN vendedores ve ON ve.id = v.vendedor_id
