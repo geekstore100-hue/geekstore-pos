@@ -632,26 +632,6 @@ export default function FacturasCompraPage() {
               </div>
             </div>
 
-            <div style={{ position: 'relative', marginTop: '16px' }}>
-              <label style={styles.etiquetaChica}>Agregar producto</label>
-              <input
-                value={buscarTexto}
-                onChange={(e) => setBuscarTexto(e.target.value)}
-                placeholder="Buscar por nombre o referencia..."
-                style={{ ...styles.select, width: '100%' }}
-              />
-              {resultadosBusqueda.length > 0 && (
-                <div style={styles.dropdownBusqueda}>
-                  {resultadosBusqueda.map((p) => (
-                    <div key={p.id} style={styles.opcionBusqueda} onClick={() => agregarItem(p)}>
-                      <span style={{ fontWeight: 600 }}>{p.nombre}</span>
-                      <span style={{ color: 'var(--text-secondary)', fontSize: '12px', marginLeft: '8px' }}>{p.referencia}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
             {items.length === 0 ? (
               <p style={{ color: 'var(--text-secondary)', marginTop: '12px' }}>Todavía no has agregado productos.</p>
             ) : (
@@ -713,6 +693,27 @@ export default function FacturasCompraPage() {
                 </tbody>
               </table>
             )}
+
+            {/* Oct 2026: el buscador va DEBAJO del último producto agregado. */}
+            <div style={{ position: 'relative', marginTop: '12px' }}>
+              <label style={styles.etiquetaChica}>Agregar producto</label>
+              <input
+                value={buscarTexto}
+                onChange={(e) => setBuscarTexto(e.target.value)}
+                placeholder="Buscar por nombre o referencia..."
+                style={{ ...styles.select, width: '100%' }}
+              />
+              {resultadosBusqueda.length > 0 && (
+                <div style={styles.dropdownBusqueda}>
+                  {resultadosBusqueda.map((p) => (
+                    <div key={p.id} style={styles.opcionBusqueda} onClick={() => agregarItem(p)}>
+                      <span style={{ fontWeight: 600 }}>{p.nombre}</span>
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '12px', marginLeft: '8px' }}>{p.referencia}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <div style={styles.resumenFactura}>
               <div style={styles.filaResumen}><span>Subtotal</span><span>${moneda(subtotal)}</span></div>
