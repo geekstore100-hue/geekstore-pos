@@ -812,9 +812,8 @@ export default function ProductosPage() {
     }
 
     // Todo producto nuevo se crea TAMBIÉN en Alegra (facturación
-    // electrónica), con la misma referencia, después de subir la foto para
-    // que vaya con ella. Si falla, el producto igual queda en el POS y se
-    // puede reintentar en "Pendientes en Alegra".
+    // electrónica), con la misma referencia y sin foto. Si falla, el producto
+    // igual queda en el POS y se avisa para crearlo a mano en Alegra.
     let alegraFallo = '';
     if (data.ok && !form.id) {
       try {
@@ -825,13 +824,12 @@ export default function ProductosPage() {
         });
         const dataAlegra = await resAlegra.json();
         if (!dataAlegra.ok) alegraFallo = dataAlegra.error || 'error desconocido';
-        else if (dataAlegra.fotoError) alegraFallo = `se creó, pero la foto no subió (${dataAlegra.fotoError})`;
       } catch {
         alegraFallo = 'error de conexión';
       }
     }
     const avisoAlegra = alegraFallo
-      ? ` ⚠️ Alegra: ${alegraFallo}. Puedes reintentarlo en "🧾 Pendientes en Alegra".`
+      ? ` ⚠️ No se pudo crear en Alegra (${alegraFallo}). Créalo a mano en Alegra con la referencia ${form.referencia}.`
       : '';
 
     setGuardando(false);
@@ -880,9 +878,6 @@ export default function ProductosPage() {
           </a>
           <a href="/productos/fichas" style={{ ...styles.btnSecundario, marginLeft: 0, textDecoration: 'none', color: 'inherit', fontSize: '14px' }}>
             📋 Fichas incompletas
-          </a>
-          <a href="/productos/alegra" style={{ ...styles.btnSecundario, marginLeft: 0, textDecoration: 'none', color: 'inherit', fontSize: '14px' }}>
-            🧾 Pendientes en Alegra
           </a>
           <button onClick={nuevoProducto} style={styles.btnPrimario}>+ Nuevo producto</button>
         </div>

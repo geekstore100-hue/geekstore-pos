@@ -1110,11 +1110,11 @@ export default function VentasPage() {
                       <span style={styles.badgeServicio}>Servicio</span>
                     </div>
                   )}
-                  {agotado ? (
+                  {/* El precio se ve SIEMPRE, aunque esté agotado (oct 2026). */}
+                  {agotado && (
                     <div style={styles.agotado}>{stockDistribuidor > 0 ? 'Sin stock en Principal' : 'Agotado'}</div>
-                  ) : (
-                    <div style={styles.precio}>{moneda(precioSegunLista(p, activa.lista))}</div>
                   )}
+                  <div style={styles.precio}>{moneda(precioSegunLista(p, activa.lista))}</div>
                 </div>
               );
             })}
@@ -1635,7 +1635,7 @@ const styles = {
     position: 'relative',
   },
   tarjetaActiva: { border: '2px solid var(--teal)' },
-  tarjetaAgotada: { opacity: 0.5, cursor: 'not-allowed' },
+  tarjetaAgotada: { opacity: 0.7, cursor: 'not-allowed' },
   tarjetaTop: { display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' },
   referencia: {},
   badgeCantidad: {
