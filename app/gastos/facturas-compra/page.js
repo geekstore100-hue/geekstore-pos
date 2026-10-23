@@ -70,6 +70,9 @@ export default function FacturasCompraPage() {
   // se pueden tomar varias (una por hoja) y guardarlas como UN solo PDF.
   const [paginasManifiesto, setPaginasManifiesto] = useState([]); // { dataUrl, ancho, alto }
   const [estadoManifiesto, setEstadoManifiesto] = useState('');
+  // Modo documento: blanco y negro con contraste (letra más legible). Si el
+  // manifiesto tiene sellos a color que importen, se puede apagar.
+  const [modoDocumentoManifiesto, setModoDocumentoManifiesto] = useState(true);
   const camaraManifiestoRef = useRef(null);
   const archivosManifiestoRef = useRef(null);
 
@@ -406,7 +409,7 @@ export default function FacturasCompraPage() {
           await enviarManifiesto(a, a.name || 'manifiesto.pdf');
         } else {
           setEstadoManifiesto(`Preparando foto ${i + 1} de ${archivos.length}…`);
-          const pagina = await achicarFoto(a);
+          const pagina = await achicarFoto(a, { documento: modoDocumentoManifiesto });
           setPaginasManifiesto((l) => [...l, pagina]);
         }
       }
@@ -1149,8 +1152,13 @@ export default function FacturasCompraPage() {
                     <input ref={camaraManifiestoRef} type="file" accept="image/*" capture="environment" onChange={onCamaraManifiesto} style={{ display: 'none' }} />
                     <input ref={archivosManifiestoRef} type="file" accept="application/pdf,image/*" multiple onChange={onElegirManifiesto} style={{ display: 'none' }} />
                   </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', marginTop: '8px', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={modoDocumentoManifiesto} onChange={(e) => setModoDocumentoManifiesto(e.target.checked)} />
+                    Modo documento (blanco y negro, letra más nítida)
+                  </label>
                   <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '6px 0 0' }}>
                     Si el manifiesto tiene varias hojas, toma una foto por hoja y al final toca &quot;Guardar como un solo PDF&quot;.
+                    Para que se lea bien: buena luz, la hoja derecha y que ocupe toda la foto.
                   </p>
                   {estadoManifiesto && <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '6px 0 0' }}>{estadoManifiesto}</p>}
                   {errorManifiesto && <p style={{ color: 'var(--danger)', fontSize: '13px' }}>{errorManifiesto}</p>}
