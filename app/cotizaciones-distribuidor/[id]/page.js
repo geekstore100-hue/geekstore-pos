@@ -11,9 +11,11 @@ import Shell from '../../../components/Shell';
 //   - FACTURAR: se revisa (y se puede editar ahí mismo), se elige la bodega
 //     de donde sale la mercancía (por defecto Bodega Distribuidor), el medio
 //     de pago y el vendedor, y se guarda como VENTA del POS: descuenta el
-//     inventario, entra al turno de caja y queda en el Historial.
-// "Marcar facturada sin crear venta" sigue disponible para las que ya se
-// facturaron aparte.
+//     inventario, entra al turno de caja si hay uno abierto (si no, queda sin
+//     turno) y queda en el Historial.
+// (Octubre 2026: se quitó "Marcar facturada sin crear venta".)
+// Imprimir: "Imprimir / PDF" es la versión para el CLIENTE (sin bodegas);
+// "Imprimir para alistar" incluye de qué bodega sale cada producto.
 
 const moneda = (n) => `$${Math.round(Number(n) || 0).toLocaleString('es-CO')}`;
 const MEDIOS = ['Transferencia', 'Efectivo', 'Tarjeta', 'Otro'];
@@ -163,6 +165,22 @@ export default function CotizacionDistribuidorPage({ params }) {
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
+  // true solo mientras se imprime la hoja para alistar (con bodegas).
+  const [imprimirAlistar, setImprimirAlistar] = useState(false);
+
+  useEffect(() => {
+    const alTerminar = () => setImprimirAlistar(false);
+    window.addEventListener('afterprint', alTerminar);
+    return () => window.removeEventListener('afterprint', alTerminar);
+  }, []);
+
+  function imprimir(conBodegas) {
+    setImprimirAlistar(conBodegas);
+    // Se espera a que se pinte el cambio antes de abrir la impresión.
+    setTimeout(() => window.print(), 60);
+  }
+  // Lo de bodegas no sale en el PDF del cliente.
+  const claseBodega = imprimirAlistar ? undefined : 'pos-no-imprimir';
 
   function cargar() {
     setCargando(true);
@@ -318,16 +336,19 @@ export default function CotizacionDistribuidorPage({ params }) {
                   <button onClick={() => abrir('editar')} style={styles.botonSecundario}>✏️ Editar</button>
                 </>
               ) : null}
-              <button onClick={() => window.print()} style={styles.botonSecundario}>🖨️ Imprimir</button>
-              {pendiente ? (
-                <button onClick={() => cambiarEstado('facturada')} disabled={guardando} style={styles.botonTexto} title="Para las que ya facturaste por fuera del POS">
-                  Marcar facturada sin crear venta
+              <button onClick={() => imprimir(false)} style={styles.botonSecundario} title="Para enviar al cliente: sin información de bodegas">
+                🖨️ Imprimir / PDF
+              </button>
+              {cotizacion.alistar ? (
+                <button onClick={() => imprimir(true)} style={styles.botonSecundario} title="Hoja interna con la bodega de cada producto">
+                  📦 Imprimir para alistar
                 </button>
-              ) : (
+              ) : null}
+              {!pendiente ? (
                 <button onClick={() => cambiarEstado('pendiente')} disabled={guardando} style={styles.botonTexto}>
                   ↺ Volver a pendiente
                 </button>
-              )}
+              ) : null}
             </>
           ) : null}
         </div>
@@ -451,26 +472,89 @@ export default function CotizacionDistribuidorPage({ params }) {
               <strong>Distribuidor:</strong> {cotizacion.distribuidor_nombre} — cédula {cotizacion.distribuidor_cedula}
             </p>
 
+            {/* De qué bodega se alista (octubre 2026). Pendiente: plan con el
+                stock de hoy (primero Distribuidor, lo que falte de Principal).
+                Facturada: de dónde salió de verdad. Sale también al imprimir. */}
+            {(() => {
+              const a = cotizacion.alistar;
+              if (!a) return null;
+              const dePrincipal = cotizacion.items.filter((it) => a.items[it.id]?.principal > 0);
+              const faltan = cotizacion.items.filter((it) => a.items[it.id]?.falta > 0);
+              if (!dePrincipal.length && !faltan.length) {
+                return (
+                  <p className={claseBodega} style={{ ...styles.alistarOk }}>
+                    📦 {a.modo === 'real' ? 'Todo salió de Bodega Distribuidor.' : 'Todo se alista de Bodega Distribuidor.'}
+                  </p>
+                );
+              }
+              return (
+                <div className={claseBodega} style={styles.alistarCaja}>
+                  {dePrincipal.length ? (
+                    <>
+                      <strong>
+                        📦 {a.modo === 'real' ? 'Salió de Bodega PRINCIPAL' : 'Alistar de Bodega PRINCIPAL'} ({dePrincipal.length} producto{dePrincipal.length === 1 ? '' : 's'}):
+                      </strong>
+                      <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                        {dePrincipal.map((it) => (
+                          <li key={it.id}>
+                            <strong>{a.items[it.id].principal}</strong> × {it.referencia} · {it.nombre}
+                            {a.items[it.id].distribuidor > 0 ? <span style={{ color: '#667' }}> (y {a.items[it.id].distribuidor} de Distribuidor)</span> : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : null}
+                  {faltan.length ? (
+                    <p style={{ margin: dePrincipal.length ? '8px 0 0' : 0, color: '#b42318' }}>
+                      ⚠️ No alcanza ni sumando las dos bodegas: {faltan.map((it) => `${it.nombre} (faltan ${a.items[it.id].falta})`).join(', ')}.
+                    </p>
+                  ) : null}
+                  <p className="pos-no-imprimir" style={{ margin: '6px 0 0', fontSize: '0.78rem', color: '#889' }}>
+                    {a.modo === 'real' ? 'Según la factura guardada.' : 'Calculado con el stock de este momento: el resto se alista de Bodega Distribuidor.'}
+                  </p>
+                </div>
+              );
+            })()}
+
             <table style={styles.tabla}>
               <thead>
                 <tr>
                   <th style={styles.th}>Referencia</th>
                   <th style={styles.th}>Artículo</th>
                   <th style={{ ...styles.th, textAlign: 'center' }}>Cant.</th>
+                  {cotizacion.alistar ? <th className={claseBodega} style={{ ...styles.th, textAlign: 'center' }}>Bodega</th> : null}
                   <th style={{ ...styles.th, textAlign: 'right' }}>Precio</th>
                   <th style={{ ...styles.th, textAlign: 'right' }}>Subtotal</th>
                 </tr>
               </thead>
               <tbody>
-                {cotizacion.items.map((it) => (
-                  <tr key={it.id}>
+                {cotizacion.items.map((it) => {
+                  const a = cotizacion.alistar?.items?.[it.id];
+                  const conPrincipal = a && a.principal > 0;
+                  return (
+                  <tr key={it.id} style={conPrincipal ? { background: '#fff7ed' } : undefined} className={conPrincipal && !imprimirAlistar ? 'sin-fondo-al-imprimir' : undefined}>
                     <td style={styles.td}>{it.referencia}</td>
                     <td style={styles.td}>{it.nombre}</td>
                     <td style={{ ...styles.td, textAlign: 'center' }}>{Number(it.cantidad)}</td>
+                    {cotizacion.alistar ? (
+                      <td className={claseBodega} style={{ ...styles.td, textAlign: 'center', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                        {!a ? (
+                          <span style={{ color: '#889' }}>—</span>
+                        ) : (
+                          <>
+                            {a.distribuidor > 0 ? <span style={{ color: '#667' }}>{a.principal || a.falta ? `${a.distribuidor} Dist.` : 'Distribuidor'}</span> : null}
+                            {a.distribuidor > 0 && a.principal > 0 ? ' + ' : null}
+                            {a.principal > 0 ? <strong style={{ color: '#b54708' }}>{a.distribuidor || a.falta ? `${a.principal} Principal` : 'PRINCIPAL'}</strong> : null}
+                            {a.falta > 0 ? <strong style={{ color: '#b42318', display: 'block' }}>Faltan {a.falta}</strong> : null}
+                          </>
+                        )}
+                      </td>
+                    ) : null}
                     <td style={{ ...styles.td, textAlign: 'right' }}>{moneda(it.precio_unitario)}</td>
                     <td style={{ ...styles.td, textAlign: 'right' }}>{moneda(it.subtotal)}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
 
@@ -490,6 +574,7 @@ export default function CotizacionDistribuidorPage({ params }) {
           </div>
         )}
       </div>
+      <style>{`@media print { .sin-fondo-al-imprimir { background: transparent !important; } }`}</style>
     </Shell>
   );
 }
@@ -524,6 +609,8 @@ const styles = {
   },
   camposFactura: { display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 18, paddingTop: 14, borderTop: '1px solid #eee' },
   campo: { display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem', color: '#667', minWidth: 180 },
+  alistarCaja: { background: '#fff7ed', border: '1px solid #fed7aa', color: '#7c2d12', padding: '10px 12px', borderRadius: 8, margin: '0 0 16px', fontSize: '0.88rem' },
+  alistarOk: { background: '#f0f9ff', border: '1px solid #bae6fd', color: '#075985', padding: '8px 12px', borderRadius: 8, margin: '0 0 16px', fontSize: '0.88rem' },
   ok: { background: '#ecfdf3', border: '1px solid #abefc6', color: '#067647', padding: '10px 12px', borderRadius: 8, marginBottom: 12 },
   error: { background: '#fef3f2', border: '1px solid #fecdca', color: '#b42318', padding: '10px 12px', borderRadius: 8, marginBottom: 12 },
 };

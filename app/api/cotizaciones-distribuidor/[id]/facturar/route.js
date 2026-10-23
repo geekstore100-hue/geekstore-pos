@@ -17,7 +17,7 @@ import {
 // sale la mercancía (por defecto Bodega Distribuidor), el medio de pago (o
 // pago combinado) y el vendedor. En UNA sola transacción:
 //   - marca la cotización como facturada (solo si seguía pendiente),
-//   - crea la venta con sus pagos (entra al turno abierto, como cualquier venta),
+//   - crea la venta con sus pagos (entra al turno abierto si hay uno; si no, sin turno),
 //   - descuenta el stock de la bodega elegida (nunca lo deja en negativo),
 //   - registra los movimientos y deja la cotización con las líneas finales
 //     y enlazada a la venta.
@@ -41,10 +41,11 @@ export async function POST(request, { params }) {
       return NextResponse.json({ ok: false, error: 'Esta cotización ya está facturada.' }, { status: 409 });
     }
 
+    // Octubre 2026: ya NO hace falta un turno abierto para facturar un pedido
+    // de distribuidor. Si hay uno abierto, la venta entra a ese turno (así el
+    // efectivo cuadra en el arqueo); si no, queda sin turno (como las ventas
+    // de eventos) y igual sale en Historial y en Reportes.
     const [turnoAbierto] = await sql`SELECT id FROM turnos WHERE estado = 'abierto' LIMIT 1`;
-    if (!turnoAbierto) {
-      return NextResponse.json({ ok: false, error: 'Debes abrir un turno de caja antes de facturar (Vender → abrir turno).' }, { status: 409 });
-    }
 
     const automatico = bodega_id === 'auto';
     let bodega = null;
@@ -151,7 +152,7 @@ export async function POST(request, { params }) {
       sql`
         WITH nueva AS (
           INSERT INTO ventas (total, medio_pago, vendedor_id, turno_id)
-          VALUES (${total}, ${medioPagoGuardado}, ${Number(vendedor_id) || null}, ${turnoAbierto.id})
+          VALUES (${total}, ${medioPagoGuardado}, ${Number(vendedor_id) || null}, ${turnoAbierto?.id || null})
           RETURNING id
         )
         SELECT id, set_config('pos.id_venta', id::text, true) FROM nueva

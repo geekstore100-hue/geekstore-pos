@@ -44,7 +44,72 @@ export async function GET(request, { params }) {
     if (cotizacion.venta_id) {
       [venta] = await sql`SELECT id, total, medio_pago, anulada, creado_en FROM ventas WHERE id = ${cotizacion.venta_id}`;
     }
-    return NextResponse.json({ ok: true, cotizacion: { ...cotizacion, items, venta: venta || null } });
+
+    // De qué bodega se ALISTA cada producto (octubre 2026):
+    //   - pendiente → plan con el stock de hoy: primero Bodega Distribuidor
+    //     y lo que falte, de Principal (igual que "Facturar" en automático);
+    //   - facturada con venta → de dónde salió de verdad (movimientos).
+    let alistar = null;
+    try {
+      const ids = [...new Set(items.map((it) => Number(it.producto_id)).filter(Boolean))];
+      if (ids.length && venta) {
+        const movs = await sql`
+          SELECT m.producto_id, b.nombre AS bodega, SUM(m.cantidad) AS cantidad
+          FROM movimientos_stock m JOIN bodegas b ON b.id = m.bodega_id
+          WHERE m.venta_id = ${venta.id} AND m.tipo = 'venta'
+          GROUP BY m.producto_id, b.nombre
+        `;
+        const quedan = new Map();
+        for (const m of movs) quedan.set(`${m.producto_id}:${m.bodega}`, Number(m.cantidad) || 0);
+        alistar = { modo: 'real', items: {} };
+        for (const it of items) {
+          const pid = Number(it.producto_id);
+          const c = Number(it.cantidad) || 0;
+          const kd = `${pid}:Bodega Distribuidor`;
+          const deDist = Math.min(c, quedan.get(kd) || 0);
+          quedan.set(kd, (quedan.get(kd) || 0) - deDist);
+          const kp = `${pid}:Principal`;
+          const dePpal = Math.min(c - deDist, quedan.get(kp) || 0);
+          quedan.set(kp, (quedan.get(kp) || 0) - dePpal);
+          alistar.items[it.id] = { distribuidor: deDist, principal: dePpal, falta: 0 };
+        }
+      } else if (ids.length && cotizacion.estado === 'pendiente') {
+        const stock = await sql`
+          SELECT p.id AS producto_id, p.es_inventariable,
+                 COALESCE(SUM(s.cantidad) FILTER (WHERE b.nombre = 'Bodega Distribuidor'), 0) AS dist,
+                 COALESCE(SUM(s.cantidad) FILTER (WHERE b.nombre = 'Principal'), 0) AS ppal
+          FROM productos p
+          LEFT JOIN stock s ON s.producto_id = p.id
+          LEFT JOIN bodegas b ON b.id = s.bodega_id
+          WHERE p.id = ANY(${ids}::int[])
+          GROUP BY p.id
+        `;
+        const porId = new Map(stock.map((f) => [Number(f.producto_id), f]));
+        const quedan = new Map();
+        for (const f of stock) {
+          quedan.set(`${f.producto_id}:d`, Math.max(0, Number(f.dist) || 0));
+          quedan.set(`${f.producto_id}:p`, Math.max(0, Number(f.ppal) || 0));
+        }
+        alistar = { modo: 'plan', items: {} };
+        for (const it of items) {
+          const pid = Number(it.producto_id);
+          const c = Number(it.cantidad) || 0;
+          const f = porId.get(pid);
+          if (!f || f.es_inventariable === false) {
+            alistar.items[it.id] = null;
+            continue;
+          }
+          const deDist = Math.min(c, quedan.get(`${pid}:d`) || 0);
+          const dePpal = Math.min(c - deDist, quedan.get(`${pid}:p`) || 0);
+          quedan.set(`${pid}:d`, (quedan.get(`${pid}:d`) || 0) - deDist);
+          quedan.set(`${pid}:p`, (quedan.get(`${pid}:p`) || 0) - dePpal);
+          alistar.items[it.id] = { distribuidor: deDist, principal: dePpal, falta: c - deDist - dePpal };
+        }
+      }
+    } catch (e) {
+      console.error('[cotizacion distribuidor] alistar:', e?.message);
+    }
+    return NextResponse.json({ ok: true, cotizacion: { ...cotizacion, items, venta: venta || null, alistar } });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
