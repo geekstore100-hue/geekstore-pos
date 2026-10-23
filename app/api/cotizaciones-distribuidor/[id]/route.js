@@ -26,6 +26,7 @@ export async function GET(request, { params }) {
       SELECT c.id, c.numero, c.distribuidor_id, c.distribuidor_nombre, c.distribuidor_cedula, c.total, c.estado,
              c.creado_en, c.facturada_en,
              (to_jsonb(c) ->> 'venta_id')::int AS venta_id,
+             (to_jsonb(c) ->> 'venta_principal_id')::int AS venta_principal_id,
              (to_jsonb(c) ->> 'editada_en') AS editada_en,
              (to_jsonb(c) ->> 'total_original')::numeric AS total_original
       FROM cotizaciones_distribuidor c
@@ -44,6 +45,12 @@ export async function GET(request, { params }) {
     if (cotizacion.venta_id) {
       [venta] = await sql`SELECT id, total, medio_pago, anulada, creado_en FROM ventas WHERE id = ${cotizacion.venta_id}`;
     }
+    // Parte que salió de Bodega Principal como venta aparte (oct 2026).
+    let ventaPrincipal = null;
+    if (cotizacion.venta_principal_id) {
+      [ventaPrincipal] = await sql`SELECT id, total, medio_pago, anulada, creado_en FROM ventas WHERE id = ${cotizacion.venta_principal_id}`;
+    }
+    const idsVentas = [venta?.id, ventaPrincipal?.id].filter(Boolean);
 
     // De qué bodega se ALISTA cada producto (octubre 2026):
     //   - pendiente → plan con el stock de hoy: primero Bodega Distribuidor
@@ -56,7 +63,7 @@ export async function GET(request, { params }) {
         const movs = await sql`
           SELECT m.producto_id, b.nombre AS bodega, SUM(m.cantidad) AS cantidad
           FROM movimientos_stock m JOIN bodegas b ON b.id = m.bodega_id
-          WHERE m.venta_id = ${venta.id} AND m.tipo = 'venta'
+          WHERE m.venta_id = ANY(${idsVentas}::int[]) AND m.tipo = 'venta'
           GROUP BY m.producto_id, b.nombre
         `;
         const quedan = new Map();
@@ -109,7 +116,7 @@ export async function GET(request, { params }) {
     } catch (e) {
       console.error('[cotizacion distribuidor] alistar:', e?.message);
     }
-    return NextResponse.json({ ok: true, cotizacion: { ...cotizacion, items, venta: venta || null, alistar } });
+    return NextResponse.json({ ok: true, cotizacion: { ...cotizacion, items, venta: venta || null, ventaPrincipal: ventaPrincipal || null, alistar } });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
@@ -151,9 +158,11 @@ export async function PATCH(request, { params }) {
       return NextResponse.json({ ok: false, error: 'Estado inválido' }, { status: 400 });
     }
     const [actual] = await sql`
-      SELECT c.estado, (to_jsonb(c) ->> 'venta_id')::int AS venta_id, v.anulada
+      SELECT c.estado, (to_jsonb(c) ->> 'venta_id')::int AS venta_id, v.anulada,
+             (to_jsonb(c) ->> 'venta_principal_id')::int AS venta_principal_id, vp.anulada AS anulada_principal
       FROM cotizaciones_distribuidor c
       LEFT JOIN ventas v ON v.id = (to_jsonb(c) ->> 'venta_id')::int
+      LEFT JOIN ventas vp ON vp.id = (to_jsonb(c) ->> 'venta_principal_id')::int
       WHERE c.id = ${id}
     `;
     if (!actual) {
@@ -167,13 +176,25 @@ export async function PATCH(request, { params }) {
         { status: 409 }
       );
     }
+    if (estado === 'pendiente' && actual.venta_principal_id && !actual.anulada_principal) {
+      return NextResponse.json(
+        { ok: false, error: `Esta cotización también es la venta #${actual.venta_principal_id} (lo que salió de Principal). Anúlala primero en Historial.` },
+        { status: 409 }
+      );
+    }
     const [cotizacion] =
       estado === 'pendiente' && actual.venta_id
-        ? await sql`
-            UPDATE cotizaciones_distribuidor SET estado = 'pendiente', facturada_en = NULL, venta_id = NULL
-            WHERE id = ${id}
-            RETURNING id, numero, estado, facturada_en
-          `
+        ? actual.venta_principal_id
+          ? await sql`
+              UPDATE cotizaciones_distribuidor SET estado = 'pendiente', facturada_en = NULL, venta_id = NULL, venta_principal_id = NULL
+              WHERE id = ${id}
+              RETURNING id, numero, estado, facturada_en
+            `
+          : await sql`
+              UPDATE cotizaciones_distribuidor SET estado = 'pendiente', facturada_en = NULL, venta_id = NULL
+              WHERE id = ${id}
+              RETURNING id, numero, estado, facturada_en
+            `
         : await sql`
             UPDATE cotizaciones_distribuidor SET
               estado = ${estado},

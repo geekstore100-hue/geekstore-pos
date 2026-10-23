@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../../lib/db';
+import { costoListo, consultaGuardarCosto } from '../../../../lib/costoVenta';
 import { esErrorDeGuardia } from '../../../../lib/transaccion';
 import {
   prepararVentaRapida,
@@ -81,6 +82,8 @@ export async function POST(request) {
         VALUES (${l.producto_id}, ${l.bodega_id}, 'venta', ${l.cantidad}, ${l.precio}, ${l.descuento}, current_setting('pos.id_venta')::int, ${nota})
       `);
     }
+    // Costo del día de la venta (ver lib/costoVenta.js).
+    if (await costoListo()) consultas.push(consultaGuardarCosto('pos.id_venta'));
 
     let resultados;
     try {

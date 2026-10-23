@@ -11,8 +11,8 @@ export const dynamic = 'force-dynamic';
 // - movimientos_stock.precio_unitario YA es el precio con el descuento
 //   aplicado (ver app/api/ventas/route.js); el "precio de lista" se calcula
 //   de vuelta con el % de descuento.
-// - El costo es el costo ACTUAL del producto (el POS no guarda el costo del
-//   día de la venta), igual que en el detalle de la venta.
+// - El costo es el del DÍA de la venta (movimientos_stock.costo_unitario,
+//   ver lib/costoVenta.js). Si una línea no lo tiene, se usa el actual.
 // - Las columnas opcionales de "ventas" (evento, cliente) se leen con
 //   to_jsonb para que no falle si alguna migración no se corrió.
 //
@@ -53,7 +53,9 @@ export async function GET(request) {
           m.cantidad,
           m.precio_unitario AS precio_neto,
           COALESCE(m.descuento_porcentaje, 0) AS descuento_pct,
-          CASE WHEN p.es_inventariable = false THEN 0 ELSE COALESCE(p.precio_costo, 0) END AS costo_unitario
+          -- Costo del DÍA de la venta (lib/costoVenta.js); si no está guardado, el actual.
+          CASE WHEN p.es_inventariable = false THEN 0
+               ELSE COALESCE((to_jsonb(m) ->> 'costo_unitario')::numeric, p.precio_costo, 0) END AS costo_unitario
         FROM movimientos_stock m
         JOIN ventas v ON v.id = m.venta_id
         JOIN productos p ON p.id = m.producto_id
@@ -93,12 +95,18 @@ export async function GET(request) {
     // Ventas de distribuidor (las que salieron de una cotización del portal).
     let distribuidorPorVenta = new Map();
     try {
+      // venta_principal_id: la parte que salió de Principal como venta aparte.
       const filas = await sql`
-        SELECT (to_jsonb(cd) ->> 'venta_id')::int AS venta_id, cd.numero, cd.distribuidor_nombre
+        SELECT (to_jsonb(cd) ->> 'venta_id')::int AS venta_id,
+               (to_jsonb(cd) ->> 'venta_principal_id')::int AS venta_principal_id,
+               cd.numero, cd.distribuidor_nombre
         FROM cotizaciones_distribuidor cd
         WHERE (to_jsonb(cd) ->> 'venta_id') IS NOT NULL
       `;
-      distribuidorPorVenta = new Map(filas.map((f) => [Number(f.venta_id), f]));
+      for (const f of filas) {
+        distribuidorPorVenta.set(Number(f.venta_id), f);
+        if (f.venta_principal_id) distribuidorPorVenta.set(Number(f.venta_principal_id), f);
+      }
     } catch {
       // Si la tabla o la columna no existen, simplemente no se marca.
     }

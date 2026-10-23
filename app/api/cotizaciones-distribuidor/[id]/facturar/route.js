@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../../../lib/db';
 import { esErrorDeGuardia } from '../../../../../lib/transaccion';
+import { costoListo, consultaGuardarCosto } from '../../../../../lib/costoVenta';
 import {
   prepararLineas,
   consultasReemplazarLineas,
@@ -17,16 +18,16 @@ import {
 // sale la mercancía (por defecto Bodega Distribuidor), el medio de pago (o
 // pago combinado) y el vendedor. En UNA sola transacción:
 //   - marca la cotización como facturada (solo si seguía pendiente),
-//   - crea la venta con sus pagos (entra al turno abierto si hay uno; si no, sin turno),
+//   - crea la venta con sus pagos (sin turno de caja: no sale en el cierre),
 //   - descuenta el stock de la bodega elegida (nunca lo deja en negativo),
 //   - registra los movimientos y deja la cotización con las líneas finales
 //     y enlazada a la venta.
 // Si algo falla, no se guarda nada.
 //
 // Modo AUTOMÁTICO (bodega_id = 'auto', octubre 2026): cada producto sale
-// primero de Bodega Distribuidor y lo que falte, de Principal. Así no hay
-// que facturar dos veces cuando algunos productos no están en la bodega del
-// distribuidor. Cada parte queda registrada con su bodega real.
+// primero de Bodega Distribuidor y lo que falte, de Principal. Lo de
+// Principal queda como una VENTA APARTE (ver abajo), para saber cuánto vendió
+// cada bodega.
 
 const MEDIOS = new Set(['Efectivo', 'Tarjeta', 'Transferencia', 'Otro']);
 
@@ -41,11 +42,10 @@ export async function POST(request, { params }) {
       return NextResponse.json({ ok: false, error: 'Esta cotización ya está facturada.' }, { status: 409 });
     }
 
-    // Octubre 2026: ya NO hace falta un turno abierto para facturar un pedido
-    // de distribuidor. Si hay uno abierto, la venta entra a ese turno (así el
-    // efectivo cuadra en el arqueo); si no, queda sin turno (como las ventas
-    // de eventos) y igual sale en Historial y en Reportes.
-    const [turnoAbierto] = await sql`SELECT id FROM turnos WHERE estado = 'abierto' LIMIT 1`;
+    // Octubre 2026: las ventas de distribuidor NUNCA entran al turno de caja
+    // (no hace falta tener uno abierto y no salen en el cierre del vendedor,
+    // para no confundirlo). Quedan sin turno, como las de eventos, y salen
+    // igual en Historial y en Reportes.
 
     const automatico = bodega_id === 'auto';
     let bodega = null;
@@ -135,8 +135,55 @@ export async function POST(request, { params }) {
       if (!MEDIOS.has(medio_pago)) return NextResponse.json({ ok: false, error: 'Selecciona el medio de pago' }, { status: 400 });
       pagos = [{ medio_pago, monto: total }];
     }
-    const medioPagoGuardado = [...new Set(pagos.map((p) => p.medio_pago))].join(' + ');
+    // ── Una venta por bodega (octubre 2026) ─────────────────────────────
+    // En automático, lo que sale de Principal se guarda como una VENTA
+    // APARTE: así se sabe exactamente cuánto vendió Bodega Distribuidor (y
+    // su costo y ganancia en Reportes). Las dos ventas se guardan juntas: o
+    // quedan las dos, o ninguna. La de Distribuidor queda como venta
+    // principal de la cotización (venta_id) y la de Principal en
+    // venta_principal_id.
+    const grupos = [];
+    if (automatico) {
+      const gDist = { bodega: distribuidor, partes: [] };
+      const gPpal = { bodega: principal, partes: [] };
+      for (const l of lineas) {
+        for (const parte of partes.get(l)) {
+          // Los servicios (sin inventario) van con la venta de Distribuidor.
+          const g = !l.inventariable ? gDist : parte.bodega.id === principal.id ? gPpal : gDist;
+          g.partes.push({ l, cantidad: parte.cantidad, bodega: l.inventariable ? parte.bodega : distribuidor });
+        }
+      }
+      if (gDist.partes.length) grupos.push(gDist);
+      if (gPpal.partes.length) grupos.push(gPpal);
+    } else {
+      grupos.push({ bodega, partes: lineas.flatMap((l) => partes.get(l).map((parte) => ({ l, cantidad: parte.cantidad, bodega: parte.bodega }))) });
+    }
+    for (const g of grupos) g.total = g.partes.reduce((a, x) => a + x.cantidad * x.l.precio_unitario, 0);
 
+    // Reparte los pagos entre las ventas, en orden (con un solo medio de
+    // pago, cada venta queda con ese medio por su propio total).
+    const restantes = pagos.map((p) => ({ ...p }));
+    for (const g of grupos) {
+      let falta = g.total;
+      g.pagos = [];
+      for (const p of restantes) {
+        if (falta <= 0.5) break;
+        const usa = Math.min(p.monto, falta);
+        if (usa > 0) {
+          g.pagos.push({ medio_pago: p.medio_pago, monto: usa });
+          p.monto -= usa;
+          falta -= usa;
+        }
+      }
+      if (!g.pagos.length) g.pagos.push({ medio_pago: pagos[0].medio_pago, monto: g.total });
+    }
+
+    if (grupos.length > 1) {
+      await sql`ALTER TABLE cotizaciones_distribuidor ADD COLUMN IF NOT EXISTS venta_principal_id INT`;
+    }
+
+    const nota = `Cotización distribuidor ${cotizacion.numero} — ${cotizacion.distribuidor_nombre}`;
+    const guardarCosto = await costoListo();
     const consultas = [
       // 1) Solo si sigue pendiente (si otra pestaña ya la facturó, se cancela todo).
       sql`
@@ -148,29 +195,32 @@ export async function POST(request, { params }) {
         )
         SELECT CASE WHEN COUNT(*) = 0 THEN ('cotizacion_no_pendiente_' || COUNT(*)::text)::int ELSE 1 END FROM upd
       `,
-      // 2) La venta.
-      sql`
+    ];
+    const indiceVenta = [];
+    grupos.forEach((g, k) => {
+      const variable = k === 0 ? 'pos.id_venta' : 'pos.id_venta_2';
+      const medioPagoGuardado = [...new Set(g.pagos.map((p) => p.medio_pago))].join(' + ');
+      indiceVenta.push(consultas.length);
+      consultas.push(sql`
         WITH nueva AS (
           INSERT INTO ventas (total, medio_pago, vendedor_id, turno_id)
-          VALUES (${total}, ${medioPagoGuardado}, ${Number(vendedor_id) || null}, ${turnoAbierto?.id || null})
+          VALUES (${g.total}, ${medioPagoGuardado}, ${Number(vendedor_id) || null}, ${null})
           RETURNING id
         )
-        SELECT id, set_config('pos.id_venta', id::text, true) FROM nueva
-      `,
-      ...pagos.map(
-        (p) => sql`
+        SELECT id, set_config(${variable}, id::text, true) FROM nueva
+      `);
+      for (const p of g.pagos) {
+        consultas.push(sql`
           INSERT INTO pagos_venta (venta_id, medio_pago, monto)
-          VALUES (current_setting('pos.id_venta')::int, ${p.medio_pago}, ${p.monto})
-        `
-      ),
-    ];
-    for (const l of lineas) {
-      for (const parte of partes.get(l)) {
-        if (l.inventariable) {
+          VALUES (current_setting(${variable})::int, ${p.medio_pago}, ${p.monto})
+        `);
+      }
+      for (const x of g.partes) {
+        if (x.l.inventariable) {
           consultas.push(sql`
             WITH descontado AS (
-              UPDATE stock SET cantidad = cantidad - ${parte.cantidad}
-              WHERE producto_id = ${l.producto_id} AND bodega_id = ${parte.bodega.id} AND cantidad >= ${parte.cantidad}
+              UPDATE stock SET cantidad = cantidad - ${x.cantidad}
+              WHERE producto_id = ${x.l.producto_id} AND bodega_id = ${x.bodega.id} AND cantidad >= ${x.cantidad}
               RETURNING 1
             )
             SELECT 1 / c.n AS ok FROM (SELECT COUNT(*)::int AS n FROM descontado) c
@@ -178,14 +228,19 @@ export async function POST(request, { params }) {
         }
         consultas.push(sql`
           INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, descuento_porcentaje, venta_id, nota)
-          VALUES (${l.producto_id}, ${parte.bodega.id}, 'venta', ${parte.cantidad}, ${l.precio_unitario}, 0, current_setting('pos.id_venta')::int,
-                  ${`Cotización distribuidor ${cotizacion.numero} — ${cotizacion.distribuidor_nombre}`})
+          VALUES (${x.l.producto_id}, ${x.bodega.id}, 'venta', ${x.cantidad}, ${x.l.precio_unitario}, 0, current_setting(${variable})::int,
+                  ${grupos.length > 1 ? `${nota} (${x.bodega.nombre})` : nota})
         `);
       }
-    }
-    // 3) La cotización queda con las líneas finales y enlazada a la venta.
+      // Costo del día de la venta (ver lib/costoVenta.js).
+      if (guardarCosto) consultas.push(consultaGuardarCosto(variable));
+    });
+    // La cotización queda con las líneas finales y enlazada a su(s) venta(s).
     consultas.push(...consultasReemplazarLineas(id, lineas));
     consultas.push(sql`UPDATE cotizaciones_distribuidor SET venta_id = current_setting('pos.id_venta')::int WHERE id = ${id}`);
+    if (grupos.length > 1) {
+      consultas.push(sql`UPDATE cotizaciones_distribuidor SET venta_principal_id = current_setting('pos.id_venta_2')::int WHERE id = ${id}`);
+    }
 
     let resultados;
     try {
@@ -202,15 +257,13 @@ export async function POST(request, { params }) {
       }
       throw error;
     }
-    const ventaId = resultados[1][0].id;
-    let textoBodega = bodega?.nombre || '';
-    if (automatico) {
-      const dePrincipal = lineas.filter((l) => l.inventariable && partes.get(l).some((p) => p.bodega.id === principal.id)).length;
-      textoBodega = dePrincipal
-        ? `Bodega Distribuidor y Principal (${dePrincipal} producto${dePrincipal === 1 ? '' : 's'} salieron total o parcialmente de Principal)`
-        : 'Bodega Distribuidor';
-    }
-    return NextResponse.json({ ok: true, ventaId, total, bodega: textoBodega });
+    const ventas = grupos.map((g, k) => ({ id: resultados[indiceVenta[k]][0].id, bodega: g.bodega.nombre, total: g.total }));
+    const ventaId = ventas[0].id;
+    const textoBodega =
+      ventas.length > 1
+        ? ventas.map((v) => `venta #${v.id} de ${v.bodega} por $${Math.round(v.total).toLocaleString('es-CO')}`).join(' y ')
+        : ventas[0].bodega;
+    return NextResponse.json({ ok: true, ventaId, ventas, total, bodega: textoBodega });
   } catch (error) {
     if (error instanceof ErrorCotizacion) return NextResponse.json({ ok: false, error: error.message }, { status: error.status });
     if (faltaMigracion(error)) return NextResponse.json({ ok: false, error: MENSAJE_MIGRACION }, { status: 500 });

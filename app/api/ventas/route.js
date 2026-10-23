@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../lib/db';
+import { costoListo, consultaGuardarCosto } from '../../../lib/costoVenta';
 
 async function bodegaPrincipalId() {
   const [b] = await sql`SELECT id FROM bodegas WHERE nombre = 'Principal'`;
@@ -236,6 +237,8 @@ export async function POST(request) {
         VALUES (${item.producto_id}, ${bodegaId}, 'venta', ${item.cantidad}, ${item.precioNeto}, ${item.descuento_porcentaje || 0}, current_setting('pos.id_venta')::int)
       `);
     }
+    // Costo del día de la venta (ver lib/costoVenta.js).
+    if (await costoListo()) consultas.push(consultaGuardarCosto('pos.id_venta'));
 
     let resultados;
     try {

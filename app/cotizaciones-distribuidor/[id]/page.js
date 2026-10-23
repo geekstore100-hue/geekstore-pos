@@ -11,8 +11,8 @@ import Shell from '../../../components/Shell';
 //   - FACTURAR: se revisa (y se puede editar ahí mismo), se elige la bodega
 //     de donde sale la mercancía (por defecto Bodega Distribuidor), el medio
 //     de pago y el vendedor, y se guarda como VENTA del POS: descuenta el
-//     inventario, entra al turno de caja si hay uno abierto (si no, queda sin
-//     turno) y queda en el Historial.
+//     inventario y queda en el Historial. NO entra al turno de caja (no sale
+//     en el cierre del vendedor).
 // (Octubre 2026: se quitó "Marcar facturada sin crear venta".)
 // Imprimir: "Imprimir / PDF" es la versión para el CLIENTE (sin bodegas);
 // "Imprimir para alistar" incluye de qué bodega sale cada producto.
@@ -292,7 +292,11 @@ export default function CotizacionDistribuidorPage({ params }) {
       if (!d.ok) throw new Error(d.error || 'No se pudo facturar');
       await cargar();
       setModo('ver');
-      setAviso(`Listo: se guardó la venta #${d.ventaId} por ${moneda(d.total)} y se descontó el inventario de ${d.bodega}.`);
+      setAviso(
+        d.ventas && d.ventas.length > 1
+          ? `Listo: se guardaron 2 ventas — ${d.bodega}. Total ${moneda(d.total)}.`
+          : `Listo: se guardó la venta #${d.ventaId} por ${moneda(d.total)} y se descontó el inventario de ${d.bodega}.`
+      );
     } catch (e) {
       setError(e.message);
     }
@@ -451,7 +455,9 @@ export default function CotizacionDistribuidorPage({ params }) {
               <div>
                 <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Geek Store</h1>
                 <p style={{ color: '#667', margin: '2px 0 0', fontSize: '0.85rem' }}>
-                  {cotizacion.venta_id ? `Factura de distribuidor · venta #${cotizacion.venta_id}` : 'Cotización de distribuidor'}
+                  {cotizacion.venta_id
+                    ? `Factura de distribuidor · venta #${cotizacion.venta_id}${cotizacion.venta_principal_id ? ` (+ #${cotizacion.venta_principal_id} de Principal)` : ''}`
+                    : 'Cotización de distribuidor'}
                 </p>
               </div>
               <div style={{ textAlign: 'right' }}>
@@ -464,6 +470,9 @@ export default function CotizacionDistribuidorPage({ params }) {
                 </p>
                 {cotizacion.venta?.anulada ? (
                   <p style={{ margin: 0, color: '#b42318', fontSize: '0.85rem' }}>La venta #{cotizacion.venta_id} está anulada</p>
+                ) : null}
+                {cotizacion.ventaPrincipal?.anulada ? (
+                  <p style={{ margin: 0, color: '#b42318', fontSize: '0.85rem' }}>La venta #{cotizacion.venta_principal_id} (Principal) está anulada</p>
                 ) : null}
               </div>
             </div>

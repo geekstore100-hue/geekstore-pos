@@ -333,7 +333,7 @@ export default function ReportesPage() {
       {reporteActivo === 'journal' && journal !== null && (
         <>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 10px' }}>
-            Del {journal.desde} al {journal.hasta}. El costo y la utilidad usan el costo actual de cada producto.
+            Del {journal.desde} al {journal.hasta}. El costo es el del día de cada venta.
           </p>
           <div style={styles.resumenBodegas}>
             <div style={{ ...styles.resumenTarjeta, ...styles.resumenTarjetaTotal }}>
@@ -355,6 +355,14 @@ export default function ReportesPage() {
               <div>Utilidad: <strong>{moneda(journal.resumen.utilidad)}</strong></div>
               <div>Margen: <strong>{(journal.resumen.margen * 100).toFixed(1)}%</strong></div>
             </div>
+            {journal.porBodega.map((b) => (
+              <div key={b.clave} style={styles.resumenTarjeta}>
+                <div style={styles.resumenTitulo}>Vendido de {b.clave}</div>
+                <div>Venta: <strong>{moneda(b.total)}</strong></div>
+                <div>Costo: <strong>{moneda(b.costo)}</strong></div>
+                <div>Ganancia: <strong>{moneda(b.utilidad)}</strong>{b.total > 0 ? ` (${((b.utilidad / b.total) * 100).toFixed(1)}%)` : ''}</div>
+              </div>
+            ))}
             <div style={styles.resumenTarjeta}>
               <div style={styles.resumenTitulo}>Por medio de pago</div>
               {journal.porMedio.length === 0 && <div>—</div>}

@@ -25,11 +25,11 @@ export async function GET(request, { params }) {
         m.cantidad,
         m.precio_unitario,
         m.descuento_porcentaje,
-        -- Costo (promedio) del producto, para el desplegable "Costo y
-        -- ganancia" del detalle de la venta. Es el costo ACTUAL del
-        -- producto: el POS no guarda el costo del día de la venta. Los
-        -- productos no inventariables (servicios) no tienen costo.
-        CASE WHEN p.es_inventariable = false THEN NULL ELSE COALESCE(p.precio_costo, 0) END AS costo_unitario
+        -- Costo para el desplegable "Costo y ganancia" del detalle de la
+        -- venta: el del DÍA de la venta (lib/costoVenta.js); si la línea no
+        -- lo tiene guardado, el actual. Los servicios no tienen costo.
+        CASE WHEN p.es_inventariable = false THEN NULL
+             ELSE COALESCE((to_jsonb(m) ->> 'costo_unitario')::numeric, p.precio_costo, 0) END AS costo_unitario
       FROM movimientos_stock m
       JOIN productos p ON p.id = m.producto_id
       WHERE m.venta_id = ${id}
