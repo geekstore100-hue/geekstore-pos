@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Shell from '../../components/Shell';
 import AnaliticasTienda from '../../components/AnaliticasTienda';
+import ComportamientoClarity from '../../components/ComportamientoClarity';
 
 // Octubre 2026: la sección tiene dos pestañas:
 //   - "Tienda online" (por defecto): estadísticas propias de geekstore.com.co
@@ -141,6 +142,7 @@ export default function AnaliticasPage() {
       <div style={{ display: 'flex', gap: '4px', borderBottom: '2px solid var(--border)', marginBottom: '16px' }}>
         {[
           ['tienda', 'Tienda online'],
+          ['clarity', 'Comportamiento (Clarity)'],
           ['google', 'Google Analytics'],
         ].map(([id, nombre]) => (
           <button
@@ -162,7 +164,7 @@ export default function AnaliticasPage() {
           </button>
         ))}
       </div>
-      {pestana === 'tienda' ? <AnaliticasTienda /> : <GoogleAnalyticsLooker />}
+      {pestana === 'tienda' ? <AnaliticasTienda /> : pestana === 'clarity' ? <ComportamientoClarity /> : <GoogleAnalyticsLooker />}
     </Shell>
   );
 }
