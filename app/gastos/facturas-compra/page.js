@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Shell from '../../../components/Shell';
+import { descargarExcelEtiquetas } from '../../../lib/etiquetasOpenLabel';
 
 // Fecha de HOY en hora de Colombia (AAAA-MM-DD). Antes usaba
 // toISOString(), que da la fecha en hora UTC (5 horas adelante): después de
@@ -39,6 +40,9 @@ export default function FacturasCompraPage() {
   const [buscarProveedor, setBuscarProveedor] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [errorForm, setErrorForm] = useState('');
+  // Stickers de precio (Excel para OpenLabel), oct 2026.
+  const [avisoEtiquetas, setAvisoEtiquetas] = useState('');
+  const [etiquetasId, setEtiquetasId] = useState(null);
 
   const [mostrarNuevoProveedor, setMostrarNuevoProveedor] = useState(false);
   const [nuevoProveedor, setNuevoProveedor] = useState(proveedorVacio);
@@ -102,13 +106,16 @@ export default function FacturasCompraPage() {
   }, []);
 
   const resultadosBusqueda = useMemo(() => {
-    const texto = buscarTexto.trim().toLowerCase();
-    if (!texto) return [];
+    // Sin tildes y por palabras: "microfono gamer" encuentra "Micrófono Gamer ...".
+    const sinTildes = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const palabras = sinTildes(buscarTexto).trim().split(/\s+/).filter(Boolean);
+    if (!palabras.length) return [];
     return productosTodos
       .filter((p) => p.activo !== false && p.es_inventariable !== false)
-      .filter(
-        (p) => (p.nombre || '').toLowerCase().includes(texto) || (p.referencia || '').toLowerCase().includes(texto)
-      )
+      .filter((p) => {
+        const texto = sinTildes(`${p.nombre} ${p.referencia}`);
+        return palabras.every((w) => texto.includes(w));
+      })
       .slice(0, 8);
   }, [buscarTexto, productosTodos]);
 
@@ -271,12 +278,53 @@ export default function FacturasCompraPage() {
         return;
       }
       setMostrarForm(false);
+      // Excel de stickers (OpenLabel) de lo que llegó en esta factura: se
+      // descarga solo, con el precio de venta actual de cada producto.
+      try {
+        const lineas = items.map((it) => {
+          const p = productosTodos.find((x) => x.id === it.producto_id);
+          return { referencia: it.referencia, nombre: it.nombre, cantidad: it.cantidad, precio_venta: p?.precio_venta };
+        });
+        const nombre = `etiquetas_openlabel_compra_${form.numero ? String(form.numero).replace(/[^\w-]+/g, '_') : data.facturaId}.xlsx`;
+        const r = await descargarExcelEtiquetas(lineas, nombre);
+        setAvisoEtiquetas(
+          r.sinPrecio.length
+            ? `Se descargó el Excel de stickers. Ojo: sin precio de venta (salen en $0): ${r.sinPrecio.join(', ')}.`
+            : `Se descargó el Excel de stickers (${r.filas} etiquetas).`
+        );
+      } catch {
+        setAvisoEtiquetas('La factura se guardó, pero no se pudo crear el Excel de stickers. Descárgalo con el botón 🏷️ de la factura.');
+      }
       cargarFacturas();
       cargarProductos();
     } catch {
       setErrorForm('No se pudo guardar la factura de compra');
     } finally {
       setGuardando(false);
+    }
+  }
+
+  // Excel de stickers de una factura ya guardada (botón 🏷️).
+  async function etiquetasDeFactura(f) {
+    setEtiquetasId(f.id);
+    setAvisoEtiquetas('');
+    try {
+      const res = await fetch(`/api/facturas-compra/${f.id}`);
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'No se pudo cargar la factura');
+      const lineas = (data.items || []).map((it) => {
+        const p = productosTodos.find((x) => x.id === it.producto_id || x.referencia === it.referencia);
+        return { referencia: it.referencia, nombre: it.nombre, cantidad: it.cantidad, precio_venta: p?.precio_venta };
+      });
+      const nombre = `etiquetas_openlabel_compra_${f.numero ? String(f.numero).replace(/[^\w-]+/g, '_') : f.id}.xlsx`;
+      const r = await descargarExcelEtiquetas(lineas, nombre);
+      if (!r.filas) setAvisoEtiquetas('Esa factura no tiene productos.');
+      else if (r.sinPrecio.length) setAvisoEtiquetas(`Excel descargado. Ojo: sin precio de venta (salen en $0): ${r.sinPrecio.join(', ')}.`);
+      else setAvisoEtiquetas(`Excel de stickers descargado (${r.filas} etiquetas).`);
+    } catch (e) {
+      setAvisoEtiquetas(`No se pudo crear el Excel: ${e.message}`);
+    } finally {
+      setEtiquetasId(null);
     }
   }
 
@@ -428,6 +476,13 @@ export default function FacturasCompraPage() {
         <button onClick={abrirForm} style={styles.btnPrimario}>+ Nueva factura de compra</button>
       </div>
 
+      {avisoEtiquetas ? (
+        <div style={{ background: '#ecfdf3', border: '1px solid #abefc6', color: '#067647', padding: '10px 12px', borderRadius: '8px', margin: '0 0 12px', fontSize: '14px', display: 'flex', justifyContent: 'space-between', gap: '10px' }}>
+          <span>🏷️ {avisoEtiquetas}</span>
+          <button type="button" onClick={() => setAvisoEtiquetas('')} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'inherit' }}>✕</button>
+        </div>
+      ) : null}
+
       {cargando ? (
         <p>Cargando...</p>
       ) : error ? (
@@ -481,6 +536,15 @@ export default function FacturasCompraPage() {
                           {pagandoId === f.id ? 'Marcando...' : 'Marcar pagada'}
                         </button>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => etiquetasDeFactura(f)}
+                        disabled={etiquetasId === f.id}
+                        title="Descargar el Excel de stickers (OpenLabel)"
+                        style={{ ...styles.btnSecundario, marginLeft: 0 }}
+                      >
+                        {etiquetasId === f.id ? '…' : '🏷️'}
+                      </button>
                       <a
                         href={`/gastos/facturas-compra/${f.id}/imprimir`}
                         target="_blank"
