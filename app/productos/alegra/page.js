@@ -26,6 +26,11 @@ export default function PendientesAlegraPage() {
   const [estado, setEstado] = useState({}); // id → { tipo: 'ok'|'error'|'trabajando'|'falta', texto }
   const [trabajando, setTrabajando] = useState(false);
   const [revisado, setRevisado] = useState(false);
+  // Venta en negativo (oct 2026)
+  const [enlazados, setEnlazados] = useState(null);
+  const [negEstado, setNegEstado] = useState({}); // id → { tipo, texto }
+  const [negTrabajando, setNegTrabajando] = useState(false);
+  const [negDetener, setNegDetener] = useState(false);
 
   async function cargar() {
     setCargando(true);
@@ -45,6 +50,57 @@ export default function PendientesAlegraPage() {
     cargar();
   }, []);
 
+  async function cargarEnlazados() {
+    try {
+      const res = await fetch('/api/productos/alegra-venta-negativa');
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'No se pudo cargar');
+      setEnlazados(data.productos || []);
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  const TEXTO_NEG = {
+    activada: '✅ Activada',
+    'ya-estaba': '✅ Ya estaba activada',
+    'sin-confirmar': '🟡 Enviada (Alegra no confirma el dato: revisa uno en Alegra)',
+    'no-aplica': '— No aplica',
+    'no-se-pudo': '⚠️ Alegra la sigue mostrando apagada',
+  };
+
+  async function activarNegativa(p) {
+    setNegEstado((s) => ({ ...s, [p.id]: { tipo: 'trabajando', texto: 'Trabajando…' } }));
+    try {
+      const res = await fetch('/api/productos/alegra-venta-negativa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productoId: p.id }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Error');
+      const tipo = ['activada', 'ya-estaba', 'no-aplica'].includes(data.estado) ? 'ok' : data.estado === 'sin-confirmar' ? 'falta' : 'error';
+      setNegEstado((s) => ({ ...s, [p.id]: { tipo, texto: `${TEXTO_NEG[data.estado] || data.estado}${data.motivo && tipo !== 'falta' ? ` (${data.motivo})` : ''}` } }));
+      return tipo;
+    } catch (e) {
+      setNegEstado((s) => ({ ...s, [p.id]: { tipo: 'error', texto: e.message } }));
+      return /ALEGRA2_EMAIL/.test(e.message) ? 'sin-claves' : 'error';
+    }
+  }
+
+  async function activarTodas(lista) {
+    setNegTrabajando(true);
+    setNegDetener(false);
+    window.__detenerNeg = false;
+    for (const p of lista) {
+      if (window.__detenerNeg) break;
+      if (negEstado[p.id]?.tipo === 'ok') continue;
+      const r = await activarNegativa(p);
+      if (r === 'sin-claves') break;
+    }
+    setNegTrabajando(false);
+  }
+
   async function enviar(p, conIva) {
     setEstado((s) => ({ ...s, [p.id]: { tipo: 'trabajando', texto: 'Trabajando…' } }));
     try {
@@ -55,10 +111,12 @@ export default function PendientesAlegraPage() {
       });
       const data = await res.json();
       if (data.ok) {
+        const neg = data.negativo;
+        const avisoNeg = neg && ['no-se-pudo', 'error'].includes(neg.estado) ? ` ⚠️ Venta en negativo: ${neg.motivo || 'no se pudo activar'}` : '';
         const texto =
-          data.estado === 'creado'
+          (data.estado === 'creado'
             ? `✅ Creado en Alegra${data.fotoError ? ` (la foto no subió: ${data.fotoError})` : ''}`
-            : '✅ Ya estaba en Alegra — quedó enlazado';
+            : '✅ Ya estaba en Alegra — quedó enlazado') + avisoNeg;
         setEstado((s) => ({ ...s, [p.id]: { tipo: 'ok', texto } }));
         return 'ok';
       }
@@ -192,6 +250,56 @@ export default function PendientesAlegraPage() {
           })
         )}
       </div>
+      <div style={styles.card}>
+        <h3 style={{ marginTop: 0 }}>Venta en negativo en Alegra</h3>
+        <p style={{ margin: '0 0 12px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+          Los productos del POS que ya están en Alegra deben tener &quot;Venta en negativo&quot; activada para poder facturarlos
+          (allá no se maneja stock). Los nuevos ya quedan activados solos; aquí se arreglan los que ya se subieron.
+        </p>
+        {enlazados === null ? (
+          <button type="button" style={styles.btnSecundario} onClick={cargarEnlazados}>
+            🔎 Ver productos enlazados con Alegra
+          </button>
+        ) : enlazados.length === 0 ? (
+          <p style={{ margin: 0 }}>No hay productos del POS enlazados con Alegra todavía.</p>
+        ) : (
+          <>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+              <button type="button" style={styles.btnSecundario} disabled={negTrabajando} onClick={() => activarTodas(enlazados.slice(0, 1))}>
+                1. Probar con uno
+              </button>
+              <button type="button" style={styles.btnPrimario} disabled={negTrabajando} onClick={() => activarTodas(enlazados)}>
+                ⚡ 2. Activar en todos ({enlazados.length})
+              </button>
+              {negTrabajando && (
+                <button type="button" style={styles.btnSecundario} onClick={() => { window.__detenerNeg = true; setNegDetener(true); }}>
+                  {negDetener ? 'Deteniendo…' : 'Detener'}
+                </button>
+              )}
+            </div>
+            <p style={{ margin: '0 0 8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+              Recomendado: prueba con uno y revísalo en Alegra (Inventario → ese producto → Editar → &quot;Venta en negativo&quot;) antes de hacer todos.
+            </p>
+            {enlazados.map((p) => {
+              const e = negEstado[p.id];
+              return (
+                <div key={p.id} style={{ ...styles.fila, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                  <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: '14px' }}>{p.nombre}</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Ref. {p.referencia} · Alegra #{p.alegra2_id}</div>
+                  </div>
+                  {e ? (
+                    <span style={{ fontSize: '13px', color: e.tipo === 'error' ? 'var(--danger, #c0392b)' : e.tipo === 'ok' ? '#0b7a3e' : 'var(--text-secondary)' }}>{e.texto}</span>
+                  ) : (
+                    <button type="button" style={styles.btnTipo} disabled={negTrabajando} onClick={() => activarNegativa(p)}>Activar</button>
+                  )}
+                </div>
+              );
+            })}
+          </>
+        )}
+      </div>
+
     </Shell>
   );
 }
