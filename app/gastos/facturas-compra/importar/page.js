@@ -281,6 +281,42 @@ export default function ImportarBorradorPage() {
     setLineas((ls) => ls.map((l, j) => (j === i ? { ...l, nuevo: { ...l.nuevo, ...cambios } } : l)));
   }
 
+  // Fotos propias de Nelson para un producto nuevo (oct 2026): a veces la
+  // del catálogo sale cortada o no sirve. Se suben desde el PC o el celular
+  // (galería o cámara). Como portada quedan de primeras; como extra, al final.
+  // Se guardan en el POS al aprobar, igual que las del ZIP (achicadas a 1600 px).
+  function agregarFotosPropias(i, archivos, comoPortada) {
+    const lista = [...(archivos || [])];
+    if (!lista.length) return;
+    const nuevas = {};
+    const claves = [];
+    const rechazadas = [];
+    lista.forEach((f, k) => {
+      const esHeic = /heic|heif/i.test(f.type) || /\.(heic|heif)$/i.test(f.name);
+      if (esHeic || (f.type && !f.type.startsWith('image/'))) {
+        rechazadas.push(f.name);
+        return;
+      }
+      const clave = `propia/${Date.now()}-${k}-${f.name}`;
+      nuevas[clave] = { blob: f, url: URL.createObjectURL(f), propia: true };
+      claves.push(clave);
+    });
+    if (claves.length) setFotos((actual) => ({ ...actual, ...nuevas }));
+    setLineas((ls) =>
+      ls.map((l, j) => {
+        if (j !== i) return l;
+        const fotosLinea = comoPortada ? [...claves, ...l.nuevo.fotos] : [...l.nuevo.fotos, ...claves];
+        return {
+          ...l,
+          avisoFoto: rechazadas.length
+            ? `No se pudo usar: ${rechazadas.join(', ')} (formato HEIC u otro). Toma la foto con la cámara desde aquí o pásala a JPG.`
+            : '',
+          nuevo: { ...l.nuevo, fotos: fotosLinea.slice(0, 10) },
+        };
+      })
+    );
+  }
+
   // ─── Cálculos y validaciones ────────────────────────────────────────
   const activas = lineas.filter((l) => l.accion !== 'omitir');
   const conteo = {
@@ -702,6 +738,7 @@ export default function ImportarBorradorPage() {
               bloqueada={aprobando}
               cambiarLinea={cambiarLinea}
               cambiarNuevo={cambiarNuevo}
+              agregarFotosPropias={agregarFotosPropias}
             />
           ))}
 
@@ -752,7 +789,9 @@ export default function ImportarBorradorPage() {
 }
 
 // ─── Una línea del borrador ───────────────────────────────────────────
-function Linea({ l, i, productos, productosPorId, categorias, fotos, costo, subtotal, bloqueada, cambiarLinea, cambiarNuevo }) {
+function Linea({ l, i, productos, productosPorId, categorias, fotos, costo, subtotal, bloqueada, cambiarLinea, cambiarNuevo, agregarFotosPropias }) {
+  const inputPortada = useRef(null);
+  const inputExtra = useRef(null);
   const [buscando, setBuscando] = useState(false);
   const [texto, setTexto] = useState('');
   const [verDescripcion, setVerDescripcion] = useState(false);
@@ -885,6 +924,7 @@ function Linea({ l, i, productos, productosPorId, categorias, fotos, costo, subt
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={fotos[r]?.url} alt="" style={{ ...s.foto, outline: k === 0 ? '3px solid var(--teal)' : 'none' }} />
                     {k === 0 ? <span style={s.etiquetaPortada}>Portada</span> : null}
+                    {fotos[r]?.propia ? <span style={s.etiquetaPropia}>Tuya</span> : null}
                     {!bloqueoCreado ? (
                       <div style={{ display: 'flex', gap: '4px', marginTop: '2px' }}>
                         {k > 0 ? (
@@ -901,8 +941,40 @@ function Linea({ l, i, productos, productosPorId, categorias, fotos, costo, subt
                 ))}
               </div>
             ) : (
-              <p style={{ ...s.ayuda, color: '#b54708' }}>Sin fotos: agrégalas después en Productos.</p>
+              <p style={{ ...s.ayuda, color: '#b54708' }}>Sin fotos: sube la tuya aquí abajo (o agrégala después en Productos).</p>
             )}
+            {!bloqueoCreado ? (
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' }}>
+                <input
+                  ref={inputPortada}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    agregarFotosPropias(i, e.target.files, true);
+                    e.target.value = '';
+                  }}
+                />
+                <input
+                  ref={inputExtra}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    agregarFotosPropias(i, e.target.files, false);
+                    e.target.value = '';
+                  }}
+                />
+                <button type="button" style={s.btnChico} onClick={() => inputPortada.current?.click()}>
+                  📷 Subir mi foto de portada
+                </button>
+                <button type="button" style={s.btnChico} onClick={() => inputExtra.current?.click()}>
+                  ＋ Agregar fotos extra
+                </button>
+              </div>
+            ) : null}
+            {l.avisoFoto ? <p style={{ ...s.ayuda, color: 'var(--danger)' }}>{l.avisoFoto}</p> : null}
             {l.fotosFaltantes.length ? <p style={{ ...s.ayuda, color: '#b54708' }}>No vinieron en el ZIP: {l.fotosFaltantes.join(', ')}</p> : null}
 
             <div style={{ ...s.ayuda, marginTop: '8px' }}>
@@ -1038,6 +1110,7 @@ const s = {
   cajaNuevo: { border: '1px dashed #a4bcfd', borderRadius: '8px', padding: '10px', background: '#f8f9ff' },
   foto: { width: '96px', height: '96px', objectFit: 'contain', background: '#fff', border: '1px solid var(--border)', borderRadius: '8px', display: 'block' },
   etiquetaPortada: { position: 'absolute', top: '4px', left: '4px', background: 'var(--teal)', color: '#fff', fontSize: '10px', padding: '1px 5px', borderRadius: '4px' },
+  etiquetaPropia: { position: 'absolute', top: '4px', right: '4px', background: '#6172f3', color: '#fff', fontSize: '10px', padding: '1px 5px', borderRadius: '4px' },
   filaTotal: { display: 'flex', justifyContent: 'space-between', gap: '10px', padding: '4px 0', fontSize: '15px' },
   dropdown: { position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid var(--border)', borderRadius: '8px', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 20, maxHeight: '260px', overflowY: 'auto' },
   opcion: { padding: '9px 12px', cursor: 'pointer', borderBottom: '1px solid var(--border)', fontSize: '14px' },
