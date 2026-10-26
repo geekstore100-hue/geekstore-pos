@@ -7,6 +7,11 @@ import {
   validarBorrador,
   emparejarLinea,
   costoParaPos,
+  costoNetoParaPos,
+  precioVentaAutomatico,
+  reglaSugerida,
+  normalizarRegla,
+  REGLA_POR_DEFECTO,
   categoriaParecida,
   proveedorParecido,
   codigoParaAprender,
@@ -104,6 +109,7 @@ export default function ImportarBorradorPage() {
   const [proveedores, setProveedores] = useState([]);
   const [bodegas, setBodegas] = useState([]);
   const [categorias, setCategorias] = useState([]);
+  const [subcategorias, setSubcategorias] = useState([]);
   const [facturas, setFacturas] = useState([]);
 
   const [errorArchivo, setErrorArchivo] = useState('');
@@ -115,7 +121,12 @@ export default function ImportarBorradorPage() {
   const [encabezado, setEncabezado] = useState(null);
   const [proveedorElegido, setProveedorElegido] = useState(''); // id o 'nuevo'
   const [aprendidos, setAprendidos] = useState({ alias: new Map(), comprados: new Set() });
-  const [costoConIva, setCostoConIva] = useState(false);
+  // Regla de precios del proveedor (ver lib/borradorFactura.js):
+  // Innovall → IVA ignorado y venta = costo × 2; los demás → costo = precio
+  // + IVA y la venta la pone Nelson. Se recuerda por proveedor.
+  const [regla, setRegla] = useState(REGLA_POR_DEFECTO);
+  const [reglaOrigen, setReglaOrigen] = useState(''); // 'guardada' | 'sugerida'
+  const [recordarRegla, setRecordarRegla] = useState(true);
 
   const [aprobando, setAprobando] = useState(false);
   const [pasos, setPasos] = useState([]);
@@ -127,13 +138,15 @@ export default function ImportarBorradorPage() {
   useEffect(() => {
     async function cargar() {
       try {
-        const [p, pr, b, c, f] = await Promise.all([
+        const [p, pr, b, c, f, sc] = await Promise.all([
           pedirJson('/api/productos'),
           pedirJson('/api/proveedores'),
           pedirJson('/api/bodegas'),
           pedirJson('/api/categorias'),
           pedirJson('/api/facturas-compra'),
+          pedirJson('/api/subcategorias').catch(() => ({ ok: false })),
         ]);
+        if (sc.ok) setSubcategorias(sc.subcategorias);
         if (p.ok) setProductos(p.productos);
         if (pr.ok) setProveedores(pr.proveedores);
         if (b.ok) setBodegas(b.bodegas);
@@ -204,9 +217,18 @@ export default function ImportarBorradorPage() {
     };
   }
 
+  async function cargarRegla(proveedorId, nombre) {
+    if (proveedorId && proveedorId !== 'nuevo') {
+      const r = await pedirJson(`/api/proveedores/${proveedorId}/regla-precio`).catch(() => ({ ok: false }));
+      if (r.ok && r.regla) return { regla: normalizarRegla(r.regla), origen: 'guardada' };
+    }
+    return { regla: reglaSugerida(nombre), origen: 'sugerida' };
+  }
+
   function lineaDesdeItem(item, cruce, fotosZip) {
     const p = item.producto;
     const cat = p ? categoriaParecida(p.categoria, categorias) : null;
+    const subcat = cat && p?.subcategoria ? subcategoriaParecida(p.subcategoria, cat.id) : null;
     const rutas = (p?.fotos || []).filter((r) => fotosZip[r]);
     return {
       ...item,
@@ -218,9 +240,12 @@ export default function ImportarBorradorPage() {
         nombre: p?.nombre || item.descripcion_factura || item.modelo || '',
         categoria_id: cat ? String(cat.id) : '',
         categoriaSugerida: p?.categoria || '',
+        subcategoria_id: subcat ? String(subcat.id) : '',
+        subcategoriaSugerida: p?.subcategoria || '',
         descripcion: p?.descripcion || '',
         especificaciones: p?.especificaciones || [],
         precio_venta: p?.precio_venta_sugerido ? String(Math.round(p.precio_venta_sugerido)) : '',
+        precioEditado: false, // true = Nelson lo escribió (no se recalcula con la regla)
         precio_distribuidor: '',
         con_iva: item.iva_porcentaje > 0,
         mostrar_en_tienda: true,
@@ -234,11 +259,18 @@ export default function ImportarBorradorPage() {
     };
   }
 
+  function subcategoriaParecida(nombre, categoriaId) {
+    return categoriaParecida(nombre, subcategorias.filter((sc) => String(sc.categoria_id) === String(categoriaId)));
+  }
+
   async function prepararBorrador(b, fotosZip) {
     Object.values(fotos).forEach((f) => URL.revokeObjectURL(f.url));
     const prov = proveedorParecido(b.proveedor, proveedores);
     const provId = prov ? String(prov.id) : 'nuevo';
-    const ap = await cargarAprendidos(provId);
+    const [ap, rg] = await Promise.all([cargarAprendidos(provId), cargarRegla(provId, prov?.nombre || b.proveedor.nombre)]);
+    setRegla(rg.regla);
+    setReglaOrigen(rg.origen);
+    setRecordarRegla(true);
     const principal = bodegas.find((x) => sinTildes(x.nombre).toLowerCase() === 'principal') || bodegas[0];
     progreso.current = { proveedorId: null, facturaId: null, siguienteRef: null };
     setAprendidos(ap);
@@ -261,7 +293,10 @@ export default function ImportarBorradorPage() {
   // proveedor (sin tocar las líneas que ya decidió a mano).
   async function cambiarProveedor(id) {
     setProveedorElegido(id);
-    const ap = await cargarAprendidos(id);
+    const nombre = id === 'nuevo' ? borrador?.proveedor?.nombre : proveedores.find((p) => String(p.id) === String(id))?.nombre;
+    const [ap, rg] = await Promise.all([cargarAprendidos(id), cargarRegla(id, nombre)]);
+    setRegla(rg.regla);
+    setReglaOrigen(rg.origen);
     setAprendidos(ap);
     setLineas((ls) =>
       ls.map((l) => {
@@ -325,18 +360,22 @@ export default function ImportarBorradorPage() {
     nuevo: lineas.filter((l) => l.accion === 'nuevo').length,
     omitir: lineas.filter((l) => l.accion === 'omitir').length,
   };
-  const costoLinea = (l) => costoParaPos(l, { costoConIva });
-  const subtotalLinea = (l) => costoLinea(l) * (Number(l.cantidad) || 0) * (1 - (Number(l.descuento_porcentaje) || 0) / 100);
+  const costoLinea = (l) => costoParaPos(l, regla);
+  const subtotalLinea = (l) => costoNetoParaPos(l, regla) * (Number(l.cantidad) || 0);
+  // Precio de venta de un producto nuevo: el que escribió Nelson o, si no
+  // escribió nada, el automático de la regla del proveedor (ej. costo × 2).
+  const precioAutoDe = (l) => precioVentaAutomatico(l, regla);
+  const precioVentaDe = (l) => (l.nuevo.precioEditado ? l.nuevo.precio_venta : precioAutoDe(l) ?? l.nuevo.precio_venta);
   const subtotal = activas.reduce((a, l) => a + subtotalLinea(l), 0);
   const retencionValor = (Number(encabezado?.retencion_base) || 0) * ((Number(encabezado?.retencion_porcentaje) || 0) / 100);
 
   const comparaFactura = useMemo(() => {
     if (!borrador) return null;
-    const ref = costoConIva ? borrador.factura.total : borrador.factura.subtotal;
+    const ref = regla.iva === 'sumar' ? borrador.factura.total || borrador.factura.subtotal * 1.19 : borrador.factura.subtotal;
     if (!(ref > 0) || conteo.omitir) return null;
     const dif = subtotal - ref;
     return Math.abs(dif) > Math.max(100, ref * 0.005) ? { ref, dif } : null;
-  }, [borrador, costoConIva, subtotal, conteo.omitir]);
+  }, [borrador, regla, subtotal, conteo.omitir]);
 
   const proveedorIdNum = proveedorElegido && proveedorElegido !== 'nuevo' ? Number(proveedorElegido) : progreso.current.proveedorId;
   const duplicada = useMemo(() => {
@@ -362,7 +401,7 @@ export default function ImportarBorradorPage() {
       if (l.accion === 'existente' && !productosPorId.has(Number(l.producto_id))) lista.push(`${n}: el producto elegido ya no existe.`);
       if (l.accion === 'nuevo' && !l.creado) {
         if (!l.nuevo.nombre.trim()) lista.push(`${n}: escribe el nombre del producto nuevo.`);
-        if (!(Number(l.nuevo.precio_venta) > 0)) lista.push(`${n}: pon el precio de venta del producto nuevo.`);
+        if (!(Number(precioVentaDe(l)) > 0)) lista.push(`${n}: pon el precio de venta del producto nuevo.`);
         if (l.nuevo.descripcion.length > 600) lista.push(`${n}: la descripción pasa de 600 letras.`);
       }
     });
@@ -413,6 +452,17 @@ export default function ImportarBorradorPage() {
         anotar(`Proveedor creado: ${r.proveedor.nombre}`);
       }
 
+      // Regla de precios de este proveedor (para la próxima factura).
+      if (recordarRegla && !progreso.current.reglaGuardada) {
+        const r = await pedirJson(`/api/proveedores/${proveedorId}/regla-precio`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(regla),
+        }).catch(() => ({ ok: false }));
+        progreso.current.reglaGuardada = true;
+        if (!r.ok) anotar('No se pudo guardar la regla de precios del proveedor (no afecta la factura).', 'aviso');
+      }
+
       // 2) Productos nuevos (con fotos y en Alegra)
       for (const l of ls) {
         if (l.accion !== 'nuevo') continue;
@@ -428,9 +478,9 @@ export default function ImportarBorradorPage() {
                 nombre: l.nuevo.nombre.trim(),
                 descripcion: l.nuevo.descripcion.trim() || null,
                 categoria_id: l.nuevo.categoria_id ? Number(l.nuevo.categoria_id) : null,
-                subcategoria_id: null,
-                precio_venta: Number(l.nuevo.precio_venta),
-                precio_costo: Math.round(costoLinea(l) * (1 - (Number(l.descuento_porcentaje) || 0) / 100) * 100) / 100,
+                subcategoria_id: l.nuevo.subcategoria_id ? Number(l.nuevo.subcategoria_id) : null,
+                precio_venta: Number(precioVentaDe(l)),
+                precio_costo: Math.round(costoNetoParaPos(l, regla) * 100) / 100,
                 precio_distribuidor: Number(l.nuevo.precio_distribuidor) || null,
                 activo: true,
                 es_inventariable: true,
@@ -554,7 +604,7 @@ export default function ImportarBorradorPage() {
     return ls
       .filter((l) => l.accion !== 'omitir')
       .map((l) => {
-        if (l.creado) return { referencia: l.creado.referencia, nombre: l.nuevo.nombre, cantidad: l.cantidad, precio_venta: l.nuevo.precio_venta };
+        if (l.creado) return { referencia: l.creado.referencia, nombre: l.nuevo.nombre, cantidad: l.cantidad, precio_venta: precioVentaDe(l) };
         const p = productosPorId.get(Number(l.producto_id));
         return { referencia: p?.referencia, nombre: p?.nombre, cantidad: l.cantidad, precio_venta: p?.precio_venta };
       });
@@ -689,12 +739,37 @@ export default function ImportarBorradorPage() {
                 </select>
               </label>
               <label style={s.campo}>
-                <span style={s.etiqueta}>Costo que se guarda en el POS</span>
-                <select value={costoConIva ? 'con' : 'sin'} onChange={(e) => setCostoConIva(e.target.value === 'con')} style={s.input}>
-                  <option value="sin">Sin IVA (el IVA se descuenta)</option>
-                  <option value="con">Con IVA incluido</option>
+                <span style={s.etiqueta}>IVA en el costo</span>
+                <select value={regla.iva} disabled={aprobando} onChange={(e) => setRegla({ ...regla, iva: e.target.value })} style={s.input}>
+                  <option value="sumar">Sumar el IVA (precio de factura + IVA)</option>
+                  <option value="ignorar">No tener en cuenta el IVA</option>
                 </select>
               </label>
+              <label style={s.campo}>
+                <span style={s.etiqueta}>Precio de venta de los productos nuevos</span>
+                <select
+                  value={regla.multiplicador ? String(regla.multiplicador) : ''}
+                  disabled={aprobando}
+                  onChange={(e) => setRegla({ ...regla, multiplicador: e.target.value ? Number(e.target.value) : null })}
+                  style={s.input}
+                >
+                  <option value="">Lo pongo yo</option>
+                  {[1.3, 1.5, 1.8, 2, 2.5, 3].concat(regla.multiplicador && ![1.3, 1.5, 1.8, 2, 2.5, 3].includes(regla.multiplicador) ? [regla.multiplicador] : []).map((m) => (
+                    <option key={m} value={String(m)}>Costo × {String(m).replace('.', ',')}</option>
+                  ))}
+                </select>
+              </label>
+              <div style={{ ...s.campo, gridColumn: '1 / -1' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                  <input type="checkbox" checked={recordarRegla} disabled={aprobando} onChange={(e) => setRecordarRegla(e.target.checked)} />
+                  Recordar esta regla de precios para este proveedor
+                </label>
+                <span style={s.ayuda}>
+                  {reglaOrigen === 'guardada' ? 'Regla guardada de este proveedor.' : 'Regla sugerida (este proveedor aún no tiene una guardada).'}{' '}
+                  {regla.iva === 'sumar' ? 'Costo = precio de la factura + IVA.' : 'El IVA no se tiene en cuenta.'}{' '}
+                  {regla.multiplicador ? `Venta = costo × ${String(regla.multiplicador).replace('.', ',')} (puedes cambiarla en cada producto).` : 'El precio de venta lo escribes tú.'}
+                </span>
+              </div>
               <label style={s.campo}>
                 <span style={s.etiqueta}>Retención</span>
                 <select value={encabezado.retencion_porcentaje} onChange={(e) => setEncabezado({ ...encabezado, retencion_porcentaje: Number(e.target.value) })} style={s.input}>
@@ -734,7 +809,11 @@ export default function ImportarBorradorPage() {
               categorias={categorias}
               fotos={fotos}
               costo={costoLinea(l)}
+              costoNeto={costoNetoParaPos(l, regla)}
               subtotal={subtotalLinea(l)}
+              precioVenta={precioVentaDe(l)}
+              precioAuto={precioAutoDe(l)}
+              subcategorias={subcategorias}
               bloqueada={aprobando}
               cambiarLinea={cambiarLinea}
               cambiarNuevo={cambiarNuevo}
@@ -745,7 +824,7 @@ export default function ImportarBorradorPage() {
           {/* Totales y aprobar */}
           <div style={s.card}>
             <div style={s.filaTotal}>
-              <span>Subtotal ({activas.length} línea{activas.length === 1 ? '' : 's'}, costo {costoConIva ? 'con' : 'sin'} IVA)</span>
+              <span>Subtotal ({activas.length} línea{activas.length === 1 ? '' : 's'}, {regla.iva === 'sumar' ? 'costo con IVA' : 'sin tener en cuenta el IVA'})</span>
               <strong>{moneda(subtotal)}</strong>
             </div>
             {borrador.factura.total > 0 ? (
@@ -789,7 +868,7 @@ export default function ImportarBorradorPage() {
 }
 
 // ─── Una línea del borrador ───────────────────────────────────────────
-function Linea({ l, i, productos, productosPorId, categorias, fotos, costo, subtotal, bloqueada, cambiarLinea, cambiarNuevo, agregarFotosPropias }) {
+function Linea({ l, i, productos, productosPorId, categorias, subcategorias, fotos, costo, costoNeto, subtotal, precioVenta: precioVentaTexto, precioAuto, bloqueada, cambiarLinea, cambiarNuevo, agregarFotosPropias }) {
   const inputPortada = useRef(null);
   const inputExtra = useRef(null);
   const [buscando, setBuscando] = useState(false);
@@ -818,9 +897,15 @@ function Linea({ l, i, productos, productosPorId, categorias, fotos, costo, subt
     setTexto('');
   }
 
-  const precioVenta = Number(l.nuevo.precio_venta) || 0;
-  const costoNeto = costo * (1 - (Number(l.descuento_porcentaje) || 0) / 100);
-  const margen = precioVenta > 0 ? ((precioVenta / (l.nuevo.con_iva ? 1.19 : 1) - costoNeto) / (precioVenta / (l.nuevo.con_iva ? 1.19 : 1))) * 100 : null;
+  const precioVenta = Number(precioVentaTexto) || 0;
+  // Margen simple sobre el costo que queda en el POS.
+  const margen = precioVenta > 0 ? ((precioVenta - costoNeto) / precioVenta) * 100 : null;
+  const subcatsDeCategoria = subcategorias.filter((sc) => String(sc.categoria_id) === String(l.nuevo.categoria_id));
+  function elegirCategoria(id) {
+    const subs = subcategorias.filter((sc) => String(sc.categoria_id) === String(id));
+    const parecida = l.nuevo.subcategoriaSugerida ? categoriaParecida(l.nuevo.subcategoriaSugerida, subs) : null;
+    cambiarNuevo(i, { categoria_id: id, subcategoria_id: parecida ? String(parecida.id) : '' });
+  }
 
   return (
     <div style={{ ...s.card, borderLeft: `4px solid ${COLOR[estado]}`, opacity: estado === 'omitir' ? 0.6 : 1 }}>
@@ -840,7 +925,7 @@ function Linea({ l, i, productos, productosPorId, categorias, fotos, costo, subt
             <input type="number" min="0" value={l.cantidad} disabled={bloqueada} onChange={(e) => cambiarLinea(i, { cantidad: e.target.value })} style={{ ...s.input, width: '72px' }} />
           </label>
           <label style={s.campoChico}>
-            <span style={s.etiqueta}>Costo sin IVA</span>
+            <span style={s.etiqueta}>Costo factura</span>
             <input type="number" min="0" value={l.costo_unitario} disabled={bloqueada} onChange={(e) => cambiarLinea(i, { costo_unitario: e.target.value })} style={{ ...s.input, width: '110px' }} />
           </label>
           <label style={s.campoChico}>
@@ -854,6 +939,7 @@ function Linea({ l, i, productos, productosPorId, categorias, fotos, costo, subt
           <div style={{ textAlign: 'right', minWidth: '100px' }}>
             <div style={s.etiqueta}>Subtotal</div>
             <strong>{moneda(subtotal)}</strong>
+            <div style={{ ...s.ayuda, marginTop: 0 }}>Costo POS c/u {moneda(costoNeto)}</div>
           </div>
         </div>
       </div>
@@ -867,7 +953,7 @@ function Linea({ l, i, productos, productosPorId, categorias, fotos, costo, subt
               {' '}· venta {moneda(elegido.precio_venta)} · costo actual {moneda(elegido.precio_costo)}
             </span>
             {l.cruce.motivo && !l.decididaAMano ? <div style={s.ayuda}>{l.cruce.motivo}</div> : null}
-            {Number(elegido.precio_costo) > 0 && Math.abs(costo - Number(elegido.precio_costo)) / Number(elegido.precio_costo) > 0.15 ? (
+            {Number(elegido.precio_costo) > 0 && Math.abs(costoNeto - Number(elegido.precio_costo)) / Number(elegido.precio_costo) > 0.15 ? (
               <div style={{ ...s.ayuda, color: '#b54708' }}>⚠️ El costo cambió más de 15 % frente al actual. ¿Es el mismo producto?</div>
             ) : null}
           </div>
@@ -886,7 +972,7 @@ function Linea({ l, i, productos, productosPorId, categorias, fotos, costo, subt
               </label>
               <label style={s.campo}>
                 <span style={s.etiqueta}>Categoría{l.nuevo.categoriaSugerida ? ` (Claude sugiere: ${l.nuevo.categoriaSugerida})` : ''}</span>
-                <select value={l.nuevo.categoria_id} disabled={bloqueoCreado} onChange={(e) => cambiarNuevo(i, { categoria_id: e.target.value })} style={s.input}>
+                <select value={l.nuevo.categoria_id} disabled={bloqueoCreado} onChange={(e) => elegirCategoria(e.target.value)} style={s.input}>
                   <option value="">— Sin categoría —</option>
                   {categorias.map((c) => (
                     <option key={c.id} value={String(c.id)}>{c.nombre}</option>
@@ -894,11 +980,41 @@ function Linea({ l, i, productos, productosPorId, categorias, fotos, costo, subt
                 </select>
               </label>
               <label style={s.campo}>
+                <span style={s.etiqueta}>Subcategoría{l.nuevo.subcategoriaSugerida ? ` (Claude sugiere: ${l.nuevo.subcategoriaSugerida})` : ''}</span>
+                <select
+                  value={l.nuevo.subcategoria_id}
+                  disabled={bloqueoCreado || !l.nuevo.categoria_id}
+                  onChange={(e) => cambiarNuevo(i, { subcategoria_id: e.target.value })}
+                  style={s.input}
+                >
+                  <option value="">{l.nuevo.categoria_id ? (subcatsDeCategoria.length ? '— Sin subcategoría —' : 'Esta categoría no tiene subcategorías') : 'Elige primero la categoría'}</option>
+                  {subcatsDeCategoria.map((sc) => (
+                    <option key={sc.id} value={String(sc.id)}>{sc.nombre}</option>
+                  ))}
+                </select>
+              </label>
+              <label style={s.campo}>
                 <span style={s.etiqueta}>Precio de venta (al público)</span>
-                <input type="number" min="0" value={l.nuevo.precio_venta} disabled={bloqueoCreado} onChange={(e) => cambiarNuevo(i, { precio_venta: e.target.value })} style={s.input} />
-                {margen !== null ? (
-                  <span style={{ ...s.ayuda, color: margen < 15 ? 'var(--danger)' : 'var(--text-secondary)' }}>Margen ≈ {margen.toFixed(0)} %</span>
-                ) : null}
+                <input
+                  type="number"
+                  min="0"
+                  value={precioVentaTexto ?? ''}
+                  disabled={bloqueoCreado}
+                  onChange={(e) => cambiarNuevo(i, { precio_venta: e.target.value, precioEditado: true })}
+                  style={s.input}
+                />
+                <span style={{ ...s.ayuda, color: margen !== null && margen < 15 ? 'var(--danger)' : 'var(--text-secondary)' }}>
+                  {margen !== null ? `Margen ≈ ${margen.toFixed(0)} %` : ''}
+                  {precioAuto && !l.nuevo.precioEditado ? ' · calculado con la regla del proveedor' : ''}
+                  {precioAuto && l.nuevo.precioEditado && !bloqueoCreado ? (
+                    <>
+                      {' · '}
+                      <button type="button" style={s.btnMini} onClick={() => cambiarNuevo(i, { precioEditado: false })}>
+                        ↺ volver a {moneda(precioAuto)}
+                      </button>
+                    </>
+                  ) : null}
+                </span>
               </label>
               <label style={s.campo}>
                 <span style={s.etiqueta}>Precio distribuidor (opcional)</span>
