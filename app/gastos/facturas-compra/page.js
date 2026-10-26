@@ -576,7 +576,13 @@ export default function FacturasCompraPage() {
     <Shell title="Facturas de compra">
       <div style={styles.header}>
         <h2 style={{ margin: 0 }}>Facturas de compra</h2>
-        <button onClick={abrirForm} style={styles.btnPrimario}>+ Nueva factura de compra</button>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {/* Borrador preparado por Claude desde la foto de la factura (oct 2026). */}
+          <a href="/gastos/facturas-compra/importar" style={{ ...styles.btnSecundario, marginLeft: 0, textDecoration: 'none', color: 'inherit' }}>
+            📥 Importar borrador
+          </a>
+          <button onClick={abrirForm} style={styles.btnPrimario}>+ Nueva factura de compra</button>
+        </div>
       </div>
 
       {avisoEtiquetas ? (
