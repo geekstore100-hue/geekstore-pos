@@ -69,6 +69,17 @@ export default function ProductosPage() {
   // 40%) cada vez que cambia el precio de costo, como sugerencia editable.
   const [autoDistribuidor, setAutoDistribuidor] = useState(false);
   const [imagenProductoNueva, setImagenProductoNueva] = useState(null);
+  // Fotos adicionales al CREAR (oct 2026): antes solo se podía la portada y
+  // había que guardar y volver a editar para agregar más. Se suben después
+  // de la portada, apenas se guarda el producto.
+  const [fotosExtraNueva, setFotosExtraNueva] = useState([]); // data URIs
+  const [procesandoExtra, setProcesandoExtra] = useState('');
+  // Fotos encontradas en la página del fabricante (oct 2026): la mejor
+  // queda de portada sola; las demás se pueden escoger. Ver lib/imagenesPagina.js.
+  const [fotosPagina, setFotosPagina] = useState([]); // { url, ancho, alto, fuente, puntaje }
+  const [buscandoFotosPagina, setBuscandoFotosPagina] = useState(false);
+  const [mensajeFotosPagina, setMensajeFotosPagina] = useState('');
+  const [fotoPaginaUsada, setFotoPaginaUsada] = useState(''); // url de la que quedó de portada
   // Quitar el fondo con IA (lib/quitarFondoCliente.js): la foto antes de
   // quitarle el fondo, para poder deshacer.
   const [fotoAntesDeFondo, setFotoAntesDeFondo] = useState(null);
@@ -153,6 +164,12 @@ export default function ProductosPage() {
     setCategoriaSugeridaIA('');
     setSubcategoriaSugeridaIA('');
     setImagenProductoNueva(null);
+    setFotosExtraNueva([]);
+    setProcesandoExtra('');
+    setFotosPagina([]);
+    setBuscandoFotosPagina(false);
+    setMensajeFotosPagina('');
+    setFotoPaginaUsada('');
     setFotoAntesDeFondo(null);
     setMensajeFondo('');
     setRecortarActivo(true);
@@ -454,6 +471,30 @@ export default function ProductosPage() {
     reader.readAsDataURL(file);
   }
 
+  // Más fotos al crear: se pueden elegir varias a la vez. sinFondo=true le
+  // quita el fondo con IA a cada una (como "Agregar foto sin fondo").
+  async function agregarFotosExtraNueva(e, sinFondo = false) {
+    const archivos = [...(e.target.files || [])].filter((f) => f.type.startsWith('image/'));
+    e.target.value = '';
+    if (!archivos.length) return;
+    for (let i = 0; i < archivos.length; i++) {
+      setProcesandoExtra(sinFondo ? `Quitando fondo ${i + 1} de ${archivos.length}…` : `Cargando ${i + 1} de ${archivos.length}…`);
+      try {
+        let foto = await leerComoDataUri(archivos[i]);
+        if (sinFondo) {
+          const r = await quitarFondoFoto(foto, { onProgreso: () => {} });
+          foto = r.imagen;
+        } else if (recortarActivo) {
+          foto = await recortarEspaciosBlancos(foto);
+        }
+        setFotosExtraNueva((l) => [...l, foto]);
+      } catch (err) {
+        setError(`No se pudo cargar una de las fotos${sinFondo ? ` (quitar fondo: ${err?.message || 'error'})` : ''}.`);
+      }
+    }
+    setProcesandoExtra('');
+  }
+
   function onSeleccionarProductoNueva(e) {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -493,11 +534,95 @@ export default function ProductosPage() {
     );
   }
 
+  // Trae una foto de otra página a través del POS (foto-remota) y la
+  // devuelve como data URL (para recortarla / subirla como las demás).
+  async function fotoRemotaComoDataUri(url) {
+    const r = await fetch(`/api/productos/foto-remota?url=${encodeURIComponent(url)}&ref=${encodeURIComponent(enlaceFabricante.trim())}`);
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      throw new Error(d.error || 'No se pudo traer la foto');
+    }
+    const blob = await r.blob();
+    return new Promise((ok, mal) => {
+      const lector = new FileReader();
+      lector.onload = () => ok(lector.result);
+      lector.onerror = mal;
+      lector.readAsDataURL(blob);
+    });
+  }
+
+  async function usarFotoPaginaDePortada(foto) {
+    try {
+      setMensajeFotosPagina('Poniendo la foto de portada…');
+      let dataUri = await fotoRemotaComoDataUri(foto.url);
+      if (recortarActivo) dataUri = await recortarEspaciosBlancos(dataUri);
+      setFotoAntesDeFondo(null);
+      setMensajeFondo('');
+      setImagenProductoNueva(dataUri);
+      setFotoPaginaUsada(foto.url);
+      setMensajeFotosPagina('');
+    } catch (e) {
+      setMensajeFotosPagina(`No se pudo usar esa foto: ${e.message}`);
+    }
+  }
+
+  async function agregarFotoPaginaExtra(foto) {
+    try {
+      let dataUri = await fotoRemotaComoDataUri(foto.url);
+      if (recortarActivo) dataUri = await recortarEspaciosBlancos(dataUri);
+      setFotosExtraNueva((l) => [...l, dataUri]);
+    } catch (e) {
+      setMensajeFotosPagina(`No se pudo agregar esa foto: ${e.message}`);
+    }
+  }
+
+  // Busca las fotos en la página del fabricante. Si todavía no hay foto de
+  // portada, pone la mejor sola; si no hay "más fotos", agrega hasta 3 de las
+  // siguientes que sean grandes. Todo se puede cambiar antes de guardar.
+  async function buscarFotosDePagina({ automatico = true } = {}) {
+    const enlace = enlaceFabricante.trim();
+    if (!enlace || form.id) return;
+    setBuscandoFotosPagina(true);
+    setMensajeFotosPagina('Buscando las fotos del producto en la página…');
+    try {
+      const r = await fetch(`/api/productos/fotos-pagina?url=${encodeURIComponent(enlace)}`);
+      const d = await r.json();
+      if (!d.ok || !d.fotos?.length) {
+        setFotosPagina([]);
+        setMensajeFotosPagina(
+          d.ok ? 'No se encontraron fotos del producto en esa página. Sube una foto tuya.' : `No se pudieron leer las fotos de la página (${d.error}). Sube una foto tuya.`
+        );
+        return;
+      }
+      setFotosPagina(d.fotos);
+      setMensajeFotosPagina('');
+      if (!automatico) return;
+      const [mejor, ...resto] = d.fotos;
+      if (!imagenProductoNueva) {
+        await usarFotoPaginaDePortada(mejor);
+        if (Math.min(mejor.ancho, mejor.alto) < 500) {
+          setMensajeFotosPagina(`Ojo: la mejor foto de la página es pequeña (${mejor.ancho}×${mejor.alto} px). Si tienes una mejor, súbela.`);
+        }
+      }
+      if (fotosExtraNueva.length === 0) {
+        const extras = resto.filter((f) => Math.min(f.ancho, f.alto) >= 500 && f.puntaje >= 25).slice(0, 3);
+        for (const f of extras) await agregarFotoPaginaExtra(f);
+      }
+    } catch {
+      setMensajeFotosPagina('No se pudieron buscar las fotos de la página.');
+    } finally {
+      setBuscandoFotosPagina(false);
+    }
+  }
+
   async function analizarConIA() {
     if (!imagenAnalisis && !enlaceFabricante.trim() && !textoFabricante.trim()) {
       setMensajeIA('Sube una foto, pon el enlace del fabricante o pega el texto del producto.');
       return;
     }
+    // Con enlace, las fotos de la página se buscan al mismo tiempo que la IA
+    // lee el texto (producto nuevo).
+    if (!form.id && enlaceFabricante.trim()) buscarFotosDePagina();
     setAnalizandoIA(true);
     setMensajeIA('');
     setCategoriaSugeridaIA('');
@@ -808,6 +933,28 @@ export default function ProductosPage() {
         if (!dataFoto.ok) fotoFallo = dataFoto.error || 'error desconocido';
       } catch {
         fotoFallo = 'error de conexión';
+      }
+    }
+    // Fotos adicionales elegidas al crear (después de la portada; si no hubo
+    // portada, la primera de estas queda como portada).
+    if (data.ok && !form.id && fotosExtraNueva.length) {
+      let fallidas = 0;
+      for (let i = 0; i < fotosExtraNueva.length; i++) {
+        try {
+          const achicada = await achicarFotoProducto(fotosExtraNueva[i]);
+          const archivo = await dataUriAFile(achicada, `${form.referencia || 'producto'}-${i + 2}.jpg`);
+          const cuerpo = new FormData();
+          cuerpo.append('imagen', archivo);
+          const resFoto = await fetch(`/api/productos/${data.producto.id}/imagenes`, { method: 'POST', body: cuerpo });
+          const dataFoto = await resFoto.json();
+          if (!dataFoto.ok) fallidas++;
+        } catch {
+          fallidas++;
+        }
+      }
+      if (fallidas) {
+        const txt = `${fallidas} de las fotos adicionales no se pudieron guardar`;
+        fotoFallo = fotoFallo ? `${fotoFallo}; ${txt}` : txt;
       }
     }
 
@@ -1340,6 +1487,88 @@ export default function ProductosPage() {
                     {mensajeFondo && <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '6px 0 0' }}>{mensajeFondo}</p>}
                   </>
                 )}
+
+                {/* Fotos encontradas en la página del fabricante (oct 2026) */}
+                {(fotosPagina.length > 0 || buscandoFotosPagina || mensajeFotosPagina || enlaceFabricante.trim()) && (
+                  <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px dashed var(--border)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 600 }}>Fotos de la página del fabricante</span>
+                      {enlaceFabricante.trim() && !buscandoFotosPagina && (
+                        <button type="button" onClick={() => buscarFotosDePagina({ automatico: !imagenProductoNueva })} style={{ ...styles.btnFotoAccion }}>
+                          {fotosPagina.length ? '↻ Buscar de nuevo' : '🔗 Traer fotos del enlace'}
+                        </button>
+                      )}
+                    </div>
+                    {mensajeFotosPagina && <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 8px' }}>{mensajeFotosPagina}</p>}
+                    {fotosPagina.length > 0 && (
+                      <>
+                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '0 0 8px' }}>
+                          La mejor quedó de portada. Toca &quot;Portada&quot; para cambiarla o &quot;+ Agregar&quot; para sumarla a las demás fotos.
+                        </p>
+                        <div style={styles.galeria}>
+                          {fotosPagina.map((f) => (
+                            <div key={f.url} style={{ ...styles.fotoItem, ...(f.url === fotoPaginaUsada ? { outline: '2px solid var(--teal)' } : {}) }}>
+                              <img
+                                src={`/api/productos/foto-remota?url=${encodeURIComponent(f.url)}&ref=${encodeURIComponent(enlaceFabricante.trim())}`}
+                                alt=""
+                                loading="lazy"
+                                style={styles.fotoMiniatura}
+                              />
+                              {f.url === fotoPaginaUsada && <span style={styles.badgePortada}>Portada</span>}
+                              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', textAlign: 'center' }}>{f.ancho}×{f.alto}</div>
+                              <div style={styles.fotoAcciones}>
+                                {f.url !== fotoPaginaUsada && (
+                                  <button type="button" onClick={() => usarFotoPaginaDePortada(f)} style={styles.btnFotoAccion}>
+                                    Portada
+                                  </button>
+                                )}
+                                <button type="button" onClick={() => agregarFotoPaginaExtra(f)} style={styles.btnFotoAccion}>
+                                  + Agregar
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Más fotos al crear (oct 2026) */}
+                <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px dashed var(--border)' }}>
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 8px' }}>
+                    Más fotos (opcional): se pueden elegir varias a la vez. Se suben junto con la portada al guardar.
+                  </p>
+                  {fotosExtraNueva.length > 0 && (
+                    <div style={styles.galeria}>
+                      {fotosExtraNueva.map((foto, i) => (
+                        <div key={i} style={styles.fotoItem}>
+                          <img src={foto} alt="" style={styles.fotoMiniatura} />
+                          <div style={styles.fotoAcciones}>
+                            <button
+                              type="button"
+                              onClick={() => setFotosExtraNueva((l) => l.filter((_, j) => j !== i))}
+                              style={{ ...styles.btnFotoAccion, color: 'var(--danger)' }}
+                            >
+                              Quitar
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <label style={styles.btnSubirFoto}>
+                      + Agregar más fotos
+                      <input type="file" accept="image/*" multiple onChange={(e) => agregarFotosExtraNueva(e)} disabled={!!procesandoExtra} style={{ display: 'none' }} />
+                    </label>
+                    <label style={styles.btnSubirFoto} title="Le quita el fondo con IA (queda en fondo blanco)">
+                      ✨ Agregar fotos sin fondo
+                      <input type="file" accept="image/*" multiple onChange={(e) => agregarFotosExtraNueva(e, true)} disabled={!!procesandoExtra} style={{ display: 'none' }} />
+                    </label>
+                  </div>
+                  {procesandoExtra && <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '6px 0 0' }}>{procesandoExtra}</p>}
+                </div>
               </div>
             ) : (
               <>
@@ -1417,7 +1646,7 @@ export default function ProductosPage() {
           {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
 
           <div style={{ marginTop: '12px' }}>
-            <button type="submit" disabled={guardando} style={styles.btnPrimario}>{guardando ? 'Guardando...' : 'Guardar'}</button>
+            <button type="submit" disabled={guardando || !!procesandoExtra} style={styles.btnPrimario}>{guardando ? 'Guardando...' : procesandoExtra ? 'Cargando fotos…' : 'Guardar'}</button>
             <button type="button" onClick={() => setMostrarForm(false)} style={styles.btnSecundario}>Cancelar</button>
           </div>
         </form>
