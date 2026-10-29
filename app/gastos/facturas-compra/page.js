@@ -583,10 +583,18 @@ export default function FacturasCompraPage() {
         <h2 style={{ margin: 0 }}>Facturas de compra</h2>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {/* Borrador preparado por Claude desde la foto de la factura (oct 2026). */}
+          {/* Oct 2026: las facturas se hacen con el ASISTENTE por pasos
+              (/gastos/facturas-compra/importar): borrador de Claude o manual.
+              El formulario de antes queda como "formulario rápido". */}
+          <button type="button" onClick={abrirForm} style={{ ...styles.btnMiniLink, alignSelf: 'center' }} title="El formulario de antes, en una sola ventana">
+            Formulario rápido
+          </button>
           <a href="/gastos/facturas-compra/importar" style={{ ...styles.btnSecundario, marginLeft: 0, textDecoration: 'none', color: 'inherit' }}>
             📥 Importar borrador
           </a>
-          <button onClick={abrirForm} style={styles.btnPrimario}>+ Nueva factura de compra</button>
+          <a href="/gastos/facturas-compra/importar?manual=1" style={{ ...styles.btnPrimario, textDecoration: 'none' }}>
+            + Nueva factura de compra
+          </a>
         </div>
       </div>
 
