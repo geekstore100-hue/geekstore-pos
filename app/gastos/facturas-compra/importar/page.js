@@ -241,6 +241,7 @@ export default function ImportarBorradorPage() {
       bodega_id: principal ? String(principal.id) : '',
       retencion_porcentaje: 0,
       retencion_base: '',
+      precios_con_iva: null, // factura manual: hay que contestar la pregunta
       notas: '',
     });
     setPaso(1);
@@ -281,7 +282,10 @@ export default function ImportarBorradorPage() {
   // regla lo va a sumar, para no sumarlo dos veces).
   function agregarExistente(p) {
     const ultimo = Number(p.precio_costo) || 0;
-    const costo = ultimo ? Math.round((regla.iva === 'sumar' ? ultimo / 1.19 : ultimo) * 10000) / 10000 : '';
+    // El costo del POS ya es el final: si la factura trae los precios SIN IVA,
+    // se le quita para que al sumarlo quede igual.
+    const sinIva = regla.iva === 'sumar' && encabezado?.precios_con_iva === false;
+    const costo = ultimo ? Math.round((sinIva ? ultimo / 1.19 : ultimo) * 10000) / 10000 : '';
     const it = itemManual({ nombre: p.nombre, costo });
     const cruce = { estado: 'ok', producto_id: Number(p.id), candidatos: [], motivo: 'Agregado a mano' };
     setLineas((ls) => [...ls, { ...lineaDesdeItem({ ...it, linea: ls.length + 1 }, cruce, {}), decididaAMano: true }]);
@@ -448,6 +452,7 @@ export default function ImportarBorradorPage() {
       bodega_id: principal ? String(principal.id) : '',
       retencion_porcentaje: 0,
       retencion_base: '',
+      precios_con_iva: b.factura.precios_con_iva === true,
       notas: [b.factura.notas, b.prueba ? 'PRUEBA' : '', 'Importada desde borrador (Claude)'].filter(Boolean).join(' · '),
     });
     setLineas(b.items.map((it) => lineaDesdeItem(it, emparejarLinea(it, productos, ap), fotosZip)));
@@ -775,7 +780,7 @@ export default function ImportarBorradorPage() {
           categoria_id: l.nuevo.categoria_id,
           subcategoria_id: l.nuevo.subcategoria_id,
           especificaciones: l.nuevo.especificaciones,
-          precio_costo: Math.round(costoNetoParaPos(l, regla) * 100) / 100,
+          precio_costo: Math.round(costoNetoParaPos(l, reglaCostos) * 100) / 100,
           precio_venta: Number(pv) > 0 ? Number(pv) : '',
           precio_distribuidor: Number(pd) > 0 ? Number(pd) : '',
           es_gamer: !!(gamerDe(l) ?? l.nuevo.gamerSugerido),
@@ -827,17 +832,20 @@ export default function ImportarBorradorPage() {
     nuevo: lineas.filter((l) => l.accion === 'nuevo').length,
     omitir: lineas.filter((l) => l.accion === 'omitir').length,
   };
-  const costoLinea = (l) => costoParaPos(l, regla);
-  const subtotalLinea = (l) => costoNetoParaPos(l, regla) * (Number(l.cantidad) || 0);
+  // Regla para calcular costos: la del proveedor + si los precios de ESTA
+  // factura ya traen el IVA incluido.
+  const reglaCostos = { ...regla, preciosConIva: encabezado?.precios_con_iva === true };
+  const costoLinea = (l) => costoParaPos(l, reglaCostos);
+  const subtotalLinea = (l) => costoNetoParaPos(l, reglaCostos) * (Number(l.cantidad) || 0);
   // Precio de venta de un producto nuevo: el que escribió Nelson o, si no
   // escribió nada, el automático de la regla del proveedor (ej. costo × 2).
-  const precioAutoDe = (l) => precioVentaAutomatico(l, regla);
+  const precioAutoDe = (l) => precioVentaAutomatico(l, reglaCostos);
   const precioVentaDe = (l) => (l.nuevo.precioEditado ? l.nuevo.precio_venta : precioAutoDe(l) ?? l.nuevo.precio_venta);
   // Precio distribuidor según lo que decidió Nelson para ese producto:
   // calcular (costo + % de la regla), a mano o no aplica. Si el campo no es
   // obligatorio y no decidió, se usa la regla del proveedor.
   const obligatorio = (c) => obligatorios.includes(c);
-  const precioDistAutoDe = (l) => precioDistribuidorAutomatico({ ...l }, { ...regla, distribuidor: regla.distribuidor ?? 40 });
+  const precioDistAutoDe = (l) => precioDistribuidorAutomatico({ ...l }, { ...reglaCostos, distribuidor: regla.distribuidor ?? 40 });
   const modoDistDe = (l) => l.nuevo.modoDist ?? (obligatorio('distribuidor') ? null : regla.distribuidor !== null ? 'calcular' : 'no_aplica');
   const precioDistDe = (l) => {
     const m = modoDistDe(l);
@@ -885,11 +893,11 @@ export default function ImportarBorradorPage() {
 
   const comparaFactura = useMemo(() => {
     if (!borrador) return null;
-    const ref = regla.iva === 'sumar' ? borrador.factura.total || borrador.factura.subtotal * 1.19 : borrador.factura.subtotal;
+    const ref = regla.iva === 'sumar' ? borrador.factura.total || borrador.factura.subtotal * (encabezado?.precios_con_iva ? 1 : 1.19) : borrador.factura.subtotal;
     if (!(ref > 0) || conteo.omitir) return null;
     const dif = subtotal - ref;
     return Math.abs(dif) > Math.max(100, ref * 0.005) ? { ref, dif } : null;
-  }, [borrador, regla, subtotal, conteo.omitir]);
+  }, [borrador, regla, subtotal, conteo.omitir, encabezado?.precios_con_iva]);
 
   const proveedorIdNum = proveedorElegido && proveedorElegido !== 'nuevo' ? Number(proveedorElegido) : progreso.current.proveedorId;
   const duplicada = useMemo(() => {
@@ -904,6 +912,7 @@ export default function ImportarBorradorPage() {
     if (proveedorElegido === 'nuevo' && !borrador?.proveedor?.nombre?.trim()) lista.push('Escribe el nombre del proveedor nuevo.');
     if (!encabezado?.bodega_id) lista.push('Elige la bodega que recibe la mercancía.');
     if (!encabezado?.fecha_creacion) lista.push('Falta la fecha de la factura.');
+    if (regla.iva !== 'ignorar' && typeof encabezado?.precios_con_iva !== 'boolean') lista.push('Contesta si los precios de los artículos ya tienen el IVA incluido (paso 1).');
     if (Number(encabezado?.retencion_porcentaje) > 0 && !(Number(encabezado?.retencion_base) > 0)) lista.push('Escribe la base de la retención.');
     if (!activas.length) lista.push('No quedó ninguna línea para guardar.');
     lineas.forEach((l, i) => {
@@ -998,7 +1007,7 @@ export default function ImportarBorradorPage() {
                 categoria_id: l.nuevo.categoria_id ? Number(l.nuevo.categoria_id) : null,
                 subcategoria_id: l.nuevo.subcategoria_id ? Number(l.nuevo.subcategoria_id) : null,
                 precio_venta: Number(precioVentaDe(l)),
-                precio_costo: Math.round(costoNetoParaPos(l, regla) * 100) / 100,
+                precio_costo: Math.round(costoNetoParaPos(l, reglaCostos) * 100) / 100,
                 precio_distribuidor: Number(precioDistDe(l)) || null,
                 activo: l.nuevo.activo !== false,
                 es_inventariable: true,
@@ -1143,6 +1152,7 @@ export default function ImportarBorradorPage() {
       proveedorElegido === 'nuevo' && !borrador?.proveedor?.nombre?.trim() ? 'Nombre del proveedor' : '',
       !encabezado?.bodega_id ? 'Bodega' : '',
       !encabezado?.fecha_creacion ? 'Fecha' : '',
+      regla.iva !== 'ignorar' && typeof encabezado?.precios_con_iva !== 'boolean' ? '¿Precios con IVA?' : '',
       Number(encabezado?.retencion_porcentaje) > 0 && !(Number(encabezado?.retencion_base) > 0) ? 'Base de la retención' : '',
     ].filter(Boolean),
     2: [
@@ -1315,17 +1325,33 @@ export default function ImportarBorradorPage() {
                 recordarRegla={recordarRegla}
                 setRecordarRegla={setRecordarRegla}
                 aprobando={aprobando}
+                retencionValor={retencionValor}
+                baseSugerida={
+                  borrador.factura.subtotal > 0 && !(encabezado.precios_con_iva && !borrador.factura.total)
+                    ? borrador.factura.subtotal
+                    : Math.round(
+                        activas.reduce(
+                          (a, l) =>
+                            a +
+                            ((Number(l.costo_unitario) || 0) * (Number(l.cantidad) || 0) * (1 - (Number(l.descuento_porcentaje) || 0) / 100)) /
+                              (encabezado.precios_con_iva ? 1 + (Number(l.iva_porcentaje) || 0) / 100 : 1),
+                          0
+                        )
+                      )
+                }
               />
             ) : null}
 
             {paso === 2 ? (
               <PasoEmparejar
                 borrador={borrador}
+                fotos={fotos}
+                verFoto={setFotoGrande}
                 lineas={lineas}
                 productos={productos}
                 productosPorId={productosPorId}
                 costoLinea={costoLinea}
-                costoNetoDe={(l) => costoNetoParaPos(l, regla)}
+                costoNetoDe={(l) => costoNetoParaPos(l, reglaCostos)}
                 subtotalLinea={subtotalLinea}
                 cambiarLinea={cambiarLinea}
                 agregarExistente={agregarExistente}
@@ -1392,7 +1418,7 @@ export default function ImportarBorradorPage() {
                         subcategorias={subcategorias}
                         fotos={fotos}
                         regla={regla}
-                        costoNeto={costoNetoParaPos(lineaActual, regla)}
+                        costoNeto={costoNetoParaPos(lineaActual, reglaCostos)}
                         precioVenta={precioVentaDe(lineaActual)}
                         precioAuto={precioAutoDe(lineaActual)}
                         modoDist={modoDistDe(lineaActual)}
@@ -1437,7 +1463,7 @@ export default function ImportarBorradorPage() {
               <PasoPrecios
                 nuevas={nuevas}
                 regla={regla}
-                costoNetoDe={(l) => costoNetoParaPos(l, regla)}
+                costoNetoDe={(l) => costoNetoParaPos(l, reglaCostos)}
                 precioVentaDe={precioVentaDe}
                 precioAutoDe={precioAutoDe}
                 modoDistDe={modoDistDe}
@@ -1585,6 +1611,8 @@ function PasoFactura({
   recordarRegla,
   setRecordarRegla,
   aprobando,
+  retencionValor,
+  baseSugerida,
 }) {
   const multis = [1.3, 1.5, 1.8, 2, 2.5, 3];
   const dists = [20, 30, 40, 50, 60];
@@ -1645,6 +1673,33 @@ function PasoFactura({
             <span className="gs-label">Vence</span>
             <input type="date" value={encabezado.fecha_vencimiento} onChange={(e) => setEncabezado({ ...encabezado, fecha_vencimiento: e.target.value })} />
           </label>
+          <div className="gs-campo" style={{ gridColumn: '1 / -1' }}>
+            <span className="gs-label">¿Los precios de los artículos ya tienen el IVA incluido? *</span>
+            {regla.iva === 'ignorar' ? (
+              <span className="gs-ayuda gs-txt-cian">Este proveedor no tiene en cuenta el IVA: los precios se toman tal cual.</span>
+            ) : (
+              <>
+                <div className="gs-segmentado">
+                  {[
+                    [true, 'Sí'],
+                    [false, 'No'],
+                  ].map(([v, t]) => (
+                    <button key={t} type="button" className={encabezado.precios_con_iva === v ? 'activo' : ''} onClick={() => setEncabezado({ ...encabezado, precios_con_iva: v })}>
+                      {t}
+                    </button>
+                  ))}
+                </div>
+                <span className="gs-ayuda">
+                  {encabezado.precios_con_iva === true
+                    ? 'Se toman tal cual: ese es el costo final.'
+                    : encabezado.precios_con_iva === false
+                      ? 'Se les suma el IVA de cada artículo para llegar al costo final.'
+                      : 'Contéstala para calcular el costo final.'}
+                  {!borrador.manual ? ' (Lo contestó Claude al leer la factura; cámbialo si no es así.)' : ''}
+                </span>
+              </>
+            )}
+          </div>
           <label className="gs-campo">
             <span className="gs-label">Bodega que recibe *</span>
             <select value={encabezado.bodega_id} onChange={(e) => setEncabezado({ ...encabezado, bodega_id: e.target.value })}>
@@ -1666,7 +1721,23 @@ function PasoFactura({
             <label className="gs-campo">
               <span className="gs-label">Base de la retención *</span>
               <input type="number" value={encabezado.retencion_base} onChange={(e) => setEncabezado({ ...encabezado, retencion_base: e.target.value })} />
+              {baseSugerida > 0 ? (
+                <button type="button" className="gs-link" style={{ alignSelf: 'flex-start', marginTop: '4px' }} onClick={() => setEncabezado({ ...encabezado, retencion_base: String(baseSugerida) })}>
+                  Usar el subtotal sin IVA de la factura ({moneda(baseSugerida)})
+                </button>
+              ) : null}
             </label>
+          ) : null}
+          {Number(encabezado.retencion_porcentaje) > 0 ? (
+            <div className="gs-retencion">
+              <span className="gs-label">Valor de la retención</span>
+              <span className="gs-monto">{Number(encabezado.retencion_base) > 0 ? `-${moneda(retencionValor)}` : '—'}</span>
+              <span className="gs-ayuda">
+                {Number(encabezado.retencion_base) > 0
+                  ? `${moneda(encabezado.retencion_base)} × ${String(encabezado.retencion_porcentaje).replace('.', ',')} %`
+                  : 'Escribe la base para calcularla'}
+              </span>
+            </div>
           ) : null}
         </div>
         <label className="gs-campo" style={{ marginTop: '10px' }}>
@@ -1679,10 +1750,10 @@ function PasoFactura({
         <Seccion n="$" titulo="Regla de precios del proveedor" />
         <div className="gs-grid1">
           <label className="gs-campo">
-            <span className="gs-label">IVA en el costo</span>
+            <span className="gs-label">IVA de este proveedor</span>
             <select value={regla.iva} disabled={aprobando} onChange={(e) => setRegla({ ...regla, iva: e.target.value })}>
-              <option value="sumar">Sumar el IVA (precio de factura + IVA)</option>
-              <option value="ignorar">No tener en cuenta el IVA</option>
+              <option value="sumar">Normal (según si los precios traen IVA)</option>
+              <option value="ignorar">No tener en cuenta el IVA (como Innovall)</option>
             </select>
           </label>
           <label className="gs-campo">
@@ -1725,7 +1796,7 @@ function PasoFactura({
 }
 
 // ══════════════════════ PASO 2: EMPAREJAR / PRODUCTOS ══════════════════════
-function PasoEmparejar({ borrador, lineas, productos, productosPorId, costoNetoDe, subtotalLinea, cambiarLinea, agregarExistente, agregarNueva, quitarLinea, conteo, bloqueada }) {
+function PasoEmparejar({ borrador, fotos, verFoto, lineas, productos, productosPorId, costoNetoDe, subtotalLinea, cambiarLinea, agregarExistente, agregarNueva, quitarLinea, conteo, bloqueada }) {
   const [texto, setTexto] = useState('');
   const resultados = useBuscarProductos(texto, productos);
   return (
@@ -1746,13 +1817,17 @@ function PasoEmparejar({ borrador, lineas, productos, productosPorId, costoNetoD
               {resultados.map((p) => (
                 <div
                   key={p.id}
-                  className="gs-opcion-lista"
+                  className="gs-opcion-lista gs-opcion-foto"
                   onClick={() => {
                     agregarExistente(p);
                     setTexto('');
                   }}
                 >
-                  <b>{p.referencia}</b> · {p.nombre} <span className="gs-ayuda">· stock {Number(p.stock)}</span>
+                  <FotoPOS p={p} tam={44} />
+                  <span>
+                    <b>{p.referencia}</b> · {p.nombre}
+                    <span className="gs-ayuda">Stock {Number(p.stock)} · venta {moneda(p.precio_venta)}</span>
+                  </span>
                 </div>
               ))}
               <div
@@ -1777,6 +1852,8 @@ function PasoEmparejar({ borrador, lineas, productos, productosPorId, costoNetoD
           key={i}
           l={l}
           i={i}
+          fotos={fotos}
+          verFoto={verFoto}
           productos={productos}
           productosPorId={productosPorId}
           costoNeto={costoNetoDe(l)}
@@ -1804,12 +1881,55 @@ function useBuscarProductos(texto, productos) {
   }, [texto, productos]);
 }
 
-function LineaEmparejar({ l, i, productos, productosPorId, costoNeto, subtotal, cambiarLinea, quitarLinea, bloqueada }) {
+// Foto de un producto del POS (portada guardada en Netlify Blobs).
+function FotoPOS({ p, tam = 64, onClick }) {
+  if (!p?.imagen_key) return <div className="gs-sin-foto" style={{ width: tam, height: tam }}>Sin foto</div>;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={`/api/imagenes/${p.imagen_key}`} alt="" className="gs-foto-pos" style={{ width: tam, height: tam }} onClick={onClick} loading="lazy" />
+  );
+}
+
+function stockTexto(p) {
+  const total = Number(p?.stock) || 0;
+  const pr = Number(p?.stock_principal) || 0;
+  const di = Number(p?.stock_distribuidor) || 0;
+  return pr || di ? `${total} (Principal ${pr} · Distrib. ${di})` : String(total);
+}
+
+// Tarjeta de un producto del POS para comparar con la línea de la factura.
+function TarjetaPOS({ p, motivo, boton, onBoton, destacada, verFoto }) {
+  return (
+    <div className={`gs-tarjeta-pos ${destacada ? 'destacada' : ''}`}>
+      <FotoPOS p={p} tam={92} onClick={() => p?.imagen_key && verFoto(`/api/imagenes/${p.imagen_key}`)} />
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div className="gs-pos-nombre">{p.nombre}</div>
+        <div className="gs-pos-datos">
+          Ref. <b>{p.referencia}</b> · Stock <b className={Number(p.stock) > 0 ? 'gs-txt-verde' : 'gs-txt-amarillo'}>{stockTexto(p)}</b>
+        </div>
+        <div className="gs-pos-datos">
+          Venta {moneda(p.precio_venta)} · Costo {moneda(p.precio_costo)}
+        </div>
+        {motivo ? <div className="gs-ayuda">{motivo}</div> : null}
+        {boton ? (
+          <button type="button" className="gs-btn gs-btn-chico gs-btn-amarillo" style={{ marginTop: '6px' }} onClick={onBoton}>
+            {boton}
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function LineaEmparejar({ l, i, fotos, verFoto, productos, productosPorId, costoNeto, subtotal, cambiarLinea, quitarLinea, bloqueada }) {
   const [buscando, setBuscando] = useState(false);
   const [texto, setTexto] = useState('');
   const resultados = useBuscarProductos(texto, productos);
   const estado = l.accion === 'existente' ? 'ok' : l.accion === 'nuevo' ? 'nuevo' : l.accion === 'omitir' ? 'omitir' : 'revisar';
   const elegido = l.accion === 'existente' ? productosPorId.get(Number(l.producto_id)) : null;
+  // Foto que trae el borrador (catálogo o web) para reconocer el producto.
+  const fotoBorrador = l.nuevo?.fotos?.[0] ? fotos[l.nuevo.fotos[0]]?.url : null;
+  const candidatos = estado !== 'ok' ? (l.cruce?.candidatos || []).filter((c) => productosPorId.has(c.id)) : [];
   function usar(id) {
     cambiarLinea(i, { accion: 'existente', producto_id: Number(id), decididaAMano: true });
     setBuscando(false);
@@ -1818,70 +1938,77 @@ function LineaEmparejar({ l, i, productos, productosPorId, costoNeto, subtotal, 
   return (
     <div className={`gs-card gs-linea gs-linea-${estado}`}>
       <div className="gs-linea-top">
-        <div style={{ minWidth: 0, flex: '1 1 260px' }}>
-          <div className="gs-linea-titulo">
-            {ICONO[estado]} Línea {l.linea}
-            {l.codigo_proveedor ? <span className="gs-codigo">{l.codigo_proveedor}</span> : null}
-            {l.confianza === 'baja' ? <span className="gs-chip gs-chip-rojo" style={{ marginLeft: '6px' }}>Claude no está seguro</span> : null}
+        <div className="gs-linea-factura">
+          {fotoBorrador ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={fotoBorrador} alt="" className="gs-foto-pos" style={{ width: 92, height: 92 }} onClick={() => verFoto(fotoBorrador)} />
+          ) : l.manual ? null : (
+            <div className="gs-sin-foto" style={{ width: 92, height: 92 }}>Sin foto en el borrador</div>
+          )}
+          <div style={{ minWidth: 0 }}>
+            <div className="gs-linea-titulo">
+              {ICONO[estado]} Línea {l.linea}
+              {l.codigo_proveedor ? <span className="gs-codigo">{l.codigo_proveedor}</span> : null}
+              {l.confianza === 'baja' ? <span className="gs-chip gs-chip-rojo" style={{ marginLeft: '6px' }}>Claude no está seguro</span> : null}
+            </div>
+            <div className="gs-linea-desc">{l.descripcion_factura || l.modelo}</div>
+            {l.nuevo?.nombre && l.nuevo.nombre !== l.descripcion_factura && !l.manual ? <div className="gs-ayuda">Según el catálogo: {l.nuevo.nombre}</div> : null}
+            {l.notas ? <div className="gs-ayuda gs-txt-amarillo">📝 {l.notas}</div> : null}
           </div>
-          <div className="gs-ayuda" style={{ fontSize: '14px' }}>{l.descripcion_factura || l.modelo}</div>
-          {l.notas ? <div className="gs-ayuda gs-txt-amarillo">📝 {l.notas}</div> : null}
         </div>
-        <div className="gs-fila" style={{ alignItems: 'flex-end' }}>
+        <div className="gs-fila gs-linea-numeros">
           <label className="gs-campo">
             <span className="gs-label">Cant.</span>
-            <input type="number" min="0" value={l.cantidad} disabled={bloqueada} onChange={(e) => cambiarLinea(i, { cantidad: e.target.value })} style={{ width: '70px' }} />
+            <input type="number" min="0" value={l.cantidad} disabled={bloqueada} onChange={(e) => cambiarLinea(i, { cantidad: e.target.value })} style={{ width: '76px' }} />
           </label>
           <label className="gs-campo">
             <span className="gs-label">Costo factura</span>
-            <input type="number" min="0" value={l.costo_unitario} disabled={bloqueada} onChange={(e) => cambiarLinea(i, { costo_unitario: e.target.value })} style={{ width: '108px' }} />
+            <input type="number" min="0" value={l.costo_unitario} disabled={bloqueada} onChange={(e) => cambiarLinea(i, { costo_unitario: e.target.value })} style={{ width: '118px' }} />
           </label>
           <label className="gs-campo">
             <span className="gs-label">Desc. %</span>
-            <input type="number" min="0" max="100" value={l.descuento_porcentaje} disabled={bloqueada} onChange={(e) => cambiarLinea(i, { descuento_porcentaje: e.target.value })} style={{ width: '62px' }} />
+            <input type="number" min="0" max="100" value={l.descuento_porcentaje} disabled={bloqueada} onChange={(e) => cambiarLinea(i, { descuento_porcentaje: e.target.value })} style={{ width: '66px' }} />
           </label>
           <label className="gs-campo">
             <span className="gs-label">IVA %</span>
-            <input type="number" min="0" value={l.iva_porcentaje} disabled={bloqueada} onChange={(e) => cambiarLinea(i, { iva_porcentaje: e.target.value })} style={{ width: '58px' }} />
+            <input type="number" min="0" value={l.iva_porcentaje} disabled={bloqueada} onChange={(e) => cambiarLinea(i, { iva_porcentaje: e.target.value })} style={{ width: '62px' }} />
           </label>
-          <div style={{ textAlign: 'right', minWidth: '104px' }}>
+          <div style={{ textAlign: 'right', minWidth: '110px' }}>
             <div className="gs-label">Subtotal</div>
             <div className="gs-monto">{moneda(subtotal)}</div>
-            <div className="gs-ayuda">POS c/u {moneda(costoNeto)}</div>
+            <div className="gs-ayuda">Costo final c/u {moneda(costoNeto)}</div>
           </div>
         </div>
       </div>
 
-      <div style={{ marginTop: '10px', fontSize: '14px' }}>
+      <div className="gs-linea-decision">
         {estado === 'ok' && elegido ? (
-          <div>
-            → <b>{elegido.referencia}</b> · {elegido.nombre}
-            <span className="gs-ayuda"> · venta {moneda(elegido.precio_venta)} · costo actual {moneda(elegido.precio_costo)}</span>
-            {l.cruce?.motivo ? <div className="gs-ayuda">{l.cruce.motivo}</div> : null}
+          <>
+            <div className="gs-label">✅ En el POS es:</div>
+            <TarjetaPOS p={elegido} motivo={l.cruce?.motivo} destacada verFoto={verFoto} />
             {Number(elegido.precio_costo) > 0 && Math.abs(costoNeto - Number(elegido.precio_costo)) / Number(elegido.precio_costo) > 0.15 ? (
-              <div className="gs-ayuda gs-txt-amarillo">⚠️ El costo cambió más de 15 % frente al actual. ¿Es el mismo producto?</div>
+              <div className="gs-ayuda gs-txt-amarillo">⚠️ El costo cambió más de 15 % frente al actual. Mira la foto: ¿es el mismo producto?</div>
             ) : null}
-          </div>
+          </>
         ) : null}
-        {estado === 'revisar' ? <div className="gs-txt-amarillo">{l.cruce?.motivo}</div> : null}
-        {estado === 'nuevo' ? <div className="gs-txt-cian">🆕 Producto nuevo: {l.nuevo.nombre} — se completa en el paso 3.</div> : null}
+        {estado === 'revisar' ? <div className="gs-txt-amarillo gs-linea-motivo">⚠️ {l.cruce?.motivo}</div> : null}
+        {estado === 'nuevo' ? <div className="gs-txt-cian gs-linea-motivo">🆕 Producto nuevo: {l.nuevo.nombre} — se completa en el paso 3.</div> : null}
         {estado === 'omitir' ? <div className="gs-ayuda">No se va a guardar esta línea.</div> : null}
+
+        {candidatos.length && !l.creado && !bloqueada ? (
+          <>
+            <div className="gs-label" style={{ marginTop: '10px' }}>{estado === 'revisar' ? '¿Es alguno de estos?' : 'Parecidos que ya existen en el POS:'}</div>
+            <div className="gs-candidatos">
+              {candidatos.map((c) => (
+                <TarjetaPOS key={c.id} p={productosPorId.get(c.id)} motivo={c.motivo} boton="Es este" onBoton={() => usar(c.id)} verFoto={verFoto} />
+              ))}
+            </div>
+          </>
+        ) : null}
       </div>
 
       {!l.creado && !bloqueada ? (
-        <div className="gs-fila" style={{ marginTop: '8px' }}>
-          {estado !== 'ok'
-            ? (l.cruce?.candidatos || [])
-                .filter((c) => productosPorId.has(c.id))
-                .map((c) => {
-                  const p = productosPorId.get(c.id);
-                  return (
-                    <button key={c.id} type="button" className="gs-btn gs-btn-chico gs-btn-amarillo" onClick={() => usar(c.id)} title={c.motivo}>
-                      Es: <b>{p.referencia}</b> · {p.nombre}
-                    </button>
-                  );
-                })
-            : null}
+        <div className="gs-fila" style={{ marginTop: '10px' }}>
           {estado !== 'nuevo' && !l.creadoConFormulario ? (
             <button type="button" className="gs-btn gs-btn-chico" onClick={() => cambiarLinea(i, { accion: 'nuevo', decididaAMano: true })}>
               🆕 Es nuevo
@@ -1916,13 +2043,17 @@ function LineaEmparejar({ l, i, productos, productosPorId, costoNeto, subtotal, 
         </div>
       ) : null}
       {buscando ? (
-        <div style={{ marginTop: '8px', position: 'relative', maxWidth: '560px' }}>
+        <div style={{ marginTop: '8px', position: 'relative', maxWidth: '640px' }}>
           <input autoFocus placeholder="Busca por nombre o referencia…" value={texto} onChange={(e) => setTexto(e.target.value)} style={{ width: '100%' }} />
           {resultados.length ? (
             <div className="gs-dropdown" style={{ left: 0, right: 0, top: '100%' }}>
               {resultados.map((p) => (
-                <div key={p.id} className="gs-opcion-lista" onClick={() => usar(p.id)}>
-                  <b>{p.referencia}</b> · {p.nombre} <span className="gs-ayuda">· stock {Number(p.stock)}</span>
+                <div key={p.id} className="gs-opcion-lista gs-opcion-foto" onClick={() => usar(p.id)}>
+                  <FotoPOS p={p} tam={52} />
+                  <span>
+                    <b>{p.referencia}</b> · {p.nombre}
+                    <span className="gs-ayuda">Stock {stockTexto(p)} · venta {moneda(p.precio_venta)}</span>
+                  </span>
                 </div>
               ))}
             </div>
@@ -2019,7 +2150,7 @@ function EditorNuevo({
           </div>
           <div className="gs-h2" style={{ fontSize: '22px' }}>{n.nombre || 'Producto nuevo'}</div>
           <div className="gs-ayuda">
-            {l.cantidad} und · costo POS c/u {moneda(costoNeto)}
+            {l.cantidad} und · costo final c/u {moneda(costoNeto)}
             {l.descripcion_factura ? ` · factura: ${l.descripcion_factura}` : ''}
           </div>
         </div>
@@ -2177,7 +2308,7 @@ function EditorNuevo({
               onChange={(e) => cambiarNuevo(i, { precio_venta: e.target.value, precioEditado: true })}
             />
             <span className="gs-ayuda">
-              Costo POS {moneda(costoNeto)}
+              Costo final {moneda(costoNeto)}
               {margen !== null ? <span className={margen < 15 ? 'gs-txt-rojo' : 'gs-txt-verde'}> · margen {margen.toFixed(0)} %</span> : null}
               {precioAuto && !n.precioEditado ? ' · calculado con la regla' : ''}
               {precioAuto && n.precioEditado && !bloqueo ? (
@@ -2444,14 +2575,14 @@ function PasoPrecios({ nuevas, regla, costoNetoDe, precioVentaDe, precioAutoDe, 
     <div className="gs-card">
       <Seccion n="$" titulo="Precios de los productos nuevos" />
       <p className="gs-ayuda" style={{ marginTop: 0 }}>
-        Todo en una sola tabla para llenarlo de corrido. Costo POS = costo de la factura con la regla del proveedor ({regla.iva === 'sumar' ? 'con IVA sumado' : 'sin IVA'}).
+        Todo en una sola tabla para llenarlo de corrido. Costo final = lo que realmente te cuesta cada unidad (con IVA, si aplica).
       </p>
       <div className="gs-tabla-scroll">
         <table className="gs-tabla">
           <thead>
             <tr>
               <th>Producto</th>
-              <th className="der">Costo POS</th>
+              <th className="der">Costo final</th>
               <th>Venta *</th>
               <th className="der">Margen</th>
               <th>Distribuidor</th>
@@ -2586,7 +2717,7 @@ function PasoRevisar({
         <div className="gs-card">
           <Seccion n="$" titulo="Totales" />
           <div className="gs-resumen">
-            <span>Subtotal ({regla.iva === 'sumar' ? 'costo con IVA' : 'sin tener en cuenta el IVA'})</span>
+            <span>Total (costos finales)</span>
             <b className="gs-monto">{moneda(subtotal)}</b>
             {borrador.factura.total > 0 ? (
               <>
@@ -2798,10 +2929,28 @@ function EstiloPoder() {
       .gs-seccion-num.falta{ background:rgba(255,84,112,.15); color:var(--rojo); border-color:rgba(255,84,112,.5); }
       .gs-seccion-titulo{ font-family:'Chakra Petch',sans-serif; font-weight:700; text-transform:uppercase; letter-spacing:.06em; font-size:14.5px; }
 
-      .gs-linea{ border-left:4px solid var(--linea2); }
+      .gs-linea{ border-left:4px solid var(--linea2); font-size:15.5px; }
+      .gs-linea .gs-label{ font-size:13px; }
+      .gs-linea .gs-ayuda{ font-size:13.5px; }
+      .gs-linea input{ font-size:15.5px; padding:10px 11px; }
+      .gs-linea-factura{ display:flex; gap:14px; align-items:flex-start; min-width:0; flex:1 1 360px; }
+      .gs-linea-desc{ font-size:16.5px; font-weight:600; color:#fff; margin-top:2px; line-height:1.3; }
+      .gs-linea-numeros{ align-items:flex-end; }
+      .gs-linea-decision{ margin-top:12px; padding-top:12px; border-top:1px dashed var(--linea2); }
+      .gs-linea-motivo{ font-size:15px; font-weight:600; }
+      .gs-foto-pos{ object-fit:contain; background:#fff; border-radius:10px; border:1px solid var(--linea2); cursor:zoom-in; flex:0 0 auto; display:block; }
+      .gs-sin-foto{ display:flex; align-items:center; justify-content:center; text-align:center; font-size:11px; color:var(--gris2); background:var(--panel2); border:1px dashed var(--linea2); border-radius:10px; flex:0 0 auto; padding:4px; }
+      .gs-tarjeta-pos{ display:flex; gap:12px; align-items:flex-start; padding:10px; border-radius:12px; border:1px solid var(--linea2); background:rgba(255,255,255,.02); min-width:0; }
+      .gs-tarjeta-pos.destacada{ border-color:rgba(46,229,157,.5); background:rgba(46,229,157,.05); max-width:640px; margin-top:6px; }
+      .gs-pos-nombre{ font-size:16px; font-weight:700; color:#fff; line-height:1.3; }
+      .gs-pos-datos{ font-size:14px; color:var(--gris); margin-top:3px; }
+      .gs-candidatos{ display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:10px; margin-top:6px; }
+      .gs-opcion-foto{ display:flex; gap:10px; align-items:center; }
+      .gs-retencion{ display:flex; flex-direction:column; justify-content:flex-end; padding:8px 12px; border:1px solid rgba(255,84,112,.4); background:rgba(255,84,112,.07); border-radius:10px; }
+      .gs-retencion .gs-monto{ color:#FFC2CD; }
       .gs-linea-ok{ border-left-color:var(--verde); } .gs-linea-revisar{ border-left-color:var(--amarillo); } .gs-linea-nuevo{ border-left-color:var(--cian); } .gs-linea-omitir{ opacity:.55; }
       .gs-linea-top{ display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
-      .gs-linea-titulo{ font-family:'Chakra Petch',sans-serif; font-weight:700; font-size:15px; }
+      .gs-linea-titulo{ font-family:'Chakra Petch',sans-serif; font-weight:700; font-size:17px; }
       .gs-monto{ font-family:'Chakra Petch',sans-serif; font-weight:700; font-size:17px; color:#fff; }
       .gs-monto-chico{ font-family:'Chakra Petch',sans-serif; font-weight:700; white-space:nowrap; }
       .gs-dropdown{ position:absolute; left:16px; right:16px; top:calc(100% - 26px); background:var(--panel2); border:1px solid var(--linea2); border-radius:12px; z-index:30; max-height:280px; overflow-y:auto; box-shadow:0 12px 30px rgba(0,0,0,.5); }
