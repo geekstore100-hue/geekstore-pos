@@ -11,6 +11,7 @@ import {
   precioVentaAutomatico,
   precioDistribuidorAutomatico,
   DESCRIPCION_MINIMA,
+  esGamerSugerido,
   reglaSugerida,
   normalizarRegla,
   REGLA_POR_DEFECTO,
@@ -21,6 +22,7 @@ import {
 } from '../../../../lib/borradorFactura';
 import { descargarExcelEtiquetas } from '../../../../lib/etiquetasOpenLabel';
 import { quitarFondoFoto } from '../../../../lib/quitarFondoCliente';
+import ModalProductoNuevo from '../../../../components/ModalProductoNuevo';
 
 // Facturas de compra → "📥 Importar borrador" (octubre 2026).
 // Claude lee la foto de la factura del proveedor (y su catálogo o la página
@@ -131,6 +133,10 @@ export default function ImportarBorradorPage() {
   const [reglaOrigen, setReglaOrigen] = useState(''); // 'guardada' | 'sugerida'
   const [recordarRegla, setRecordarRegla] = useState(true);
   const [fotoGrande, setFotoGrande] = useState(null); // url de la foto ampliada
+  // Formulario COMPLETO de producto nuevo (el de Productos) para una línea,
+  // prellenado con lo del borrador: { i, prefill } o null.
+  const [formularioLinea, setFormularioLinea] = useState(null);
+  const [preparandoFormulario, setPreparandoFormulario] = useState(null); // índice de línea
 
   const [aprobando, setAprobando] = useState(false);
   const [pasos, setPasos] = useState([]);
@@ -254,6 +260,7 @@ export default function ImportarBorradorPage() {
         precio_distribuidor: '',
         con_iva: item.iva_porcentaje > 0,
         mostrar_en_tienda: true,
+        es_gamer: esGamerSugerido(item),
         fotos: rutas,
         fuente: p?.fuente || { tipo: 'factura', detalle: '', url: '' },
       },
@@ -442,6 +449,67 @@ export default function ImportarBorradorPage() {
     }
   }
 
+  // Abre el formulario completo de Productos con los datos de la línea
+  // (nombre, descripción, categoría, ficha, costo, precios, Zona Gamer,
+  // fotos…). Al guardarlo, el producto queda creado (con fotos y en Alegra)
+  // y la línea pasa a ✅ con ese producto.
+  async function abrirFormularioCompleto(i) {
+    const l = lineas[i];
+    setPreparandoFormulario(i);
+    try {
+      const fotosData = [];
+      for (const r of l.nuevo.fotos) {
+        if (fotos[r]?.blob) fotosData.push(await blobADataUri(fotos[r].blob));
+      }
+      const pv = precioVentaDe(l);
+      const pd = precioDistDe(l);
+      setFormularioLinea({
+        i,
+        prefill: {
+          nombre: l.nuevo.nombre,
+          descripcion: l.nuevo.descripcion,
+          categoria_id: l.nuevo.categoria_id,
+          subcategoria_id: l.nuevo.subcategoria_id,
+          especificaciones: l.nuevo.especificaciones,
+          precio_costo: Math.round(costoNetoParaPos(l, regla) * 100) / 100,
+          precio_venta: Number(pv) > 0 ? Number(pv) : '',
+          precio_distribuidor: Number(pd) > 0 ? Number(pd) : '',
+          es_gamer: !!l.nuevo.es_gamer,
+          mostrar_en_tienda: l.nuevo.mostrar_en_tienda,
+          con_iva: l.nuevo.con_iva,
+          enlace: l.nuevo.fuente?.url || '',
+          info: [l.marca ? `Marca: ${l.marca}` : '', l.modelo ? `Modelo: ${l.modelo}` : '', l.descripcion_factura ? `En la factura: ${l.descripcion_factura}` : '']
+            .filter(Boolean)
+            .join('. '),
+          fotos: fotosData,
+        },
+      });
+    } finally {
+      setPreparandoFormulario(null);
+    }
+  }
+
+  function productoCreadoConFormulario(i, p, aviso) {
+    setFormularioLinea(null);
+    setProductos((ps) => [{ ...p, stock: 0, es_inventariable: p.es_inventariable !== false, activo: p.activo !== false }, ...ps.filter((x) => Number(x.id) !== Number(p.id))]);
+    setErrorAprobar('');
+    setLineas((ls) =>
+      ls.map((l, j) =>
+        j === i
+          ? {
+              ...l,
+              accion: 'existente',
+              producto_id: Number(p.id),
+              decididaAMano: true,
+              creadoConFormulario: { id: Number(p.id), referencia: p.referencia },
+              avisos: aviso ? [...(l.avisos || []), aviso] : l.avisos,
+              cruce: { ...l.cruce, motivo: `Creado ahora con el formulario completo (${p.referencia})` },
+            }
+          : l
+      )
+    );
+  }
+
   // ─── Cálculos y validaciones ────────────────────────────────────────
   const activas = lineas.filter((l) => l.accion !== 'omitir');
   const conteo = {
@@ -580,7 +648,7 @@ export default function ImportarBorradorPage() {
                 activo: true,
                 es_inventariable: true,
                 mostrar_en_tienda: l.nuevo.mostrar_en_tienda,
-                es_gamer: false,
+                es_gamer: Boolean(l.nuevo.es_gamer),
                 especificaciones: l.nuevo.especificaciones,
               }),
             });
@@ -928,6 +996,8 @@ export default function ImportarBorradorPage() {
               quitarFondoDeFoto={quitarFondoDeFoto}
               deshacerFondo={deshacerFondo}
               ampliarDescripcion={ampliarDescripcion}
+              abrirFormularioCompleto={abrirFormularioCompleto}
+              preparandoFormulario={preparandoFormulario === i}
               verFoto={setFotoGrande}
               subcategorias={subcategorias}
               bloqueada={aprobando}
@@ -936,6 +1006,14 @@ export default function ImportarBorradorPage() {
               agregarFotosPropias={agregarFotosPropias}
             />
           ))}
+
+          {formularioLinea ? (
+            <ModalProductoNuevo
+              prefill={formularioLinea.prefill}
+              onCerrar={() => setFormularioLinea(null)}
+              onCreado={(p, aviso) => productoCreadoConFormulario(formularioLinea.i, p, aviso)}
+            />
+          ) : null}
 
           {/* Foto en grande (clic en cualquier miniatura) */}
           {fotoGrande ? (
@@ -992,7 +1070,7 @@ export default function ImportarBorradorPage() {
 }
 
 // ─── Una línea del borrador ───────────────────────────────────────────
-function Linea({ l, i, productos, productosPorId, categorias, subcategorias, fotos, costo, costoNeto, subtotal, precioVenta: precioVentaTexto, precioAuto, precioDist, precioDistAuto, bloqueada, cambiarLinea, cambiarNuevo, agregarFotosPropias, quitarFondoDeFoto, deshacerFondo, ampliarDescripcion, verFoto }) {
+function Linea({ l, i, productos, productosPorId, categorias, subcategorias, fotos, costo, costoNeto, subtotal, precioVenta: precioVentaTexto, precioAuto, precioDist, precioDistAuto, bloqueada, cambiarLinea, cambiarNuevo, agregarFotosPropias, quitarFondoDeFoto, deshacerFondo, ampliarDescripcion, verFoto, abrirFormularioCompleto, preparandoFormulario }) {
   const inputPortada = useRef(null);
   const inputExtra = useRef(null);
   const [buscando, setBuscando] = useState(false);
@@ -1078,7 +1156,7 @@ function Linea({ l, i, productos, productosPorId, categorias, subcategorias, fot
             <span style={{ color: 'var(--text-secondary)' }}>
               {' '}· venta {moneda(elegido.precio_venta)} · costo actual {moneda(elegido.precio_costo)}
             </span>
-            {l.cruce.motivo && !l.decididaAMano ? <div style={s.ayuda}>{l.cruce.motivo}</div> : null}
+            {l.cruce.motivo && (!l.decididaAMano || l.creadoConFormulario) ? <div style={s.ayuda}>{l.cruce.motivo}</div> : null}
             {Number(elegido.precio_costo) > 0 && Math.abs(costoNeto - Number(elegido.precio_costo)) / Number(elegido.precio_costo) > 0.15 ? (
               <div style={{ ...s.ayuda, color: '#b54708' }}>⚠️ El costo cambió más de 15 % frente al actual. ¿Es el mismo producto?</div>
             ) : null}
@@ -1090,6 +1168,13 @@ function Linea({ l, i, productos, productosPorId, categorias, subcategorias, fot
           <div style={s.cajaNuevo}>
             {l.creado ? (
               <div style={{ marginBottom: '6px', color: '#067647' }}>✔ Ya creado: {l.creado.referencia}</div>
+            ) : !bloqueada ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                <button type="button" style={s.btnChico} disabled={preparandoFormulario} onClick={() => abrirFormularioCompleto(i)}>
+                  {preparandoFormulario ? 'Abriendo…' : '📝 Abrir formulario completo de producto'}
+                </button>
+                <span style={s.ayuda}>Con todo lo de Productos (IA, enlace del fabricante, video, oferta…) y ya prellenado con estos datos.</span>
+              </div>
             ) : null}
             <div className="pos-grid2" style={s.grid}>
               <label style={s.campo}>
@@ -1171,6 +1256,10 @@ function Linea({ l, i, productos, productosPorId, categorias, subcategorias, fot
               <label style={{ ...s.campo, flexDirection: 'row', alignItems: 'center', gap: '8px', marginTop: '18px' }}>
                 <input type="checkbox" checked={l.nuevo.mostrar_en_tienda} disabled={bloqueoCreado} onChange={(e) => cambiarNuevo(i, { mostrar_en_tienda: e.target.checked })} />
                 <span>Mostrar en la tienda web</span>
+              </label>
+              <label style={{ ...s.campo, flexDirection: 'row', alignItems: 'center', gap: '8px', marginTop: '18px' }} title="Además de su categoría normal, el producto también aparece en Zona Gamer de la tienda">
+                <input type="checkbox" checked={!!l.nuevo.es_gamer} disabled={bloqueoCreado} onChange={(e) => cambiarNuevo(i, { es_gamer: e.target.checked })} />
+                <span>🎮 Es artículo gamer (Zona Gamer)</span>
               </label>
             </div>
 
@@ -1323,12 +1412,12 @@ function Linea({ l, i, productos, productosPorId, categorias, subcategorias, fot
                     );
                   })
               : null}
-            {estado !== 'nuevo' && l.producto ? (
+            {estado !== 'nuevo' && l.producto && !l.creadoConFormulario ? (
               <button type="button" style={s.btnChico} onClick={() => cambiarLinea(i, { accion: 'nuevo', decididaAMano: true })}>
                 🆕 Es nuevo, crearlo
               </button>
             ) : null}
-            {estado !== 'nuevo' && !l.producto ? (
+            {estado !== 'nuevo' && !l.producto && !l.creadoConFormulario ? (
               <button type="button" style={s.btnChico} onClick={() => cambiarLinea(i, { accion: 'nuevo', decididaAMano: true })}>
                 🆕 Crearlo (solo con datos de la factura)
               </button>

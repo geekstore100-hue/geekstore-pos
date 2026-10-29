@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
@@ -10,6 +10,17 @@ import AvisoPedidoDistribuidor from './AvisoPedidoDistribuidor';
 
 export default function Shell({ title, children }) {
   const pathname = usePathname();
+  // ?embebido=1: la pantalla se abre DENTRO de otra (ej. el formulario de
+  // producto nuevo dentro de la factura de compra, oct 2026). Sin barra
+  // lateral, encabezado ni botón de pánico: solo el contenido.
+  const [embebido, setEmbebido] = useState(false);
+  useEffect(() => {
+    try {
+      setEmbebido(new URLSearchParams(window.location.search).get('embebido') === '1' && window.parent !== window);
+    } catch {
+      setEmbebido(false);
+    }
+  }, []);
   // Evita el problema clásico de los navegadores: si el mouse queda sobre un
   // <input type="number"> y la persona hace scroll con la rueda del mouse
   // para bajar la página, el navegador cambia el número en vez de scrollear.
@@ -61,6 +72,8 @@ export default function Shell({ title, children }) {
       })
       .catch(() => {});
   }, []);
+
+  if (embebido) return <main style={{ minHeight: '100vh' }}>{children}</main>;
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Shell from '../../../components/Shell';
 import { descargarExcelEtiquetas } from '../../../lib/etiquetasOpenLabel';
 import { achicarFoto, dataUrlABlob, fotosAPdf, cabeEnUnaSubida } from '../../../lib/manifiestoFotos';
+import ModalProductoNuevo from '../../../components/ModalProductoNuevo';
 
 // Fecha de HOY en hora de Colombia (AAAA-MM-DD). Antes usaba
 // toISOString(), que da la fecha en hora UTC (5 horas adelante): después de
@@ -38,6 +39,10 @@ export default function FacturasCompraPage() {
   const [form, setForm] = useState(formVacio);
   const [items, setItems] = useState([]); // [{producto_id, referencia, nombre, cantidad, precio, descuento_porcentaje}]
   const [buscarTexto, setBuscarTexto] = useState('');
+  // Crear un producto nuevo sin salir de la factura (oct 2026): abre el
+  // formulario completo de Productos (ver components/ModalProductoNuevo.js).
+  const [productoNuevo, setProductoNuevo] = useState(null); // { nombre } o null
+  const [avisoProductoNuevo, setAvisoProductoNuevo] = useState('');
   const [buscarProveedor, setBuscarProveedor] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [errorForm, setErrorForm] = useState('');
@@ -887,7 +892,7 @@ export default function FacturasCompraPage() {
                 placeholder="Buscar por nombre o referencia..."
                 style={{ ...styles.select, width: '100%' }}
               />
-              {resultadosBusqueda.length > 0 && (
+              {buscarTexto.trim() && (
                 <div style={styles.dropdownBusqueda}>
                   {resultadosBusqueda.map((p) => (
                     <div key={p.id} style={styles.opcionBusqueda} onClick={() => agregarItem(p)}>
@@ -895,9 +900,48 @@ export default function FacturasCompraPage() {
                       <span style={{ color: 'var(--text-secondary)', fontSize: '12px', marginLeft: '8px' }}>{p.referencia}</span>
                     </div>
                   ))}
+                  <div
+                    style={{ ...styles.opcionBusqueda, color: 'var(--teal-dark)', fontWeight: 600 }}
+                    onClick={() => {
+                      setAvisoProductoNuevo('');
+                      setProductoNuevo({ nombre: buscarTexto.trim() });
+                    }}
+                  >
+                    ＋ Crear producto nuevo{resultadosBusqueda.length ? '' : ` "${buscarTexto.trim()}"`}
+                  </div>
                 </div>
               )}
+              <button
+                type="button"
+                onClick={() => {
+                  setAvisoProductoNuevo('');
+                  setProductoNuevo({ nombre: '' });
+                }}
+                style={{ ...styles.btnMiniLink, marginTop: '6px', padding: 0 }}
+              >
+                ＋ Crear producto nuevo y agregarlo
+              </button>
+              {avisoProductoNuevo ? <p style={{ fontSize: '13px', color: '#b54708', margin: '6px 0 0' }}>{avisoProductoNuevo}</p> : null}
             </div>
+
+            {productoNuevo ? (
+              <ModalProductoNuevo
+                prefill={productoNuevo.nombre ? { nombre: productoNuevo.nombre } : null}
+                onCerrar={() => setProductoNuevo(null)}
+                onCreado={(p, aviso) => {
+                  setProductoNuevo(null);
+                  setBuscarTexto('');
+                  setProductosTodos((actual) => [{ ...p, stock: 0 }, ...actual.filter((x) => x.id !== p.id)]);
+                  if (p.es_inventariable === false) {
+                    setAvisoProductoNuevo(`Se creó "${p.nombre}", pero es un servicio: no se puede agregar a una factura de compra.`);
+                    return;
+                  }
+                  agregarItem(p);
+                  setAvisoProductoNuevo(aviso ? `Producto creado y agregado. ${aviso}` : '');
+                  cargarProductos();
+                }}
+              />
+            ) : null}
 
             <div style={styles.resumenFactura}>
               <div style={styles.filaResumen}><span>Subtotal</span><span>${moneda(subtotal)}</span></div>

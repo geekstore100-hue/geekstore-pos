@@ -195,12 +195,81 @@ export default function ProductosPage() {
   // lo vuelva a abrir solo.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (new URLSearchParams(window.location.search).get('nuevo') === '1') {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get('embebido') === '1') {
+      // Abierto DENTRO de una factura de compra (ver
+      // components/ModalProductoNuevo.js): no se limpia la URL y se le avisa
+      // a la factura que ya puede mandar los datos para prellenar.
+      setEmbebido(true);
+      nuevoProducto();
+      return;
+    }
+    if (q.get('nuevo') === '1') {
       nuevoProducto();
       window.history.replaceState({}, '', '/productos');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ─── Crear producto desde la factura de compra (oct 2026) ─────────────
+  // Nelson crea los productos nuevos mientras arma la factura de compra (la
+  // manual o la importada desde el borrador de Claude). Para no tener dos
+  // formularios distintos, la factura abre ESTE mismo formulario en una
+  // ventana (iframe, /productos?nuevo=1&embebido=1) con todo lo de siempre:
+  // IA, fotos desde el enlace, quitar fondo, recortar, ficha, Zona Gamer,
+  // Alegra… La factura le manda lo que ya sabe (nombre, costo, fotos del
+  // catálogo…) y este formulario le avisa cuando el producto quedó creado.
+  const [embebido, setEmbebido] = useState(false);
+  function avisarFactura(mensaje) {
+    try {
+      if (window.parent && window.parent !== window) window.parent.postMessage(mensaje, window.location.origin);
+    } catch {
+      // sin ventana padre: no pasa nada
+    }
+  }
+  useEffect(() => {
+    if (!embebido) return undefined;
+    async function recibir(e) {
+      if (e.origin !== window.location.origin || e.source !== window.parent) return;
+      const m = e.data || {};
+      if (m.tipo !== 'pos-producto-prefill' || !m.datos) return;
+      const d = m.datos;
+      const texto = (v) => (v === null || v === undefined ? '' : String(v));
+      setForm((f) => ({
+        ...f,
+        nombre: texto(d.nombre) || f.nombre,
+        descripcion: texto(d.descripcion) || f.descripcion,
+        categoria_id: texto(d.categoria_id) || f.categoria_id,
+        subcategoria_id: texto(d.subcategoria_id) || f.subcategoria_id,
+        precio_costo: texto(d.precio_costo) || f.precio_costo,
+        precio_venta: texto(d.precio_venta) || f.precio_venta,
+        precio_distribuidor: texto(d.precio_distribuidor) || f.precio_distribuidor,
+        especificaciones: Array.isArray(d.especificaciones) && d.especificaciones.length ? d.especificaciones : f.especificaciones,
+        es_gamer: typeof d.es_gamer === 'boolean' ? d.es_gamer : f.es_gamer,
+        mostrar_en_tienda: typeof d.mostrar_en_tienda === 'boolean' ? d.mostrar_en_tienda : f.mostrar_en_tienda,
+        con_iva: typeof d.con_iva === 'boolean' ? d.con_iva : f.con_iva,
+      }));
+      if (d.categoria_id) cargarSubcategorias(d.categoria_id);
+      if (d.enlace) setEnlaceFabricante(String(d.enlace));
+      if (d.info) setInfoAdicionalIA(String(d.info));
+      const fotos = Array.isArray(d.fotos) ? d.fotos.filter((x) => typeof x === 'string' && x.startsWith('data:image/')) : [];
+      if (fotos.length) {
+        setImagenProductoNueva(fotos[0]);
+        setFotosExtraNueva(fotos.slice(1));
+      }
+    }
+    window.addEventListener('message', recibir);
+    // Recién ahora (ya escuchando) se le avisa a la factura que mande los datos.
+    avisarFactura({ tipo: 'pos-producto-listo' });
+    return () => window.removeEventListener('message', recibir);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [embebido]);
+  // Si se cierra el formulario sin crear nada, la factura cierra la ventana.
+  const [embebidoCreado, setEmbebidoCreado] = useState(false);
+  useEffect(() => {
+    if (embebido && !mostrarForm && !embebidoCreado) avisarFactura({ tipo: 'pos-producto-cancelado' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mostrarForm]);
 
   // /productos?editar=ID abre directo la edición de ese producto (lo usa el
   // reporte "Fichas incompletas"). Se espera a que cargue el catálogo.
@@ -633,7 +702,10 @@ export default function ProductosPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           imagenBase64: imagenAnalisis,
-          infoAdicional: infoAdicionalIA,
+          // Desde la factura de compra se exige descripción de 400+ letras.
+          infoAdicional: embebido
+            ? `${infoAdicionalIA ? `${infoAdicionalIA}. ` : ''}La "descripcion" debe tener MÍNIMO 400 caracteres y máximo 600.`
+            : infoAdicionalIA,
           enlaceFabricante: enlaceFabricante.trim() || undefined,
           textoFabricante: textoFabricante.trim() || undefined,
         }),
@@ -793,7 +865,10 @@ export default function ProductosPage() {
     } else {
       try {
         const original = await leerComoDataUri(archivo);
-        const achicada = await achicarFotoProducto(original);
+        // "Recortar espacios en blanco alrededor" también al editar (oct
+        // 2026): antes la casilla solo salía al crear el producto.
+        const recortada = recortarActivo ? await recortarEspaciosBlancos(original) : original;
+        const achicada = await achicarFotoProducto(recortada);
         if (achicada !== original) {
           const base = (archivo.name || 'foto').replace(/\.[^.]+$/, '');
           archivoFinal = await dataUriAFile(achicada, `${base}.jpg`);
@@ -905,6 +980,19 @@ export default function ProductosPage() {
       setError('Elige si el precio lleva IVA o no (el producto también se crea en Alegra para la factura electrónica).');
       return;
     }
+    // Creado desde la factura de compra: mismas exigencias del borrador
+    // (precio de venta para crearlo en Alegra y descripción de 400+ letras).
+    if (embebido && !form.id) {
+      if (!(Number(form.precio_venta) > 0)) {
+        setError('Pon el precio de venta (hace falta para crearlo en Alegra).');
+        return;
+      }
+      const largo = String(form.descripcion || '').trim().length;
+      if (largo < 400) {
+        setError(`La descripción debe tener al menos 400 letras (lleva ${largo}). Usa la IA de arriba para generarla o complétala a mano.`);
+        return;
+      }
+    }
 
     setGuardando(true);
 
@@ -981,6 +1069,29 @@ export default function ProductosPage() {
 
     setGuardando(false);
 
+    // Abierto desde una factura de compra: se le entrega el producto recién
+    // creado (aunque haya un aviso de foto o de Alegra: el producto existe).
+    if (embebido && data.ok && !form.id) {
+      setEmbebidoCreado(true);
+      avisarFactura({
+        tipo: 'pos-producto-creado',
+        producto: {
+          id: Number(data.producto.id),
+          referencia: form.referencia,
+          nombre: form.nombre,
+          precio_venta: Number(form.precio_venta) || null,
+          precio_costo: Number(form.precio_costo) || null,
+          precio_distribuidor: Number(form.precio_distribuidor) || null,
+          es_inventariable: form.es_inventariable,
+          activo: form.activo,
+        },
+        aviso: [fotoFallo ? `La foto no se pudo guardar (${fotoFallo}); agrégala en Productos.` : '', data.aviso || '', avisoAlegra.trim()]
+          .filter(Boolean)
+          .join(' '),
+      });
+      return;
+    }
+
     if (data.ok && fotoFallo) {
       // El producto sí quedó creado; solo la foto falló. En vez de cerrar
       // el formulario, se pasa a modo "editar" sobre el producto recién
@@ -1035,8 +1146,17 @@ export default function ProductosPage() {
         // aparecer arriba de la tabla) para que, sin importar qué tan abajo
         // esté la persona en una lista larga, se note claramente que sí pasó
         // algo al tocar el lápiz de editar.
-        <div style={styles.overlay} onMouseDown={() => setMostrarForm(false)}>
-        <form onSubmit={guardar} onMouseDown={(e) => e.stopPropagation()} style={{ ...styles.formCard, ...styles.formModal }}>
+        <div
+          style={embebido ? { ...styles.overlay, background: 'var(--bg, #f5f7fa)', alignItems: 'flex-start', padding: '0' } : styles.overlay}
+          onMouseDown={() => {
+            if (!embebido) setMostrarForm(false);
+          }}
+        >
+        <form
+          onSubmit={guardar}
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{ ...styles.formCard, ...styles.formModal, ...(embebido ? { width: '100%', maxHeight: '100vh', boxShadow: 'none', borderRadius: 0, border: 'none' } : {}) }}
+        >
           <h3 style={{ marginTop: 0 }}>{form.id ? 'Editar producto' : 'Nuevo producto'}</h3>
 
           <label style={{ display: 'block', marginBottom: '8px' }}>Tipo de producto</label>
@@ -1622,6 +1742,10 @@ export default function ProductosPage() {
                     <input type="file" accept="image/*" onChange={(e) => subirImagen(e, true)} disabled={subiendoImagen} style={{ display: 'none' }} />
                   </label>
                 </div>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '8px', fontSize: '13px', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={recortarActivo} onChange={(e) => setRecortarActivo(e.target.checked)} />
+                  Recortar espacios en blanco alrededor
+                </label>
                 {subiendoImagen && mensajeFondo && <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{mensajeFondo}</p>}
                 {errorImagen && <p style={{ color: 'var(--danger)', fontSize: '13px' }}>{errorImagen}</p>}
               </>
