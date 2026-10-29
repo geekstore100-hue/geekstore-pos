@@ -23,6 +23,8 @@ import {
 import { descargarExcelEtiquetas } from '../../../../lib/etiquetasOpenLabel';
 import { quitarFondoFoto } from '../../../../lib/quitarFondoCliente';
 import ModalProductoNuevo from '../../../../components/ModalProductoNuevo';
+import { recortarEspaciosBlancos, redimensionarParaIA } from '../../../../lib/fotosNavegador';
+import { tipoDeProducto, camposFaltantes } from '../../../../lib/plantillasFicha';
 
 // Facturas de compra → "📥 Importar borrador" (octubre 2026).
 // Claude lee la foto de la factura del proveedor (y su catálogo o la página
@@ -257,6 +259,14 @@ export default function ImportarBorradorPage() {
         precio_venta: p?.precio_venta_sugerido ? String(Math.round(p.precio_venta_sugerido)) : '',
         precioEditado: false, // true = Nelson lo escribió (no se recalcula con la regla)
         precioDistEditado: false,
+        // Lo mismo que trae el formulario de Productos (oct 2026):
+        infoIA: '', // comentarios para que la IA los tenga en cuenta
+        enlace: p?.fuente?.url || '', // página del fabricante (IA y fotos)
+        textoFabricante: '', // texto pegado de la página (si no se deja leer)
+        referencia: '', // vacío = la siguiente automática
+        precio_anterior: '', // "precio antes" (oferta en la tienda)
+        video_youtube: '',
+        activo: true,
         precio_distribuidor: '',
         con_iva: item.iva_porcentaje > 0,
         mostrar_en_tienda: true,
@@ -396,6 +406,143 @@ export default function ImportarBorradorPage() {
     }
   }
 
+  // Recorta el espacio en blanco alrededor de una foto (como la casilla de
+  // Productos). Se puede deshacer igual que "sin fondo".
+  async function recortarFoto(i, ruta) {
+    const f = fotos[ruta];
+    if (!f) return;
+    try {
+      const dataUri = await recortarEspaciosBlancos(await blobADataUri(f.blob));
+      const blob = await (await fetch(dataUri)).blob();
+      const clave = `recorte/${Date.now()}-${ruta.split('/').pop()}`;
+      setFotos((actual) => ({ ...actual, [clave]: { blob, url: URL.createObjectURL(blob), propia: f.propia, sinFondo: f.sinFondo, recortada: true, antes: ruta } }));
+      setLineas((ls) => ls.map((l, j) => (j === i ? { ...l, nuevo: { ...l.nuevo, fotos: l.nuevo.fotos.map((x) => (x === ruta ? clave : x)) } } : l)));
+    } catch (e) {
+      cambiarLinea(i, { mensajeFondo: `No se pudo recortar: ${e?.message || 'error'}` });
+    }
+  }
+
+  // IA para un producto nuevo del borrador, igual que "🪄 Analizar con IA"
+  // de Productos: usa el enlace del fabricante (o el texto pegado), la foto
+  // de portada, lo que ya se sabe y los COMENTARIOS que escriba Nelson.
+  // Reemplaza nombre, descripción, ficha, categoría y subcategoría (se puede
+  // deshacer).
+  async function analizarLineaConIA(i) {
+    const l = lineas[i];
+    cambiarLinea(i, { analizandoIA: true, mensajeIA: '' });
+    try {
+      // Foto para la IA: la que Nelson subió para eso (ej. la caja con las
+      // especificaciones) o, si no, la portada.
+      const portada =
+        l.fotoIA ||
+        (l.nuevo.fotos[0] && fotos[l.nuevo.fotos[0]]?.blob ? await redimensionarParaIA(await blobADataUri(fotos[l.nuevo.fotos[0]].blob)) : null);
+      const ficha = l.nuevo.especificaciones.filter((f) => f.nombre && f.valor).map((f) => `${f.nombre}: ${f.valor}`).join('\n');
+      const conocido = [
+        `Producto: ${l.nuevo.nombre}`,
+        l.marca ? `Marca: ${l.marca}` : '',
+        l.modelo ? `Modelo: ${l.modelo}` : '',
+        l.descripcion_factura ? `Como sale en la factura del proveedor: ${l.descripcion_factura}` : '',
+        ficha ? `Ficha técnica que ya tenemos:\n${ficha}` : '',
+        l.nuevo.descripcion ? `Descripción actual: ${l.nuevo.descripcion}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+      const enlace = l.nuevo.enlace.trim();
+      const texto = l.nuevo.textoFabricante.trim();
+      const r = await pedirJson('/api/productos/analizar-foto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imagenBase64: portada || undefined,
+          enlaceFabricante: enlace || undefined,
+          // Sin enlace ni texto pegado, la IA trabaja con lo que ya se sabe.
+          textoFabricante: texto || (!enlace ? conocido : undefined),
+          infoAdicional: [
+            l.nuevo.infoIA.trim() ? `Comentarios de Nelson (tenlos muy en cuenta): ${l.nuevo.infoIA.trim()}` : '',
+            enlace || texto ? conocido : '',
+            `La "descripcion" debe tener MÍNIMO ${DESCRIPCION_MINIMA} caracteres y máximo 600.`,
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        }),
+      });
+      if (!r.ok) {
+        cambiarLinea(i, {
+          analizandoIA: false,
+          mensajeIA: r.codigo === 'pagina_no_legible' ? 'La página no se dejó leer: copia su texto y pégalo en "Texto de la página".' : `No se pudo analizar: ${r.error || 'error'}`,
+          verTextoFabricante: r.codigo === 'pagina_no_legible' ? true : l.verTextoFabricante,
+        });
+        return;
+      }
+      const cat = categoriaParecida(r.categoria, categorias);
+      const sub = cat && r.subcategoria ? subcategoriaParecida(r.subcategoria, cat.id) : null;
+      setLineas((ls) =>
+        ls.map((x, j) => {
+          if (j !== i) return x;
+          const desc = String(r.descripcion || '').trim().slice(0, 600);
+          return {
+            ...x,
+            analizandoIA: false,
+            nuevoAntesIA: x.nuevo,
+            mensajeIA: `Listo (${r.iaUsada || 'IA'}). Revisa lo que cambió${desc.length < DESCRIPCION_MINIMA ? `; la descripción quedó de ${desc.length} letras, amplíala` : ''}.`,
+            nuevo: {
+              ...x.nuevo,
+              nombre: r.nombre ? String(r.nombre).slice(0, 150) : x.nuevo.nombre,
+              descripcion: desc || x.nuevo.descripcion,
+              especificaciones: Array.isArray(r.especificaciones) && r.especificaciones.length ? r.especificaciones : x.nuevo.especificaciones,
+              categoria_id: cat ? String(cat.id) : x.nuevo.categoria_id,
+              subcategoria_id: cat ? (sub ? String(sub.id) : '') : x.nuevo.subcategoria_id,
+              categoriaSugerida: r.categoria || x.nuevo.categoriaSugerida,
+              subcategoriaSugerida: r.subcategoria || x.nuevo.subcategoriaSugerida,
+            },
+          };
+        })
+      );
+      // Con enlace, de una vez se buscan las fotos de la página.
+      if (enlace && !l.fotosPagina) traerFotosPagina(i);
+    } catch (e) {
+      cambiarLinea(i, { analizandoIA: false, mensajeIA: `No se pudo analizar: ${e.message}` });
+    }
+  }
+
+  function deshacerIA(i) {
+    setLineas((ls) => ls.map((l, j) => (j === i && l.nuevoAntesIA ? { ...l, nuevo: { ...l.nuevoAntesIA, fotos: l.nuevo.fotos }, nuevoAntesIA: null, mensajeIA: 'Se deshizo lo de la IA.' } : l)));
+  }
+
+  // Fotos de la página del fabricante (las mismas que busca Productos).
+  async function traerFotosPagina(i) {
+    const enlace = lineas[i]?.nuevo.enlace.trim();
+    if (!enlace) return;
+    cambiarLinea(i, { buscandoFotosPagina: true, mensajeFotosPagina: 'Buscando fotos en la página…' });
+    const r = await pedirJson(`/api/productos/fotos-pagina?url=${encodeURIComponent(enlace)}`).catch(() => ({ ok: false }));
+    cambiarLinea(i, {
+      buscandoFotosPagina: false,
+      fotosPagina: r.ok ? r.fotos || [] : [],
+      mensajeFotosPagina: r.ok ? (r.fotos?.length ? '' : 'No se encontraron fotos del producto en esa página.') : `No se pudieron leer las fotos: ${r.error || 'error'}`,
+    });
+  }
+
+  async function agregarFotoPagina(i, foto, comoPortada) {
+    const enlace = lineas[i]?.nuevo.enlace.trim();
+    try {
+      const res = await fetch(`/api/productos/foto-remota?url=${encodeURIComponent(foto.url)}&ref=${encodeURIComponent(enlace)}`);
+      if (!res.ok) throw new Error('no se pudo traer');
+      const dataUri = await recortarEspaciosBlancos(await blobADataUri(await res.blob()));
+      const blob = await (await fetch(dataUri)).blob();
+      const clave = `pagina/${Date.now()}-${foto.url.split('/').pop().split('?')[0].slice(-40)}`;
+      setFotos((actual) => ({ ...actual, [clave]: { blob, url: URL.createObjectURL(blob), deLaPagina: true } }));
+      setLineas((ls) =>
+        ls.map((l, j) =>
+          j === i
+            ? { ...l, nuevo: { ...l.nuevo, fotos: (comoPortada ? [clave, ...l.nuevo.fotos] : [...l.nuevo.fotos, clave]).slice(0, 10) } }
+            : l
+        )
+      );
+    } catch (e) {
+      cambiarLinea(i, { mensajeFotosPagina: `No se pudo usar esa foto: ${e.message}` });
+    }
+  }
+
   function deshacerFondo(i, clave) {
     const antes = fotos[clave]?.antes;
     if (!antes) return;
@@ -477,8 +624,13 @@ export default function ImportarBorradorPage() {
           es_gamer: !!l.nuevo.es_gamer,
           mostrar_en_tienda: l.nuevo.mostrar_en_tienda,
           con_iva: l.nuevo.con_iva,
-          enlace: l.nuevo.fuente?.url || '',
-          info: [l.marca ? `Marca: ${l.marca}` : '', l.modelo ? `Modelo: ${l.modelo}` : '', l.descripcion_factura ? `En la factura: ${l.descripcion_factura}` : '']
+          enlace: l.nuevo.enlace || l.nuevo.fuente?.url || '',
+          texto_fabricante: l.nuevo.textoFabricante,
+          referencia: l.nuevo.referencia,
+          precio_anterior: l.nuevo.precio_anterior,
+          video_youtube: l.nuevo.video_youtube,
+          activo: l.nuevo.activo,
+          info: [l.nuevo.infoIA, l.marca ? `Marca: ${l.marca}` : '', l.modelo ? `Modelo: ${l.modelo}` : '', l.descripcion_factura ? `En la factura: ${l.descripcion_factura}` : '']
             .filter(Boolean)
             .join('. '),
           fotos: fotosData,
@@ -564,6 +716,10 @@ export default function ImportarBorradorPage() {
         if (!l.nuevo.nombre.trim()) lista.push(`${n}: escribe el nombre del producto nuevo.`);
         if (!(Number(precioVentaDe(l)) > 0)) lista.push(`${n}: pon el precio de venta del producto nuevo.`);
         if (l.nuevo.descripcion.length > 600) lista.push(`${n}: la descripción pasa de 600 letras.`);
+        if (Number(l.nuevo.precio_anterior) > 0 && Number(l.nuevo.precio_anterior) <= Number(precioVentaDe(l)))
+          lista.push(`${n}: el "precio antes" debe ser mayor que el precio de venta (o déjalo vacío).`);
+        if (l.nuevo.video_youtube.trim() && !/^https?:\/\/(www\.|m\.)?(youtube\.com|youtu\.be)\//i.test(l.nuevo.video_youtube.trim()))
+          lista.push(`${n}: el video debe ser un enlace de YouTube.`);
         if (l.nuevo.descripcion.trim().length < DESCRIPCION_MINIMA)
           lista.push(`${n}: la descripción debe tener al menos ${DESCRIPCION_MINIMA} letras (lleva ${l.nuevo.descripcion.trim().length}; usa ✨ Ampliar con IA).`);
       }
@@ -632,7 +788,7 @@ export default function ImportarBorradorPage() {
         if (!l.creado) {
           let creado = null;
           for (let intento = 0; intento < 4 && !creado; intento++) {
-            const referencia = await siguienteReferencia();
+            const referencia = l.nuevo.referencia.trim() && intento === 0 ? l.nuevo.referencia.trim() : await siguienteReferencia();
             const r = await pedirJson('/api/productos', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -645,14 +801,17 @@ export default function ImportarBorradorPage() {
                 precio_venta: Number(precioVentaDe(l)),
                 precio_costo: Math.round(costoNetoParaPos(l, regla) * 100) / 100,
                 precio_distribuidor: Number(precioDistDe(l)) || null,
-                activo: true,
+                activo: l.nuevo.activo !== false,
                 es_inventariable: true,
                 mostrar_en_tienda: l.nuevo.mostrar_en_tienda,
+                video_youtube: l.nuevo.video_youtube.trim() || null,
+                ...(Number(l.nuevo.precio_anterior) > 0 ? { precio_anterior: Number(l.nuevo.precio_anterior) } : {}),
                 es_gamer: Boolean(l.nuevo.es_gamer),
                 especificaciones: l.nuevo.especificaciones,
               }),
             });
             if (r.ok) creado = { id: Number(r.producto.id), referencia };
+            else if (r.status === 409 && l.nuevo.referencia.trim()) throw new Error(`La referencia ${l.nuevo.referencia.trim()} ya existe (línea ${l.linea}): cámbiala o déjala vacía`);
             else if (r.status === 409) progreso.current.siguienteRef = null; // otra persona usó esa referencia
             else throw new Error(`No se pudo crear "${l.nuevo.nombre}": ${r.error}`);
           }
@@ -997,6 +1156,11 @@ export default function ImportarBorradorPage() {
               deshacerFondo={deshacerFondo}
               ampliarDescripcion={ampliarDescripcion}
               abrirFormularioCompleto={abrirFormularioCompleto}
+              analizarLineaConIA={analizarLineaConIA}
+              deshacerIA={deshacerIA}
+              traerFotosPagina={traerFotosPagina}
+              agregarFotoPagina={agregarFotoPagina}
+              recortarFoto={recortarFoto}
               preparandoFormulario={preparandoFormulario === i}
               verFoto={setFotoGrande}
               subcategorias={subcategorias}
@@ -1070,7 +1234,21 @@ export default function ImportarBorradorPage() {
 }
 
 // ─── Una línea del borrador ───────────────────────────────────────────
-function Linea({ l, i, productos, productosPorId, categorias, subcategorias, fotos, costo, costoNeto, subtotal, precioVenta: precioVentaTexto, precioAuto, precioDist, precioDistAuto, bloqueada, cambiarLinea, cambiarNuevo, agregarFotosPropias, quitarFondoDeFoto, deshacerFondo, ampliarDescripcion, verFoto, abrirFormularioCompleto, preparandoFormulario }) {
+function Linea({ l, i, productos, productosPorId, categorias, subcategorias, fotos, costo, costoNeto, subtotal, precioVenta: precioVentaTexto, precioAuto, precioDist, precioDistAuto, bloqueada, cambiarLinea, cambiarNuevo, agregarFotosPropias, quitarFondoDeFoto, deshacerFondo, ampliarDescripcion, verFoto, abrirFormularioCompleto, preparandoFormulario, analizarLineaConIA, deshacerIA, traerFotosPagina, agregarFotoPagina, recortarFoto }) {
+  const [verMasDatos, setVerMasDatos] = useState(false);
+  // Plantilla de ficha según el tipo de producto (igual que Productos).
+  const nombreCat = categorias.find((c) => String(c.id) === String(l.nuevo.categoria_id))?.nombre;
+  const nombreSub = subcategorias.find((x) => String(x.id) === String(l.nuevo.subcategoria_id))?.nombre;
+  const plantilla = tipoDeProducto({ nombre: l.nuevo.nombre, categoria: nombreCat, subcategoria: nombreSub });
+  const faltantes = camposFaltantes(plantilla, l.nuevo.especificaciones);
+  function cambiarFila(k, campo, valor) {
+    cambiarNuevo(i, { especificaciones: l.nuevo.especificaciones.map((f, j) => (j === k ? { ...f, [campo]: valor } : f)) });
+  }
+  function agregarFilas(campos) {
+    const filas = l.nuevo.especificaciones;
+    const nombres = new Set(filas.map((f) => String(f.nombre).toLowerCase()));
+    cambiarNuevo(i, { especificaciones: [...filas, ...campos.filter((c) => !nombres.has(c.nombre.toLowerCase())).map((c) => ({ nombre: c.nombre, valor: '' }))] });
+  }
   const inputPortada = useRef(null);
   const inputExtra = useRef(null);
   const [buscando, setBuscando] = useState(false);
@@ -1176,6 +1354,105 @@ function Linea({ l, i, productos, productosPorId, categorias, subcategorias, fot
                 <span style={s.ayuda}>Con todo lo de Productos (IA, enlace del fabricante, video, oferta…) y ya prellenado con estos datos.</span>
               </div>
             ) : null}
+            {!bloqueoCreado ? (
+              <div style={s.panelIA}>
+                <div style={{ fontWeight: 600, marginBottom: '6px' }}>🪄 Ayuda de IA</div>
+                <label style={s.campo}>
+                  <span style={s.etiqueta}>Comentarios para la IA (los tiene en cuenta al analizar)</span>
+                  <textarea
+                    value={l.nuevo.infoIA}
+                    onChange={(e) => cambiarNuevo(i, { infoIA: e.target.value })}
+                    rows={2}
+                    placeholder="Ej: es para PS5, trae cable de 2 m, el color es negro, resalta que es inalámbrico…"
+                    style={{ ...s.input, width: '100%', fontFamily: 'inherit' }}
+                  />
+                </label>
+                <label style={{ ...s.campo, marginTop: '8px' }}>
+                  <span style={s.etiqueta}>Enlace del producto en la página del fabricante (opcional)</span>
+                  <input type="url" value={l.nuevo.enlace} onChange={(e) => cambiarNuevo(i, { enlace: e.target.value })} placeholder="https://www.marca.com/producto/..." style={s.input} />
+                </label>
+                {l.verTextoFabricante ? (
+                  <label style={{ ...s.campo, marginTop: '8px' }}>
+                    <span style={s.etiqueta}>Texto de la página (si la página no se deja leer; se usa en vez del enlace)</span>
+                    <textarea
+                      value={l.nuevo.textoFabricante}
+                      onChange={(e) => cambiarNuevo(i, { textoFabricante: e.target.value })}
+                      rows={3}
+                      style={{ ...s.input, width: '100%', fontFamily: 'inherit' }}
+                    />
+                  </label>
+                ) : null}
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px', alignItems: 'center' }}>
+                  <button type="button" style={s.btnPrimarioChico} disabled={l.analizandoIA} onClick={() => analizarLineaConIA(i)}>
+                    {l.analizandoIA ? 'Analizando…' : '🪄 Analizar con IA'}
+                  </button>
+                  {l.nuevo.enlace.trim() ? (
+                    <button type="button" style={s.btnChico} disabled={l.buscandoFotosPagina} onClick={() => traerFotosPagina(i)}>
+                      {l.buscandoFotosPagina ? 'Buscando…' : '🖼️ Fotos de la página'}
+                    </button>
+                  ) : null}
+                  {!l.verTextoFabricante ? (
+                    <button type="button" style={s.btnChico} onClick={() => cambiarLinea(i, { verTextoFabricante: true })}>
+                      Pegar texto de la página
+                    </button>
+                  ) : null}
+                  <label style={{ ...s.btnChico, display: 'inline-block' }} title="Solo la mira la IA (no se guarda como foto del producto)">
+                    {l.fotoIA ? '📷 Cambiar foto para la IA' : '📷 Foto para la IA (ej. la caja)'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                      onChange={async (e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = '';
+                        if (!f) return;
+                        const dataUri = await new Promise((ok) => {
+                          const lector = new FileReader();
+                          lector.onload = () => ok(lector.result);
+                          lector.readAsDataURL(f);
+                        });
+                        cambiarLinea(i, { fotoIA: await redimensionarParaIA(dataUri) });
+                      }}
+                    />
+                  </label>
+                  {l.fotoIA ? (
+                    <>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={l.fotoIA} alt="" style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border)' }} />
+                      <button type="button" style={{ ...s.btnMini, color: 'var(--danger)' }} onClick={() => cambiarLinea(i, { fotoIA: null })}>
+                        Quitar
+                      </button>
+                    </>
+                  ) : null}
+                  {l.nuevoAntesIA ? (
+                    <button type="button" style={s.btnChico} onClick={() => deshacerIA(i)}>
+                      ↩️ Deshacer IA
+                    </button>
+                  ) : null}
+                </div>
+                <div style={s.ayuda}>Cambia nombre, descripción, ficha técnica, categoría y subcategoría. Las fotos y los precios no se tocan.</div>
+                {l.mensajeIA ? <div style={{ ...s.ayuda, color: /No se pudo|no se dejó/.test(l.mensajeIA) ? 'var(--danger)' : 'var(--text-secondary)' }}>{l.mensajeIA}</div> : null}
+                {l.mensajeFotosPagina ? <div style={s.ayuda}>{l.mensajeFotosPagina}</div> : null}
+                {l.fotosPagina?.length ? (
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
+                    {l.fotosPagina.slice(0, 8).map((f) => (
+                      <div key={f.url} style={{ width: '110px' }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={`/api/productos/foto-remota?url=${encodeURIComponent(f.url)}&ref=${encodeURIComponent(l.nuevo.enlace.trim())}`}
+                          alt=""
+                          style={{ ...s.foto, width: '110px', height: '110px' }}
+                        />
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button type="button" style={s.btnMini} onClick={() => agregarFotoPagina(i, f, true)}>Portada</button>
+                          <button type="button" style={s.btnMini} onClick={() => agregarFotoPagina(i, f, false)}>+ Agregar</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <div className="pos-grid2" style={s.grid}>
               <label style={s.campo}>
                 <span style={s.etiqueta}>Nombre del producto nuevo</span>
@@ -1278,17 +1555,24 @@ function Linea({ l, i, productos, productosPorId, categorias, subcategorias, fot
                     {k === 0 ? <span style={s.etiquetaPortada}>Portada</span> : null}
                     {fotos[r]?.propia ? <span style={s.etiquetaPropia}>Tuya</span> : null}
                     {fotos[r]?.sinFondo ? <span style={{ ...s.etiquetaPropia, top: fotos[r]?.propia ? '24px' : '4px', background: '#12b76a' }}>Sin fondo</span> : null}
+                    {fotos[r]?.recortada && !fotos[r]?.sinFondo ? <span style={{ ...s.etiquetaPropia, top: fotos[r]?.propia ? '24px' : '4px', background: '#7a5af8' }}>Recortada</span> : null}
                     {!bloqueoCreado ? (
                       <div style={{ display: 'flex', gap: '8px', marginTop: '4px', flexWrap: 'wrap', maxWidth: '170px' }}>
-                        {fotos[r]?.sinFondo ? (
+                        {fotos[r]?.antes ? (
                           <button type="button" style={s.btnMini} onClick={() => deshacerFondo(i, r)}>
                             Deshacer
                           </button>
-                        ) : (
+                        ) : null}
+                        {!fotos[r]?.sinFondo ? (
                           <button type="button" style={s.btnMini} disabled={!!l.fondoEnCurso} onClick={() => quitarFondoDeFoto(i, r)}>
                             {l.fondoEnCurso === r ? 'Quitando…' : '🪄 Sin fondo'}
                           </button>
-                        )}
+                        ) : null}
+                        {!fotos[r]?.recortada && !fotos[r]?.sinFondo ? (
+                          <button type="button" style={s.btnMini} title="Recortar el espacio en blanco alrededor" onClick={() => recortarFoto(i, r)}>
+                            ✂️ Recortar
+                          </button>
+                        ) : null}
                         {k > 0 ? (
                           <button type="button" style={s.btnMini} onClick={() => cambiarNuevo(i, { fotos: [r, ...l.nuevo.fotos.filter((x) => x !== r)] })}>
                             Portada
@@ -1380,20 +1664,83 @@ function Linea({ l, i, productos, productosPorId, categorias, subcategorias, fot
                   ) : null}
                 </div>
                 {l.mensajeDescripcion ? <div style={s.ayuda}>{l.mensajeDescripcion}</div> : null}
-                {l.nuevo.especificaciones.length ? (
-                  <table style={{ fontSize: '13px', borderCollapse: 'collapse', marginTop: '6px' }}>
-                    <tbody>
-                      {l.nuevo.especificaciones.map((f, k) => (
-                        <tr key={k}>
-                          <td style={{ padding: '2px 10px 2px 0', color: 'var(--text-secondary)' }}>{f.nombre}</td>
-                          <td style={{ padding: '2px 0' }}>{f.valor}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : null}
               </div>
             ) : null}
+
+            {/* Ficha técnica editable (igual que en Productos) */}
+            <div style={{ marginTop: '12px' }}>
+              <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '6px' }}>Ficha técnica (especificaciones)</div>
+              {!bloqueoCreado && faltantes.length > 0 ? (
+                <div style={s.cajaPlantilla}>
+                  <div style={{ fontSize: '12px', marginBottom: '6px' }}>
+                    Tipo detectado: <b>{plantilla.titulo}</b>. Campos recomendados que faltan
+                    {faltantes.some((c) => c.clave) ? <> (los de <b>*</b> los necesita el chat de la tienda)</> : null}:
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {faltantes.map((c) => (
+                      <button key={c.nombre} type="button" onClick={() => agregarFilas([c])} style={{ ...s.chipCampo, ...(c.clave ? s.chipCampoClave : {}) }}>
+                        + {c.nombre}
+                        {c.clave ? ' *' : ''}
+                      </button>
+                    ))}
+                    {faltantes.length > 1 ? (
+                      <button type="button" onClick={() => agregarFilas(faltantes)} style={s.chipCampo}>
+                        Agregar los que faltan
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+              {l.nuevo.especificaciones.length === 0 ? <div style={s.ayuda}>Sin especificaciones: agrégalas o usa la IA.</div> : null}
+              {l.nuevo.especificaciones.map((f, k) => (
+                <div key={k} style={{ display: 'flex', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
+                  <input value={f.nombre} placeholder="Ej. Potencia" maxLength={60} disabled={bloqueoCreado} onChange={(e) => cambiarFila(k, 'nombre', e.target.value)} style={{ ...s.input, flex: '0 0 38%', minWidth: 0 }} />
+                  <input value={f.valor} placeholder="Ej. 20 W" maxLength={200} disabled={bloqueoCreado} onChange={(e) => cambiarFila(k, 'valor', e.target.value)} style={{ ...s.input, flex: 1, minWidth: 0 }} />
+                  {!bloqueoCreado ? (
+                    <button
+                      type="button"
+                      title="Quitar esta fila"
+                      onClick={() => cambiarNuevo(i, { especificaciones: l.nuevo.especificaciones.filter((_, j) => j !== k) })}
+                      style={{ ...s.btnChico, color: 'var(--danger)' }}
+                    >
+                      ✕
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+              {!bloqueoCreado && l.nuevo.especificaciones.length < 30 ? (
+                <button type="button" style={s.btnChico} onClick={() => cambiarNuevo(i, { especificaciones: [...l.nuevo.especificaciones, { nombre: '', valor: '' }] })}>
+                  + Agregar fila
+                </button>
+              ) : null}
+            </div>
+
+            {/* Más datos del producto (igual que en Productos) */}
+            <div style={{ marginTop: '12px' }}>
+              <button type="button" style={s.btnMini} onClick={() => setVerMasDatos(!verMasDatos)}>
+                {verMasDatos ? '▾ Menos datos' : '▸ Más datos: referencia, precio antes (oferta), video, activo'}
+              </button>
+              {verMasDatos ? (
+                <div className="pos-grid2" style={{ ...s.grid, marginTop: '8px' }}>
+                  <label style={s.campo}>
+                    <span style={s.etiqueta}>Referencia (vacío = la siguiente automática)</span>
+                    <input value={l.nuevo.referencia} disabled={bloqueoCreado} onChange={(e) => cambiarNuevo(i, { referencia: e.target.value })} style={s.input} />
+                  </label>
+                  <label style={s.campo}>
+                    <span style={s.etiqueta}>Precio antes (oferta en la tienda)</span>
+                    <input type="number" min="0" value={l.nuevo.precio_anterior} placeholder="Vacío = sin oferta" disabled={bloqueoCreado} onChange={(e) => cambiarNuevo(i, { precio_anterior: e.target.value })} style={s.input} />
+                  </label>
+                  <label style={s.campo}>
+                    <span style={s.etiqueta}>Video de YouTube (opcional)</span>
+                    <input value={l.nuevo.video_youtube} placeholder="https://youtu.be/..." disabled={bloqueoCreado} onChange={(e) => cambiarNuevo(i, { video_youtube: e.target.value })} style={s.input} />
+                  </label>
+                  <label style={{ ...s.campo, flexDirection: 'row', alignItems: 'center', gap: '8px', marginTop: '18px' }}>
+                    <input type="checkbox" checked={l.nuevo.activo !== false} disabled={bloqueoCreado} onChange={(e) => cambiarNuevo(i, { activo: e.target.checked })} />
+                    <span>Activo</span>
+                  </label>
+                </div>
+              ) : null}
+            </div>
           </div>
         ) : null}
 
@@ -1487,6 +1834,11 @@ const s = {
   cajaNuevo: { border: '1px dashed #a4bcfd', borderRadius: '8px', padding: '10px', background: '#f8f9ff' },
   foto: { cursor: 'zoom-in', width: '170px', height: '170px', objectFit: 'contain', background: '#fff', border: '1px solid var(--border)', borderRadius: '8px', display: 'block' },
   etiquetaPortada: { position: 'absolute', top: '4px', left: '4px', background: 'var(--teal)', color: '#fff', fontSize: '11px', padding: '2px 6px', borderRadius: '4px' },
+  panelIA: { border: '1px solid #d9d6fe', background: '#f9f8ff', borderRadius: '8px', padding: '10px', marginBottom: '10px' },
+  btnPrimarioChico: { padding: '6px 12px', borderRadius: '8px', border: 'none', background: 'var(--teal)', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 600 },
+  cajaPlantilla: { border: '1px dashed var(--border)', borderRadius: '8px', padding: '8px', marginBottom: '8px', background: '#fff' },
+  chipCampo: { padding: '4px 10px', borderRadius: '999px', border: '1px solid var(--border)', background: '#fff', cursor: 'pointer', fontSize: '12px' },
+  chipCampoClave: { borderColor: 'var(--teal)', color: 'var(--teal-dark)', fontWeight: 600 },
   overlayFoto: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', cursor: 'zoom-out' },
   fotoAmpliada: { maxWidth: 'min(92vw, 900px)', maxHeight: '88vh', objectFit: 'contain', background: '#fff', borderRadius: '10px', boxShadow: '0 12px 40px rgba(0,0,0,0.4)' },
   etiquetaPropia: { position: 'absolute', top: '4px', right: '4px', background: '#6172f3', color: '#fff', fontSize: '10px', padding: '1px 5px', borderRadius: '4px' },

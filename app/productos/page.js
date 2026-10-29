@@ -182,7 +182,8 @@ export default function ProductosPage() {
     fetch('/api/productos/siguiente-referencia')
       .then((r) => r.json())
       .then((d) => {
-        if (d.ok) setForm((f) => (f.id ? f : { ...f, referencia: d.siguiente }));
+        // (si ya llegó una referencia escrita a mano —desde la factura—, se respeta)
+        if (d.ok) setForm((f) => (f.id || f.referencia ? f : { ...f, referencia: d.siguiente }));
         else setErrorReferenciaSugerida(d.error || 'No se pudo sugerir sola');
       })
       .catch(() => setErrorReferenciaSugerida('No se pudo sugerir sola'));
@@ -248,7 +249,15 @@ export default function ProductosPage() {
         es_gamer: typeof d.es_gamer === 'boolean' ? d.es_gamer : f.es_gamer,
         mostrar_en_tienda: typeof d.mostrar_en_tienda === 'boolean' ? d.mostrar_en_tienda : f.mostrar_en_tienda,
         con_iva: typeof d.con_iva === 'boolean' ? d.con_iva : f.con_iva,
+        activo: typeof d.activo === 'boolean' ? d.activo : f.activo,
+        referencia: texto(d.referencia).trim() || f.referencia,
+        precio_anterior: texto(d.precio_anterior) || f.precio_anterior,
+        video_youtube: texto(d.video_youtube) || f.video_youtube,
       }));
+      if (d.texto_fabricante) {
+        setTextoFabricante(String(d.texto_fabricante));
+        setMostrarPegarTexto(true);
+      }
       if (d.categoria_id) cargarSubcategorias(d.categoria_id);
       if (d.enlace) setEnlaceFabricante(String(d.enlace));
       if (d.info) setInfoAdicionalIA(String(d.info));
