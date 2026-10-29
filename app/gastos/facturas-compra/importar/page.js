@@ -9,6 +9,8 @@ import {
   costoParaPos,
   costoNetoParaPos,
   precioVentaAutomatico,
+  precioDistribuidorAutomatico,
+  DESCRIPCION_MINIMA,
   reglaSugerida,
   normalizarRegla,
   REGLA_POR_DEFECTO,
@@ -18,6 +20,7 @@ import {
   sinTildes,
 } from '../../../../lib/borradorFactura';
 import { descargarExcelEtiquetas } from '../../../../lib/etiquetasOpenLabel';
+import { quitarFondoFoto } from '../../../../lib/quitarFondoCliente';
 
 // Facturas de compra → "📥 Importar borrador" (octubre 2026).
 // Claude lee la foto de la factura del proveedor (y su catálogo o la página
@@ -127,6 +130,7 @@ export default function ImportarBorradorPage() {
   const [regla, setRegla] = useState(REGLA_POR_DEFECTO);
   const [reglaOrigen, setReglaOrigen] = useState(''); // 'guardada' | 'sugerida'
   const [recordarRegla, setRecordarRegla] = useState(true);
+  const [fotoGrande, setFotoGrande] = useState(null); // url de la foto ampliada
 
   const [aprobando, setAprobando] = useState(false);
   const [pasos, setPasos] = useState([]);
@@ -246,6 +250,7 @@ export default function ImportarBorradorPage() {
         especificaciones: p?.especificaciones || [],
         precio_venta: p?.precio_venta_sugerido ? String(Math.round(p.precio_venta_sugerido)) : '',
         precioEditado: false, // true = Nelson lo escribió (no se recalcula con la regla)
+        precioDistEditado: false,
         precio_distribuidor: '',
         con_iva: item.iva_porcentaje > 0,
         mostrar_en_tienda: true,
@@ -352,6 +357,91 @@ export default function ImportarBorradorPage() {
     );
   }
 
+  // Quitar el fondo de una foto de un producto nuevo (mismo sistema de la
+  // pantalla de Productos: remove.bg si está la clave, si no la IA del
+  // navegador). La foto queda en fondo blanco y reemplaza a la original en
+  // el mismo lugar; "Deshacer" la devuelve.
+  async function quitarFondoDeFoto(i, ruta) {
+    const f = fotos[ruta];
+    if (!f) return;
+    cambiarLinea(i, { fondoEnCurso: ruta, mensajeFondo: 'Quitando el fondo…' });
+    try {
+      const r = await quitarFondoFoto(await blobADataUri(f.blob), {
+        onProgreso: (m) => cambiarLinea(i, { mensajeFondo: m }),
+      });
+      const blob = await (await fetch(r.imagen)).blob();
+      const clave = `sinfondo/${Date.now()}-${ruta.split('/').pop()}`;
+      setFotos((actual) => ({ ...actual, [clave]: { blob, url: URL.createObjectURL(blob), propia: f.propia, sinFondo: true, antes: ruta } }));
+      setLineas((ls) =>
+        ls.map((l, j) =>
+          j === i
+            ? {
+                ...l,
+                fondoEnCurso: null,
+                mensajeFondo: r.metodo === 'removebg' ? 'Listo: fondo quitado.' : 'Listo: fondo quitado con la IA del navegador. Si no quedó bien, dale Deshacer.',
+                nuevo: { ...l.nuevo, fotos: l.nuevo.fotos.map((x) => (x === ruta ? clave : x)) },
+              }
+            : l
+        )
+      );
+    } catch (e) {
+      cambiarLinea(i, { fondoEnCurso: null, mensajeFondo: `No se pudo quitar el fondo: ${e?.message || 'error'}` });
+    }
+  }
+
+  function deshacerFondo(i, clave) {
+    const antes = fotos[clave]?.antes;
+    if (!antes) return;
+    setLineas((ls) =>
+      ls.map((l, j) => (j === i ? { ...l, mensajeFondo: '', nuevo: { ...l.nuevo, fotos: l.nuevo.fotos.map((x) => (x === clave ? antes : x)) } } : l))
+    );
+  }
+
+  // Descripción de al menos 400 letras: la IA del POS (la misma de
+  // Productos) la reescribe con lo que ya se sabe del producto.
+  async function ampliarDescripcion(i) {
+    const l = lineas[i];
+    cambiarLinea(i, { ampliando: true, mensajeDescripcion: '' });
+    const ficha = l.nuevo.especificaciones.map((f) => `${f.nombre}: ${f.valor}`).join('\n');
+    const texto = [
+      `Producto: ${l.nuevo.nombre}`,
+      l.marca ? `Marca: ${l.marca}` : '',
+      l.modelo ? `Modelo: ${l.modelo}` : '',
+      l.descripcion_factura ? `Como sale en la factura del proveedor: ${l.descripcion_factura}` : '',
+      ficha ? `Ficha técnica:\n${ficha}` : '',
+      l.nuevo.descripcion ? `Descripción actual (amplíala y mejórala): ${l.nuevo.descripcion}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+    try {
+      const r = await pedirJson('/api/productos/analizar-foto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          textoFabricante: texto,
+          infoAdicional: `La "descripcion" debe tener MÍNIMO ${DESCRIPCION_MINIMA} caracteres y máximo 600 (cuenta los caracteres). Usa solo los datos de arriba, no inventes.`,
+        }),
+      });
+      if (!r.ok || !r.descripcion) throw new Error(r.error || 'la IA no devolvió descripción');
+      const nueva = String(r.descripcion).trim().slice(0, 600);
+      setLineas((ls) =>
+        ls.map((x, j) =>
+          j === i
+            ? {
+                ...x,
+                ampliando: false,
+                mensajeDescripcion:
+                  nueva.length < DESCRIPCION_MINIMA ? `La IA dejó ${nueva.length} letras: complétala a mano o dale otra vez.` : 'Listo: descripción ampliada. Revísala.',
+                nuevo: { ...x.nuevo, descripcion: nueva },
+              }
+            : x
+        )
+      );
+    } catch (e) {
+      cambiarLinea(i, { ampliando: false, mensajeDescripcion: `No se pudo ampliar: ${e.message}` });
+    }
+  }
+
   // ─── Cálculos y validaciones ────────────────────────────────────────
   const activas = lineas.filter((l) => l.accion !== 'omitir');
   const conteo = {
@@ -366,6 +456,9 @@ export default function ImportarBorradorPage() {
   // escribió nada, el automático de la regla del proveedor (ej. costo × 2).
   const precioAutoDe = (l) => precioVentaAutomatico(l, regla);
   const precioVentaDe = (l) => (l.nuevo.precioEditado ? l.nuevo.precio_venta : precioAutoDe(l) ?? l.nuevo.precio_venta);
+  // Precio distribuidor: igual, el escrito por Nelson o costo + % de la regla.
+  const precioDistAutoDe = (l) => precioDistribuidorAutomatico(l, regla);
+  const precioDistDe = (l) => (l.nuevo.precioDistEditado ? l.nuevo.precio_distribuidor : precioDistAutoDe(l) ?? l.nuevo.precio_distribuidor);
   const subtotal = activas.reduce((a, l) => a + subtotalLinea(l), 0);
   const retencionValor = (Number(encabezado?.retencion_base) || 0) * ((Number(encabezado?.retencion_porcentaje) || 0) / 100);
 
@@ -403,6 +496,8 @@ export default function ImportarBorradorPage() {
         if (!l.nuevo.nombre.trim()) lista.push(`${n}: escribe el nombre del producto nuevo.`);
         if (!(Number(precioVentaDe(l)) > 0)) lista.push(`${n}: pon el precio de venta del producto nuevo.`);
         if (l.nuevo.descripcion.length > 600) lista.push(`${n}: la descripción pasa de 600 letras.`);
+        if (l.nuevo.descripcion.trim().length < DESCRIPCION_MINIMA)
+          lista.push(`${n}: la descripción debe tener al menos ${DESCRIPCION_MINIMA} letras (lleva ${l.nuevo.descripcion.trim().length}; usa ✨ Ampliar con IA).`);
       }
     });
     return lista;
@@ -481,7 +576,7 @@ export default function ImportarBorradorPage() {
                 subcategoria_id: l.nuevo.subcategoria_id ? Number(l.nuevo.subcategoria_id) : null,
                 precio_venta: Number(precioVentaDe(l)),
                 precio_costo: Math.round(costoNetoParaPos(l, regla) * 100) / 100,
-                precio_distribuidor: Number(l.nuevo.precio_distribuidor) || null,
+                precio_distribuidor: Number(precioDistDe(l)) || null,
                 activo: true,
                 es_inventariable: true,
                 mostrar_en_tienda: l.nuevo.mostrar_en_tienda,
@@ -759,6 +854,20 @@ export default function ImportarBorradorPage() {
                   ))}
                 </select>
               </label>
+              <label style={s.campo}>
+                <span style={s.etiqueta}>Precio distribuidor de los productos nuevos</span>
+                <select
+                  value={regla.distribuidor === null ? '' : String(regla.distribuidor)}
+                  disabled={aprobando}
+                  onChange={(e) => setRegla({ ...regla, distribuidor: e.target.value === '' ? null : Number(e.target.value) })}
+                  style={s.input}
+                >
+                  <option value="">No calcular</option>
+                  {[20, 30, 40, 50, 60].concat(regla.distribuidor !== null && ![20, 30, 40, 50, 60].includes(regla.distribuidor) ? [regla.distribuidor] : []).map((d) => (
+                    <option key={d} value={String(d)}>Costo + {d} %</option>
+                  ))}
+                </select>
+              </label>
               <div style={{ ...s.campo, gridColumn: '1 / -1' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
                   <input type="checkbox" checked={recordarRegla} disabled={aprobando} onChange={(e) => setRecordarRegla(e.target.checked)} />
@@ -767,7 +876,8 @@ export default function ImportarBorradorPage() {
                 <span style={s.ayuda}>
                   {reglaOrigen === 'guardada' ? 'Regla guardada de este proveedor.' : 'Regla sugerida (este proveedor aún no tiene una guardada).'}{' '}
                   {regla.iva === 'sumar' ? 'Costo = precio de la factura + IVA.' : 'El IVA no se tiene en cuenta.'}{' '}
-                  {regla.multiplicador ? `Venta = costo × ${String(regla.multiplicador).replace('.', ',')} (puedes cambiarla en cada producto).` : 'El precio de venta lo escribes tú.'}
+                  {regla.multiplicador ? `Venta = costo × ${String(regla.multiplicador).replace('.', ',')} (puedes cambiarla en cada producto).` : 'El precio de venta lo escribes tú.'}{' '}
+                  {regla.distribuidor !== null ? `Distribuidor = costo + ${regla.distribuidor} %.` : 'Sin precio distribuidor automático.'}
                 </span>
               </div>
               <label style={s.campo}>
@@ -813,6 +923,12 @@ export default function ImportarBorradorPage() {
               subtotal={subtotalLinea(l)}
               precioVenta={precioVentaDe(l)}
               precioAuto={precioAutoDe(l)}
+              precioDist={precioDistDe(l)}
+              precioDistAuto={precioDistAutoDe(l)}
+              quitarFondoDeFoto={quitarFondoDeFoto}
+              deshacerFondo={deshacerFondo}
+              ampliarDescripcion={ampliarDescripcion}
+              verFoto={setFotoGrande}
               subcategorias={subcategorias}
               bloqueada={aprobando}
               cambiarLinea={cambiarLinea}
@@ -820,6 +936,14 @@ export default function ImportarBorradorPage() {
               agregarFotosPropias={agregarFotosPropias}
             />
           ))}
+
+          {/* Foto en grande (clic en cualquier miniatura) */}
+          {fotoGrande ? (
+            <div style={s.overlayFoto} onClick={() => setFotoGrande(null)}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={fotoGrande} alt="" style={s.fotoAmpliada} />
+            </div>
+          ) : null}
 
           {/* Totales y aprobar */}
           <div style={s.card}>
@@ -868,12 +992,14 @@ export default function ImportarBorradorPage() {
 }
 
 // ─── Una línea del borrador ───────────────────────────────────────────
-function Linea({ l, i, productos, productosPorId, categorias, subcategorias, fotos, costo, costoNeto, subtotal, precioVenta: precioVentaTexto, precioAuto, bloqueada, cambiarLinea, cambiarNuevo, agregarFotosPropias }) {
+function Linea({ l, i, productos, productosPorId, categorias, subcategorias, fotos, costo, costoNeto, subtotal, precioVenta: precioVentaTexto, precioAuto, precioDist, precioDistAuto, bloqueada, cambiarLinea, cambiarNuevo, agregarFotosPropias, quitarFondoDeFoto, deshacerFondo, ampliarDescripcion, verFoto }) {
   const inputPortada = useRef(null);
   const inputExtra = useRef(null);
   const [buscando, setBuscando] = useState(false);
   const [texto, setTexto] = useState('');
   const [verDescripcion, setVerDescripcion] = useState(false);
+  const largoDescripcion = l.nuevo.descripcion.trim().length;
+  const descripcionCorta = largoDescripcion < DESCRIPCION_MINIMA;
 
   const estado = l.accion === 'existente' ? 'ok' : l.accion === 'nuevo' ? 'nuevo' : l.accion === 'omitir' ? 'omitir' : 'revisar';
   const elegido = l.accion === 'existente' ? productosPorId.get(Number(l.producto_id)) : null;
@@ -1018,7 +1144,22 @@ function Linea({ l, i, productos, productosPorId, categorias, subcategorias, fot
               </label>
               <label style={s.campo}>
                 <span style={s.etiqueta}>Precio distribuidor (opcional)</span>
-                <input type="number" min="0" value={l.nuevo.precio_distribuidor} disabled={bloqueoCreado} onChange={(e) => cambiarNuevo(i, { precio_distribuidor: e.target.value })} style={s.input} />
+                <input
+                  type="number"
+                  min="0"
+                  value={precioDist ?? ''}
+                  disabled={bloqueoCreado}
+                  onChange={(e) => cambiarNuevo(i, { precio_distribuidor: e.target.value, precioDistEditado: true })}
+                  style={s.input}
+                />
+                <span style={s.ayuda}>
+                  {precioDistAuto && !l.nuevo.precioDistEditado ? 'Calculado: costo + % de la regla' : ''}
+                  {precioDistAuto && l.nuevo.precioDistEditado && !bloqueoCreado ? (
+                    <button type="button" style={s.btnMini} onClick={() => cambiarNuevo(i, { precioDistEditado: false })}>
+                      ↺ volver a {moneda(precioDistAuto)}
+                    </button>
+                  ) : null}
+                </span>
               </label>
               <label style={s.campo}>
                 <span style={s.etiqueta}>IVA en la venta (Alegra)</span>
@@ -1038,11 +1179,27 @@ function Linea({ l, i, productos, productosPorId, categorias, subcategorias, fot
                 {l.nuevo.fotos.map((r, k) => (
                   <div key={r} style={{ position: 'relative' }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={fotos[r]?.url} alt="" style={{ ...s.foto, outline: k === 0 ? '3px solid var(--teal)' : 'none' }} />
+                    <img
+                      src={fotos[r]?.url}
+                      alt=""
+                      title="Clic para verla en grande"
+                      onClick={() => verFoto(fotos[r]?.url)}
+                      style={{ ...s.foto, outline: k === 0 ? '3px solid var(--teal)' : 'none', opacity: l.fondoEnCurso === r ? 0.4 : 1 }}
+                    />
                     {k === 0 ? <span style={s.etiquetaPortada}>Portada</span> : null}
                     {fotos[r]?.propia ? <span style={s.etiquetaPropia}>Tuya</span> : null}
+                    {fotos[r]?.sinFondo ? <span style={{ ...s.etiquetaPropia, top: fotos[r]?.propia ? '24px' : '4px', background: '#12b76a' }}>Sin fondo</span> : null}
                     {!bloqueoCreado ? (
-                      <div style={{ display: 'flex', gap: '4px', marginTop: '2px' }}>
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '4px', flexWrap: 'wrap', maxWidth: '170px' }}>
+                        {fotos[r]?.sinFondo ? (
+                          <button type="button" style={s.btnMini} onClick={() => deshacerFondo(i, r)}>
+                            Deshacer
+                          </button>
+                        ) : (
+                          <button type="button" style={s.btnMini} disabled={!!l.fondoEnCurso} onClick={() => quitarFondoDeFoto(i, r)}>
+                            {l.fondoEnCurso === r ? 'Quitando…' : '🪄 Sin fondo'}
+                          </button>
+                        )}
                         {k > 0 ? (
                           <button type="button" style={s.btnMini} onClick={() => cambiarNuevo(i, { fotos: [r, ...l.nuevo.fotos.filter((x) => x !== r)] })}>
                             Portada
@@ -1090,6 +1247,7 @@ function Linea({ l, i, productos, productosPorId, categorias, subcategorias, fot
                 </button>
               </div>
             ) : null}
+            {l.mensajeFondo ? <p style={{ ...s.ayuda, color: /No se pudo/.test(l.mensajeFondo) ? 'var(--danger)' : 'var(--text-secondary)' }}>{l.mensajeFondo}</p> : null}
             {l.avisoFoto ? <p style={{ ...s.ayuda, color: 'var(--danger)' }}>{l.avisoFoto}</p> : null}
             {l.fotosFaltantes.length ? <p style={{ ...s.ayuda, color: '#b54708' }}>No vinieron en el ZIP: {l.fotosFaltantes.join(', ')}</p> : null}
 
@@ -1104,21 +1262,35 @@ function Linea({ l, i, productos, productosPorId, categorias, subcategorias, fot
               ) : null}
               {' · '}
               {l.nuevo.especificaciones.length} datos de ficha técnica ·{' '}
+              <span style={{ color: descripcionCorta ? 'var(--danger)' : 'inherit', fontWeight: descripcionCorta ? 700 : 400 }}>
+                descripción {largoDescripcion}/{DESCRIPCION_MINIMA} mín.
+              </span>{' '}
+              ·{' '}
               <button type="button" style={s.btnMini} onClick={() => setVerDescripcion(!verDescripcion)}>
-                {verDescripcion ? 'Ocultar descripción' : 'Ver / editar descripción'}
+                {verDescripcion || descripcionCorta ? 'Ocultar descripción' : 'Ver / editar descripción'}
               </button>
             </div>
-            {verDescripcion ? (
+            {verDescripcion || (descripcionCorta && !bloqueoCreado) ? (
               <div style={{ marginTop: '8px' }}>
                 <textarea
                   value={l.nuevo.descripcion}
                   disabled={bloqueoCreado}
                   onChange={(e) => cambiarNuevo(i, { descripcion: e.target.value })}
-                  rows={4}
+                  rows={6}
                   maxLength={600}
                   style={{ ...s.input, width: '100%', fontFamily: 'inherit' }}
                 />
-                <div style={s.ayuda}>{l.nuevo.descripcion.length}/600</div>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ ...s.ayuda, color: descripcionCorta ? 'var(--danger)' : 'var(--text-secondary)' }}>
+                    {l.nuevo.descripcion.length}/600 · mínimo {DESCRIPCION_MINIMA}
+                  </span>
+                  {!bloqueoCreado ? (
+                    <button type="button" style={s.btnChico} disabled={l.ampliando} onClick={() => ampliarDescripcion(i)}>
+                      {l.ampliando ? 'Escribiendo…' : '✨ Ampliar con IA'}
+                    </button>
+                  ) : null}
+                </div>
+                {l.mensajeDescripcion ? <div style={s.ayuda}>{l.mensajeDescripcion}</div> : null}
                 {l.nuevo.especificaciones.length ? (
                   <table style={{ fontSize: '13px', borderCollapse: 'collapse', marginTop: '6px' }}>
                     <tbody>
@@ -1224,8 +1396,10 @@ const s = {
   chip: { padding: '4px 10px', borderRadius: '999px', fontSize: '13px', fontWeight: 600 },
   codigo: { marginLeft: '8px', padding: '1px 8px', borderRadius: '6px', background: '#f2f4f7', fontSize: '12px', fontFamily: 'monospace', fontWeight: 600 },
   cajaNuevo: { border: '1px dashed #a4bcfd', borderRadius: '8px', padding: '10px', background: '#f8f9ff' },
-  foto: { width: '96px', height: '96px', objectFit: 'contain', background: '#fff', border: '1px solid var(--border)', borderRadius: '8px', display: 'block' },
-  etiquetaPortada: { position: 'absolute', top: '4px', left: '4px', background: 'var(--teal)', color: '#fff', fontSize: '10px', padding: '1px 5px', borderRadius: '4px' },
+  foto: { cursor: 'zoom-in', width: '170px', height: '170px', objectFit: 'contain', background: '#fff', border: '1px solid var(--border)', borderRadius: '8px', display: 'block' },
+  etiquetaPortada: { position: 'absolute', top: '4px', left: '4px', background: 'var(--teal)', color: '#fff', fontSize: '11px', padding: '2px 6px', borderRadius: '4px' },
+  overlayFoto: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', cursor: 'zoom-out' },
+  fotoAmpliada: { maxWidth: 'min(92vw, 900px)', maxHeight: '88vh', objectFit: 'contain', background: '#fff', borderRadius: '10px', boxShadow: '0 12px 40px rgba(0,0,0,0.4)' },
   etiquetaPropia: { position: 'absolute', top: '4px', right: '4px', background: '#6172f3', color: '#fff', fontSize: '10px', padding: '1px 5px', borderRadius: '4px' },
   filaTotal: { display: 'flex', justifyContent: 'space-between', gap: '10px', padding: '4px 0', fontSize: '15px' },
   dropdown: { position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid var(--border)', borderRadius: '8px', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 20, maxHeight: '260px', overflowY: 'auto' },
