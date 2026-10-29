@@ -25,6 +25,7 @@ import { quitarFondoFoto } from '../../../../lib/quitarFondoCliente';
 import ModalProductoNuevo from '../../../../components/ModalProductoNuevo';
 import { recortarEspaciosBlancos, redimensionarParaIA } from '../../../../lib/fotosNavegador';
 import { tipoDeProducto, camposFaltantes } from '../../../../lib/plantillasFicha';
+import { ajustarDescripcion, REGLAS_DESCRIPCION_IA, DESCRIPCION_MAXIMA } from '../../../../lib/descripcionProducto';
 
 // Facturas de compra → "📥 Importar borrador" (octubre 2026).
 // Claude lee la foto de la factura del proveedor (y su catálogo o la página
@@ -406,6 +407,25 @@ export default function ImportarBorradorPage() {
     }
   }
 
+  // Llama a la IA del POS (la misma de Productos). Si la descripción se pasa
+  // de 600 letras, se le pide UNA vez más que la acorte; lo que llegue se
+  // ajusta sin cortar a mitad de palabra (lib/descripcionProducto.js).
+  async function pedirIA(cuerpo) {
+    const llamar = (c) =>
+      pedirJson('/api/productos/analizar-foto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(c) });
+    let r = await llamar(cuerpo);
+    const largo = String(r.descripcion || '').trim().length;
+    if (r.ok && largo > DESCRIPCION_MAXIMA) {
+      const r2 = await llamar({
+        ...cuerpo,
+        infoAdicional: `${cuerpo.infoAdicional || ''}\nOJO: tu descripción anterior tuvo ${largo} caracteres. Escríbela de nuevo con máximo ${DESCRIPCION_MAXIMA} (y mínimo ${DESCRIPCION_MINIMA}).`,
+      }).catch(() => null);
+      if (r2?.ok && r2.descripcion) r = r2;
+    }
+    if (r.ok && r.descripcion) r.descripcion = ajustarDescripcion(r.descripcion);
+    return r;
+  }
+
   // Recorta el espacio en blanco alrededor de una foto (como la casilla de
   // Productos). Se puede deshacer igual que "sin fondo".
   async function recortarFoto(i, ruta) {
@@ -443,28 +463,25 @@ export default function ImportarBorradorPage() {
         l.modelo ? `Modelo: ${l.modelo}` : '',
         l.descripcion_factura ? `Como sale en la factura del proveedor: ${l.descripcion_factura}` : '',
         ficha ? `Ficha técnica que ya tenemos:\n${ficha}` : '',
-        l.nuevo.descripcion ? `Descripción actual: ${l.nuevo.descripcion}` : '',
       ]
         .filter(Boolean)
         .join('\n');
       const enlace = l.nuevo.enlace.trim();
       const texto = l.nuevo.textoFabricante.trim();
-      const r = await pedirJson('/api/productos/analizar-foto', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imagenBase64: portada || undefined,
-          enlaceFabricante: enlace || undefined,
-          // Sin enlace ni texto pegado, la IA trabaja con lo que ya se sabe.
-          textoFabricante: texto || (!enlace ? conocido : undefined),
-          infoAdicional: [
-            l.nuevo.infoIA.trim() ? `Comentarios de Nelson (tenlos muy en cuenta): ${l.nuevo.infoIA.trim()}` : '',
-            enlace || texto ? conocido : '',
-            `La "descripcion" debe tener MÍNIMO ${DESCRIPCION_MINIMA} caracteres y máximo 600.`,
-          ]
-            .filter(Boolean)
-            .join('\n'),
-        }),
+      // La descripción vieja NO se manda como base (la IA la estiraba y
+      // perdía el formato de "✓"): se escribe desde los datos.
+      const r = await pedirIA({
+        imagenBase64: portada || undefined,
+        enlaceFabricante: enlace || undefined,
+        // Sin enlace ni texto pegado, la IA trabaja con lo que ya se sabe.
+        textoFabricante: texto || (!enlace ? conocido : undefined),
+        infoAdicional: [
+          l.nuevo.infoIA.trim() ? `Comentarios de Nelson (tenlos muy en cuenta): ${l.nuevo.infoIA.trim()}` : '',
+          enlace || texto ? conocido : '',
+          REGLAS_DESCRIPCION_IA,
+        ]
+          .filter(Boolean)
+          .join('\n'),
       });
       if (!r.ok) {
         cambiarLinea(i, {
@@ -479,7 +496,7 @@ export default function ImportarBorradorPage() {
       setLineas((ls) =>
         ls.map((x, j) => {
           if (j !== i) return x;
-          const desc = String(r.descripcion || '').trim().slice(0, 600);
+          const desc = r.descripcion || '';
           return {
             ...x,
             analizandoIA: false,
@@ -563,21 +580,18 @@ export default function ImportarBorradorPage() {
       l.modelo ? `Modelo: ${l.modelo}` : '',
       l.descripcion_factura ? `Como sale en la factura del proveedor: ${l.descripcion_factura}` : '',
       ficha ? `Ficha técnica:\n${ficha}` : '',
-      l.nuevo.descripcion ? `Descripción actual (amplíala y mejórala): ${l.nuevo.descripcion}` : '',
     ]
       .filter(Boolean)
       .join('\n');
     try {
-      const r = await pedirJson('/api/productos/analizar-foto', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          textoFabricante: texto,
-          infoAdicional: `La "descripcion" debe tener MÍNIMO ${DESCRIPCION_MINIMA} caracteres y máximo 600 (cuenta los caracteres). Usa solo los datos de arriba, no inventes.`,
-        }),
+      const r = await pedirIA({
+        textoFabricante: texto,
+        infoAdicional: [l.nuevo.infoIA.trim() ? `Comentarios de Nelson (tenlos muy en cuenta): ${l.nuevo.infoIA.trim()}` : '', REGLAS_DESCRIPCION_IA]
+          .filter(Boolean)
+          .join('\n'),
       });
       if (!r.ok || !r.descripcion) throw new Error(r.error || 'la IA no devolvió descripción');
-      const nueva = String(r.descripcion).trim().slice(0, 600);
+      const nueva = r.descripcion;
       setLineas((ls) =>
         ls.map((x, j) =>
           j === i
@@ -585,7 +599,7 @@ export default function ImportarBorradorPage() {
                 ...x,
                 ampliando: false,
                 mensajeDescripcion:
-                  nueva.length < DESCRIPCION_MINIMA ? `La IA dejó ${nueva.length} letras: complétala a mano o dale otra vez.` : 'Listo: descripción ampliada. Revísala.',
+                  nueva.length < DESCRIPCION_MINIMA ? `La IA dejó ${nueva.length} letras: complétala a mano o dale otra vez.` : `Listo (${nueva.length} letras). Revísala.`,
                 nuevo: { ...x.nuevo, descripcion: nueva },
               }
             : x
@@ -721,7 +735,7 @@ export default function ImportarBorradorPage() {
         if (l.nuevo.video_youtube.trim() && !/^https?:\/\/(www\.|m\.)?(youtube\.com|youtu\.be)\//i.test(l.nuevo.video_youtube.trim()))
           lista.push(`${n}: el video debe ser un enlace de YouTube.`);
         if (l.nuevo.descripcion.trim().length < DESCRIPCION_MINIMA)
-          lista.push(`${n}: la descripción debe tener al menos ${DESCRIPCION_MINIMA} letras (lleva ${l.nuevo.descripcion.trim().length}; usa ✨ Ampliar con IA).`);
+          lista.push(`${n}: la descripción debe tener al menos ${DESCRIPCION_MINIMA} letras (lleva ${l.nuevo.descripcion.trim().length}; usa ✨ Escribir con IA).`);
       }
     });
     return lista;
@@ -1659,7 +1673,7 @@ function Linea({ l, i, productos, productosPorId, categorias, subcategorias, fot
                   </span>
                   {!bloqueoCreado ? (
                     <button type="button" style={s.btnChico} disabled={l.ampliando} onClick={() => ampliarDescripcion(i)}>
-                      {l.ampliando ? 'Escribiendo…' : '✨ Ampliar con IA'}
+                      {l.ampliando ? 'Escribiendo…' : '✨ Escribir con IA'}
                     </button>
                   ) : null}
                 </div>

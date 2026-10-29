@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Shell from '../../components/Shell';
 import { tipoDeProducto, camposFaltantes } from '../../lib/plantillasFicha';
 import { quitarFondoFoto } from '../../lib/quitarFondoCliente';
+import { ajustarDescripcion, REGLAS_DESCRIPCION_IA } from '../../lib/descripcionProducto';
 
 const vacio = {
   id: null,
@@ -713,7 +714,7 @@ export default function ProductosPage() {
           imagenBase64: imagenAnalisis,
           // Desde la factura de compra se exige descripción de 400+ letras.
           infoAdicional: embebido
-            ? `${infoAdicionalIA ? `${infoAdicionalIA}. ` : ''}La "descripcion" debe tener MÍNIMO 400 caracteres y máximo 600.`
+            ? `${infoAdicionalIA ? `${infoAdicionalIA}. ` : ''}${REGLAS_DESCRIPCION_IA}`
             : infoAdicionalIA,
           enlaceFabricante: enlaceFabricante.trim() || undefined,
           textoFabricante: textoFabricante.trim() || undefined,
@@ -729,7 +730,8 @@ export default function ProductosPage() {
         setForm((f) => ({
           ...f,
           nombre: data.nombre || f.nombre,
-          descripcion: (data.descripcion || '').slice(0, 600),
+          // Sin cortar a mitad de palabra (lib/descripcionProducto.js).
+          descripcion: ajustarDescripcion(data.descripcion || ''),
           // La ficha técnica solo se reemplaza si la IA encontró datos; si
           // no encontró ninguno verificable, se deja la que ya hubiera.
           especificaciones:
