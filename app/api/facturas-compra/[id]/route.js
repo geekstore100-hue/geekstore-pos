@@ -16,6 +16,7 @@ export async function GET(request, { params }) {
         f.subtotal, f.retencion_porcentaje, f.retencion_base, f.retencion_valor, f.total,
         (f.total - f.retencion_valor) AS por_pagar,
         f.estado_pago, f.pagado_en, f.notas,
+        (to_jsonb(f) ->> 'descuento_en_costo') AS descuento_en_costo,
         p.nombre AS proveedor_nombre, p.identificacion AS proveedor_identificacion, p.telefono AS proveedor_telefono,
         b.nombre AS bodega_nombre
       FROM facturas_compra f

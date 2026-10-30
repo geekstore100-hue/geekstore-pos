@@ -5,6 +5,18 @@ import { actualizarCostoPromedio, sumarStock } from '../../../lib/transaccion';
 // Tarifas de ReteICA permitidas. 0 = "Sin retención".
 const TARIFAS_RETEICA = [0, 1.1, 0.41];
 
+// Oct 2026: el costo promedio se calculaba con el precio ANTES del descuento
+// de la línea (un 3 % de descuento no bajaba el costo). Desde el arreglo, el
+// costo usa el precio con descuento y la factura queda marcada con
+// descuento_en_costo = true. Las facturas viejas con descuento (marca vacía)
+// se pueden corregir desde su detalle (ver [id]/aplicar-descuento).
+let columnaLista = false;
+async function asegurarColumna() {
+  if (columnaLista) return;
+  await sql`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS descuento_en_costo BOOLEAN`;
+  columnaLista = true;
+}
+
 // Lista de facturas de compra, con lo que se ve en la pantalla "Facturas de
 // compra": proveedor, fechas, total, cuánto se retuvo (ReteICA) y cuánto
 // queda por pagar (total - retención), más si ya se pagó o sigue pendiente.
@@ -131,6 +143,7 @@ export async function POST(request) {
     // parte de la compra). Si no eligió ninguna tarifa, queda en 0. Esto se
     // puede seguir cambiando después desde "Editar retención" en el detalle.
     const retencionValor = retencionBase * (retencionPorcentaje / 100);
+    await asegurarColumna();
 
     // Todo en una sola transacción (ver lib/transaccion.js): la factura, el
     // costo promedio, el stock y los movimientos de TODAS las líneas se
@@ -146,16 +159,18 @@ export async function POST(request) {
       sql`
         WITH nueva AS (
           INSERT INTO facturas_compra
-            (numero, proveedor_id, bodega_id, fecha_creacion, fecha_vencimiento, subtotal, retencion_porcentaje, retencion_base, retencion_valor, total, notas)
+            (numero, proveedor_id, bodega_id, fecha_creacion, fecha_vencimiento, subtotal, retencion_porcentaje, retencion_base, retencion_valor, total, notas, descuento_en_costo)
           VALUES
-            (${numero}, ${proveedor_id}, ${bodega_id}, ${fecha_creacion}, ${fecha_vencimiento}, ${subtotal}, ${retencionPorcentaje}, ${retencionBase}, ${retencionValor}, ${total}, ${notas})
+            (${numero}, ${proveedor_id}, ${bodega_id}, ${fecha_creacion}, ${fecha_vencimiento}, ${subtotal}, ${retencionPorcentaje}, ${retencionBase}, ${retencionValor}, ${total}, ${notas}, true)
           RETURNING id
         )
         SELECT id, set_config('pos.id_factura', id::text, true) FROM nueva
       `,
     ];
     for (const it of items) {
-      consultas.push(actualizarCostoPromedio(it.producto_id, it.cantidad, it.precio));
+      // Costo = precio CON el descuento de la línea (lo que realmente se pagó).
+      const precioNeto = Math.round(it.precio * (1 - it.descuento_porcentaje / 100) * 100) / 100;
+      consultas.push(actualizarCostoPromedio(it.producto_id, it.cantidad, precioNeto));
       consultas.push(sumarStock(it.producto_id, bodega_id, it.cantidad));
       consultas.push(sql`
         INSERT INTO movimientos_stock (producto_id, bodega_id, tipo, cantidad, precio_unitario, descuento_porcentaje, factura_compra_id)

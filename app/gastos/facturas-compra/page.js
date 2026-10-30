@@ -343,7 +343,44 @@ export default function FacturasCompraPage() {
     }
   }
 
+  // Facturas viejas con descuento: el costo de los productos quedó sin el
+  // descuento (error corregido en oct 2026). Vista previa y corrección.
+  const [correccion, setCorreccion] = useState(null); // { cargando, lineas, mensaje, error }
+
+  async function verCorreccion(id) {
+    setCorreccion({ cargando: true });
+    try {
+      const r = await fetch(`/api/facturas-compra/${id}/aplicar-descuento`);
+      const d = await r.json();
+      setCorreccion(d.ok ? { lineas: d.lineas } : { error: d.error || 'No se pudo calcular' });
+    } catch {
+      setCorreccion({ error: 'Error de conexión' });
+    }
+  }
+
+  async function aplicarCorreccion(id) {
+    setCorreccion((c) => ({ ...c, aplicando: true }));
+    try {
+      const r = await fetch(`/api/facturas-compra/${id}/aplicar-descuento`, { method: 'POST' });
+      const d = await r.json();
+      if (!d.ok) {
+        setCorreccion((c) => ({ ...c, aplicando: false, error: d.error || 'No se pudo corregir' }));
+        return;
+      }
+      setCorreccion({
+        mensaje: `Listo: se corrigió el costo de ${d.corregidos} producto${d.corregidos === 1 ? '' : 's'}.${
+          d.pendientes.length ? ` Corrige a mano en Productos: ${d.pendientes.map((x) => `${x.referencia} (${x.motivo})`).join('; ')}` : ''
+        }`,
+      });
+      setDetalleFactura((df) => (df?.factura ? { ...df, factura: { ...df.factura, descuento_en_costo: 'true' } } : df));
+      cargarProductos();
+    } catch {
+      setCorreccion((c) => ({ ...c, aplicando: false, error: 'Error de conexión' }));
+    }
+  }
+
   async function abrirDetalle(id) {
+    setCorreccion(null);
     setCargandoDetalle(true);
     setDetalleFactura({ id });
     setEditandoRetencion(false);
@@ -1040,24 +1077,100 @@ export default function FacturasCompraPage() {
                 <div style={styles.filaDetalle}><span>Creación</span><strong>{fecha(detalleFactura.factura.fecha_creacion)}</strong></div>
                 <div style={styles.filaDetalle}><span>Vencimiento</span><strong>{fecha(detalleFactura.factura.fecha_vencimiento)}</strong></div>
 
-                <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '12px' }}>
-                  <thead>
-                    <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
-                      <th style={styles.th}>Producto</th>
-                      <th style={styles.th}>Cant.</th>
-                      <th style={styles.th}>Precio</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {detalleFactura.items?.map((it, idx) => (
-                      <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={styles.td}>{it.nombre}<div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{it.referencia}</div></td>
-                        <td style={styles.td}>{it.cantidad}</td>
-                        <td style={styles.td}>${moneda(it.precio_unitario)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                {(() => {
+                  // Oct 2026: también se ve el descuento de cada línea (antes solo
+                  // salía el precio sin descuento y parecía que no se había aplicado).
+                  const conDescuento = (detalleFactura.items || []).some((it) => Number(it.descuento_porcentaje) > 0);
+                  return (
+                    <>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '12px' }}>
+                        <thead>
+                          <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                            <th style={styles.th}>Producto</th>
+                            <th style={styles.th}>Cant.</th>
+                            <th style={styles.th}>Precio</th>
+                            {conDescuento ? <th style={styles.th}>Desc.</th> : null}
+                            <th style={{ ...styles.th, textAlign: 'right' }}>Subtotal</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {detalleFactura.items?.map((it, idx) => {
+                            const d = Number(it.descuento_porcentaje) || 0;
+                            const neto = Number(it.precio_unitario) * (1 - d / 100);
+                            return (
+                              <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
+                                <td style={styles.td}>{it.nombre}<div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{it.referencia}</div></td>
+                                <td style={styles.td}>{it.cantidad}</td>
+                                <td style={styles.td}>
+                                  ${moneda(it.precio_unitario)}
+                                  {d > 0 ? <div style={{ fontSize: '12px', color: 'var(--teal-dark)' }}>${moneda(neto)} con desc.</div> : null}
+                                </td>
+                                {conDescuento ? <td style={styles.td}>{d > 0 ? `${Number(d.toFixed(2))}%` : '—'}</td> : null}
+                                <td style={{ ...styles.td, textAlign: 'right' }}>${moneda(neto * Number(it.cantidad))}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      {conDescuento && (detalleFactura.factura.descuento_en_costo !== 'true' || correccion?.mensaje) ? (
+                        <div style={{ marginTop: '10px', padding: '10px', borderRadius: '8px', border: '1px solid #fedf89', background: '#fffaeb', fontSize: '13px', color: '#93370d' }}>
+                          {correccion?.mensaje ? (
+                            correccion.mensaje
+                          ) : (
+                            <>
+                              <strong>Esta factura tiene descuentos que no quedaron en el costo de los productos</strong> (error ya corregido para
+                              las facturas nuevas).
+                              {!correccion ? (
+                                <div style={{ marginTop: '6px' }}>
+                                  <button type="button" onClick={() => verCorreccion(detalleFactura.id)} style={styles.btnMiniLink}>
+                                    Ver cómo quedaría el costo →
+                                  </button>
+                                </div>
+                              ) : correccion.cargando ? (
+                                <div style={{ marginTop: '6px' }}>Calculando…</div>
+                              ) : correccion.error ? (
+                                <div style={{ marginTop: '6px', color: 'var(--danger)' }}>{correccion.error}</div>
+                              ) : (
+                                <div style={{ marginTop: '8px' }}>
+                                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                                    <thead>
+                                      <tr style={{ textAlign: 'left' }}>
+                                        <th>Producto</th>
+                                        <th style={{ textAlign: 'right' }}>Costo hoy</th>
+                                        <th style={{ textAlign: 'right' }}>Quedaría</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {correccion.lineas.map((l) => (
+                                        <tr key={l.mov_id}>
+                                          <td>
+                                            {l.referencia} · {l.nombre}
+                                            {!l.aplicable ? <div style={{ color: 'var(--danger)' }}>{l.motivo}</div> : null}
+                                            {l.aplicable && l.ventas_despues ? <div>También corrige el costo de {l.ventas_despues} venta(s) hechas después.</div> : null}
+                                          </td>
+                                          <td style={{ textAlign: 'right' }}>${moneda(l.costo_actual)}</td>
+                                          <td style={{ textAlign: 'right', fontWeight: 700 }}>{l.aplicable ? `$${moneda(l.costo_nuevo)}` : '—'}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                  <button
+                                    type="button"
+                                    onClick={() => aplicarCorreccion(detalleFactura.id)}
+                                    disabled={correccion.aplicando || !correccion.lineas.some((l) => l.aplicable)}
+                                    style={{ ...styles.btnPrimario, marginTop: '8px', fontSize: '13px', padding: '7px 12px' }}
+                                  >
+                                    {correccion.aplicando ? 'Corrigiendo…' : 'Aplicar el descuento al costo'}
+                                  </button>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      ) : null}
+                    </>
+                  );
+                })()}
 
                 <div style={{ ...styles.resumenFactura, marginTop: '12px' }}>
                   <div style={styles.filaResumen}><span>Subtotal</span><span>${moneda(detalleFactura.factura.subtotal)}</span></div>
