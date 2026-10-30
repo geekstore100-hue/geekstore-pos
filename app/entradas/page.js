@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Shell from '../../components/Shell';
+import { nombreSticker } from '../../lib/etiquetasOpenLabel';
 
 export default function EntradasPage() {
   const [productos, setProductos] = useState([]);
@@ -88,7 +89,7 @@ export default function EntradasPage() {
       const cantidad = Math.max(1, Number(en.cantidad) || 0);
 
       for (let i = 0; i < cantidad; i++) {
-        filas.push([en.referencia, en.nombre, precioFormateado]);
+        filas.push([en.referencia, nombreSticker(en.nombre), precioFormateado]);
       }
     });
 

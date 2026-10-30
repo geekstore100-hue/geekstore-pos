@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Shell from '../../components/Shell';
+import { nombreSticker } from '../../lib/etiquetasOpenLabel';
 
 export default function ReabastecimientoPage() {
   const router = useRouter();
@@ -266,7 +267,7 @@ export default function ReabastecimientoPage() {
         const cantidad = Math.max(1, Number(it.cantidad) || 0);
 
         for (let i = 0; i < cantidad; i++) {
-          filas.push([it.referencia, it.nombre, precioFormateado]);
+          filas.push([it.referencia, nombreSticker(it.nombre), precioFormateado]);
         }
       });
 
