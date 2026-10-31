@@ -5,6 +5,7 @@ import Shell from '../../../components/Shell';
 import { descargarExcelEtiquetas } from '../../../lib/etiquetasOpenLabel';
 import { achicarFoto, dataUrlABlob, fotosAPdf, cabeEnUnaSubida } from '../../../lib/manifiestoFotos';
 import ModalProductoNuevo from '../../../components/ModalProductoNuevo';
+import EditarFacturaCompra from '../../../components/EditarFacturaCompra';
 
 // Fecha de HOY en hora de Colombia (AAAA-MM-DD). Antes usaba
 // toISOString(), que da la fecha en hora UTC (5 horas adelante): después de
@@ -59,6 +60,9 @@ export default function FacturasCompraPage() {
   const [pagandoId, setPagandoId] = useState(null);
 
   const [editandoRetencion, setEditandoRetencion] = useState(false);
+  // Editar la factura completa (oct 2026): encabezado y productos.
+  const [editandoFactura, setEditandoFactura] = useState(false);
+  const [avisoEdicion, setAvisoEdicion] = useState('');
   const [retForm, setRetForm] = useState({ retencion_porcentaje: 0, retencion_base: 0, retencion_valor: 0 });
   const [guardandoRetencion, setGuardandoRetencion] = useState(false);
   const [errorRetencion, setErrorRetencion] = useState('');
@@ -384,6 +388,8 @@ export default function FacturasCompraPage() {
     setCargandoDetalle(true);
     setDetalleFactura({ id });
     setEditandoRetencion(false);
+    setEditandoFactura(false);
+    setAvisoEdicion('');
     setErrorRetencion('');
     setErrorManifiesto('');
     try {
@@ -536,6 +542,9 @@ export default function FacturasCompraPage() {
 
   function cerrarDetalle() {
     if (paginasManifiesto.length && !window.confirm('Hay fotos del manifiesto sin guardar. ¿Cerrar de todas formas?')) return;
+    if (editandoFactura && !window.confirm('Estás editando la factura y no has guardado. ¿Cerrar de todas formas?')) return;
+    setEditandoFactura(false);
+    setAvisoEdicion('');
     setPaginasManifiesto([]);
     setDetalleFactura(null);
     setEditandoRetencion(false);
@@ -1053,8 +1062,17 @@ export default function FacturasCompraPage() {
         <div style={styles.overlay} onMouseDown={cerrarDetalle}>
           <div style={styles.modalDetalle} onMouseDown={(e) => e.stopPropagation()}>
             <div style={styles.header}>
-              <h3 style={{ margin: 0 }}>{detalleFactura.factura?.numero || `FC-${detalleFactura.id}`}</h3>
+              <h3 style={{ margin: 0 }}>{editandoFactura ? 'Editar ' : ''}{detalleFactura.factura?.numero || `FC-${detalleFactura.id}`}</h3>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                {detalleFactura.factura && !editandoFactura && !cargandoDetalle ? (
+                  <button
+                    type="button"
+                    onClick={() => { setEditandoFactura(true); setEditandoRetencion(false); setAvisoEdicion(''); }}
+                    style={{ ...styles.btnSecundario, marginLeft: 0 }}
+                  >
+                    ✏️ Editar
+                  </button>
+                ) : null}
                 <a
                   href={`/gastos/facturas-compra/${detalleFactura.id}/imprimir`}
                   target="_blank"
@@ -1070,8 +1088,30 @@ export default function FacturasCompraPage() {
               <p>Cargando...</p>
             ) : !detalleFactura.factura ? (
               <p style={{ color: 'var(--danger)' }}>No se pudo cargar el detalle.</p>
+            ) : editandoFactura ? (
+              <EditarFacturaCompra
+                detalle={detalleFactura}
+                productosTodos={productosTodos}
+                proveedores={proveedores}
+                onCancelar={() => setEditandoFactura(false)}
+                onGuardado={async (vista) => {
+                  setEditandoFactura(false);
+                  const conAviso = (vista?.resumen || []).filter((r) => r.aviso);
+                  await abrirDetalle(detalleFactura.id);
+                  setAvisoEdicion(
+                    `✅ Factura actualizada.${conAviso.length ? ` Revisa a mano el costo de: ${conAviso.map((r) => r.referencia || r.nombre).join(', ')}.` : ''}`
+                  );
+                  cargarFacturas();
+                  cargarProductos();
+                }}
+              />
             ) : (
               <>
+                {avisoEdicion ? (
+                  <div style={{ marginBottom: '10px', padding: '10px', borderRadius: '8px', background: 'var(--teal-light)', color: 'var(--teal-dark)', fontSize: '13px' }}>
+                    {avisoEdicion}
+                  </div>
+                ) : null}
                 <div style={styles.filaDetalle}><span>Proveedor</span><strong>{detalleFactura.factura.proveedor_nombre}</strong></div>
                 <div style={styles.filaDetalle}><span>Bodega</span><strong>{detalleFactura.factura.bodega_nombre}</strong></div>
                 <div style={styles.filaDetalle}><span>Creación</span><strong>{fecha(detalleFactura.factura.fecha_creacion)}</strong></div>

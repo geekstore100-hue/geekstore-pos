@@ -5,7 +5,7 @@ import sql from '../../../../lib/db';
 // producto (para mostrarlo en la ficha de detalle de la pantalla).
 export async function GET(request, { params }) {
   try {
-    const id = Number(params.id);
+    const id = Number((await params).id);
     if (!id) {
       return NextResponse.json({ ok: false, error: 'Factura inválida' }, { status: 400 });
     }
@@ -15,7 +15,7 @@ export async function GET(request, { params }) {
         f.id, f.numero, f.fecha_creacion, f.fecha_vencimiento,
         f.subtotal, f.retencion_porcentaje, f.retencion_base, f.retencion_valor, f.total,
         (f.total - f.retencion_valor) AS por_pagar,
-        f.estado_pago, f.pagado_en, f.notas,
+        f.estado_pago, f.pagado_en, f.notas, f.proveedor_id, f.bodega_id,
         (to_jsonb(f) ->> 'descuento_en_costo') AS descuento_en_costo,
         p.nombre AS proveedor_nombre, p.identificacion AS proveedor_identificacion, p.telefono AS proveedor_telefono,
         b.nombre AS bodega_nombre
@@ -29,7 +29,7 @@ export async function GET(request, { params }) {
     }
 
     const items = await sql`
-      SELECT m.producto_id, m.cantidad, m.precio_unitario, m.descuento_porcentaje, pr.referencia, pr.nombre
+      SELECT m.id AS mov_id, m.producto_id, m.cantidad, m.precio_unitario, m.descuento_porcentaje, pr.referencia, pr.nombre
       FROM movimientos_stock m
       JOIN productos pr ON pr.id = m.producto_id
       WHERE m.tipo = 'factura_compra' AND m.factura_compra_id = ${id}
