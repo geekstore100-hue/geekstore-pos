@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import Shell from '../../../components/Shell';
 import { generarPdfCotizacion, numeroCotizacion, pesos } from '../../../lib/cotizacionPdf';
+import { marcarOpciones, limpiarOpcionesSueltas } from '../../../lib/opcionesCotizacion';
 
 // Cotizaciones → nueva / editar (octubre 2026).
 // Se buscan productos del POS, se ajustan cantidades, precios y descuentos,
@@ -48,6 +49,7 @@ function lineaDesdeProducto(p) {
     descuento_pct: 0,
     stock: Number(p.stock) || 0,
     inventariable: p.es_inventariable !== false,
+    grupo: '',
   };
 }
 
@@ -191,8 +193,14 @@ export default function EditarCotizacionPage() {
     marcar();
   }
 
-  const subtotal = lineas.reduce((a, l) => a + (Number(l.cantidad) || 0) * (Number(l.precio_unitario) || 0), 0);
-  const total = lineas.reduce((a, l) => a + totalLinea(l), 0);
+  // Opciones (nov 2026): las líneas con el mismo "grupo" son opciones para
+  // lo mismo que pidió el cliente; solo la opción A suma al total.
+  const marcadas = useMemo(() => limpiarOpcionesSueltas(marcarOpciones(lineas)), [lineas]);
+  const infoPorClave = useMemo(() => new Map(marcadas.map((l) => [l.clave, l])), [marcadas]);
+  const queSuman = marcadas.filter((l) => !l.alternativa);
+  const subtotal = queSuman.reduce((a, l) => a + (Number(l.cantidad) || 0) * (Number(l.precio_unitario) || 0), 0);
+  const total = queSuman.reduce((a, l) => a + totalLinea(l), 0);
+  const hayOpciones = marcadas.some((l) => l.alternativa);
 
   async function guardar() {
     setError('');
@@ -213,13 +221,14 @@ export default function EditarCotizacionPage() {
         validez_dias: Number(validez) || 8,
         notas,
         nota_total: notaTotal,
-        items: lineas.map(({ producto_id, referencia, nombre, cantidad, precio_unitario, descuento_pct }) => ({
+        items: lineas.map(({ producto_id, referencia, nombre, cantidad, precio_unitario, descuento_pct, grupo }) => ({
           producto_id,
           referencia,
           nombre,
           cantidad: Number(cantidad),
           precio_unitario: Number(precio_unitario),
           descuento_pct: Number(descuento_pct) || 0,
+          grupo: grupo || '',
         })),
       };
       const res = await fetch(esNueva || !guardada ? '/api/cotizaciones' : `/api/cotizaciones/${guardada.id}`, {
@@ -347,8 +356,22 @@ export default function EditarCotizacionPage() {
                   {lineas.map((l, i) => {
                     const prod = l.producto_id ? stockPorId.get(Number(l.producto_id)) : null;
                     const sinStock = prod && prod.es_inventariable !== false && Number(prod.stock) < Number(l.cantidad);
+                    const info = infoPorClave.get(l.clave) || {};
                     return (
-                      <div key={l.clave} style={s.linea}>
+                      <div key={l.clave} style={{ ...s.linea, ...(info.alternativa ? { opacity: 0.85 } : null) }}>
+                        {l.grupo ? (
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                            {info.opcion ? (
+                              <span style={{ ...s.chipOpcion, ...(info.alternativa ? s.chipOpcionB : null) }}>
+                                Opción {info.opcion}{info.alternativa ? ' · no suma al total' : ''}
+                              </span>
+                            ) : null}
+                            <span>📋 Pidió: {l.grupo}</span>
+                            <button type="button" onClick={() => cambiarLinea(l.clave, { grupo: '' })} style={{ ...s.btnLink, fontSize: '12px' }}>
+                              Quitar del pedido
+                            </button>
+                          </div>
+                        ) : null}
                         <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
                           {l.imagen_key ? <img src={`/api/imagenes/${l.imagen_key}`} alt="" style={s.foto} /> : <span style={{ ...s.foto, display: 'grid', placeItems: 'center', color: 'var(--text-secondary)', fontSize: '11px' }}>{l.producto_id ? '' : 'Libre'}</span>}
                           <div style={{ flex: 1, minWidth: 0 }}>
@@ -437,6 +460,11 @@ export default function EditarCotizacionPage() {
                 <span>TOTAL</span>
                 <span style={{ color: '#19c3ff' }}>{pesos(total)}</span>
               </div>
+              {hayOpciones && (
+                <div style={{ fontSize: '12px', color: '#a3aec2', marginTop: '4px' }}>
+                  Incluye la opción A de cada producto con varias opciones (las demás no suman).
+                </div>
+              )}
               <div style={{ fontSize: '12px', color: '#a3aec2', marginTop: '4px' }}>{lineas.length} producto{lineas.length === 1 ? '' : 's'}</div>
               <label style={{ display: 'block', fontSize: '12px', color: '#a3aec2', marginTop: '12px' }}>
                 Texto debajo del total (sale en el PDF; vacío = nada)
@@ -509,6 +537,8 @@ const s = {
   btnLink: { border: 'none', background: 'none', padding: 0, color: 'var(--teal-dark)', cursor: 'pointer', fontSize: '13px', textAlign: 'left' },
   btnPrimario: { padding: '11px 16px', borderRadius: '8px', border: 'none', background: 'var(--teal)', color: '#fff', cursor: 'pointer', fontWeight: 700, fontSize: '15px' },
   btnSecundario: { padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border)', background: '#fff', cursor: 'pointer', fontSize: '14px' },
+  chipOpcion: { background: '#e0f7ff', color: '#0b6b8f', fontWeight: 700, borderRadius: '999px', padding: '2px 9px' },
+  chipOpcionB: { background: '#f3f5f9', color: '#5b6577' },
   tarjetaTotal: { background: '#0b0f1a', color: '#fff', borderColor: '#0b0f1a', borderBottom: '3px solid #ff2e88' },
   filaTotal: { display: 'flex', justifyContent: 'space-between', gap: '10px', fontSize: '14px', padding: '2px 0' },
 };

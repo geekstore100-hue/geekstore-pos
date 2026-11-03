@@ -70,7 +70,10 @@ export default function CotizacionesPage() {
     <Shell title="Cotizaciones">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '16px' }}>
         <h2 style={{ margin: 0 }}>Cotizaciones</h2>
-        <Link href="/cotizaciones/nueva" style={s.btnPrimario}>+ Nueva cotización</Link>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <Link href="/cotizaciones/desde-foto" style={{ ...s.btnPrimario, background: '#fff', color: 'var(--teal-dark)', border: '1px solid var(--teal)' }}>📷 Cotizar desde foto</Link>
+          <Link href="/cotizaciones/nueva" style={s.btnPrimario}>+ Nueva cotización</Link>
+        </div>
       </div>
 
       <div style={s.card}>
