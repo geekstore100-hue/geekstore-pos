@@ -23,7 +23,7 @@ export async function GET() {
       LEFT JOIN categorias c ON c.id = p.categoria_id
       LEFT JOIN subcategorias sc ON sc.id = p.subcategoria_id
       LEFT JOIN stock s ON s.producto_id = p.id
-      WHERE p.activo = true
+      WHERE p.activo = true AND COALESCE(to_jsonb(p) ->> 'sede', 'kennedy') = 'kennedy'
         AND COALESCE((to_jsonb(p) ->> 'mostrar_en_tienda')::boolean, true) = true
       GROUP BY p.id, c.nombre, sc.nombre
     `;

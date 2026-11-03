@@ -1,5 +1,39 @@
 import { NextResponse } from 'next/server';
 import { COOKIE_SESION, tokenSesionValido } from './lib/sesion';
+import { COOKIE_SEDE, sedeDeSesion } from './lib/sesionSede';
+
+// SESIÓN DE SEDE (nov 2026, ver lib/sesionSede.js): la gente de Geek Store
+// Venecia entra al editor de productos con un enlace de su POS, sin la
+// clave de administrador. Solo puede usar estas rutas (y los productos de su
+// sede: cada ruta lo revisa con el encabezado x-pos-sede que pone aquí).
+const RUTAS_SEDE = [
+  ['GET', /^\/productos\/?$/],
+  ['GET', /^\/api\/sesion$/],
+  ['GET', /^\/api\/tema$/],
+  ['GET', /^\/api\/categorias$/],
+  ['GET', /^\/api\/subcategorias$/],
+  ['GET', /^\/api\/productos$/],
+  ['PUT', /^\/api\/productos\/\d+$/],
+  ['GET', /^\/api\/productos\/\d+\/imagenes$/],
+  ['POST', /^\/api\/productos\/\d+\/imagenes$/],
+  ['DELETE', /^\/api\/productos\/\d+\/imagenes\/\d+$/],
+  ['PATCH', /^\/api\/productos\/\d+\/imagenes\/\d+$/],
+  ['POST', /^\/api\/productos\/analizar-foto$/],
+  ['POST', /^\/api\/productos\/quitar-fondo$/],
+  ['GET', /^\/api\/productos\/foto-remota$/],
+  ['GET', /^\/api\/productos\/fotos-pagina$/],
+];
+function rutaPermitidaSede(metodo, pathname) {
+  const m = metodo === 'HEAD' ? 'GET' : metodo;
+  return RUTAS_SEDE.some(([mm, re]) => mm === m && re.test(pathname));
+}
+// Nadie puede mandar x-pos-sede desde afuera: solo lo pone este archivo.
+function siguienteCon(request, sede) {
+  const headers = new Headers(request.headers);
+  headers.delete('x-pos-sede');
+  if (sede) headers.set('x-pos-sede', sede);
+  return NextResponse.next({ request: { headers } });
+}
 
 // Rutas públicas, sin necesidad de tener la sesión de administrador
 // iniciada:
@@ -43,15 +77,25 @@ export async function middleware(request) {
   }
 
   if (esRutaPublica(pathname)) {
-    return NextResponse.next();
+    return siguienteCon(request, null);
   }
 
   const token = request.cookies.get(COOKIE_SESION)?.value;
-  if (!(await tokenSesionValido(token))) {
-    return NextResponse.redirect(new URL('/login', request.url));
+  if (await tokenSesionValido(token)) {
+    return siguienteCon(request, null);
   }
 
-  return NextResponse.next();
+  // Sesión limitada de una sede (Venecia): solo su editor de productos.
+  const sede = await sedeDeSesion(request.cookies.get(COOKIE_SEDE)?.value);
+  if (sede) {
+    if (rutaPermitidaSede(request.method, pathname)) return siguienteCon(request, sede);
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ ok: false, error: 'No disponible para esta sede' }, { status: 403 });
+    }
+    return NextResponse.redirect(new URL('/productos', request.url));
+  }
+
+  return NextResponse.redirect(new URL('/login', request.url));
 }
 
 // api/imagenes/ también queda por fuera del middleware: las fotos ya eran

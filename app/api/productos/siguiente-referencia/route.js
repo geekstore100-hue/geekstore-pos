@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const productos = await sql`SELECT referencia FROM productos`;
+    const productos = await sql`SELECT referencia FROM productos WHERE COALESCE(to_jsonb(productos) ->> 'sede', 'kennedy') = 'kennedy'`;
     let max = 0;
     for (const p of productos) {
       const limpio = String(p.referencia ?? '').replace(/\D/g, '');

@@ -51,7 +51,7 @@ export async function GET() {
       FROM productos p
       LEFT JOIN stock_por_producto sp ON sp.producto_id = p.id
       LEFT JOIN ventas_periodo vp ON vp.producto_id = p.id
-      WHERE p.activo = true AND p.es_inventariable = true
+      WHERE p.activo = true AND p.es_inventariable = true AND COALESCE(to_jsonb(p) ->> 'sede', 'kennedy') = 'kennedy'
     `;
 
     const alertas = filas

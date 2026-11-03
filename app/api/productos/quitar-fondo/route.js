@@ -19,7 +19,10 @@
 export const dynamic = 'force-dynamic';
 
 export async function POST(request) {
-  const apiKey = process.env.REMOVEBG_API_KEY;
+  // Sede externa (Venecia): solo su propia cuenta de remove.bg (si no tiene,
+  // el navegador quita el fondo solo). Nunca gasta las fotos de Kennedy.
+  const sede = request.headers.get('x-pos-sede');
+  const apiKey = sede ? process.env[`${sede.toUpperCase()}_REMOVEBG_API_KEY`] : process.env.REMOVEBG_API_KEY;
   if (!apiKey) return Response.json({ ok: false, usarNavegador: true, motivo: 'sin_clave' });
   try {
     const { imagen } = await request.json();

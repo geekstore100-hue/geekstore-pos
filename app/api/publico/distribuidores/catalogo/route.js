@@ -48,7 +48,7 @@ export async function GET(request) {
         WHERE b.nombre <> 'Garantías con Proveedor'
         GROUP BY s.producto_id
       ) st ON st.producto_id = p.id
-      WHERE p.activo = true AND p.precio_distribuidor IS NOT NULL AND p.precio_distribuidor > 0
+      WHERE p.activo = true AND p.precio_distribuidor IS NOT NULL AND p.precio_distribuidor > 0 AND COALESCE(to_jsonb(p) ->> 'sede', 'kennedy') = 'kennedy'
       ORDER BY p.nombre ASC
     `;
 

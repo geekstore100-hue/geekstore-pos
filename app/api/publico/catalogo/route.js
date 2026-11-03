@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../../lib/db';
+import { DATOS_SEDES, faltantesWeb, whatsappSede } from '../../../../lib/sedes';
 
 // Catálogo público del POS, en el MISMO formato que ya espera la tienda
 // (geekstore-tienda) desde su función getProducts() en lib/alegra.js —
@@ -82,6 +83,8 @@ export async function GET(request) {
       -- existiendo normal en el POS y en el portal de distribuidores,
       -- solo se excluye de este catálogo público).
       WHERE p.activo = true AND p.mostrar_en_tienda = true
+        -- Sedes (nov 2026): los de Venecia van aparte, ver más abajo.
+        AND COALESCE(to_jsonb(p) ->> 'sede', 'kennedy') = 'kennedy'
       ORDER BY p.nombre ASC
     `;
 
@@ -150,6 +153,57 @@ export async function GET(request) {
           status: 'active',
         };
       });
+
+    // SEDES (nov 2026, fase 0, ver lib/sedes.js): con ?sedes=1 se agregan los
+    // coleccionables de Geek Store Venecia que tengan la ficha completa, estén
+    // publicados y tengan stock en su POS. Llevan "seller" (quién los vende,
+    // con su WhatsApp) y whatsappOnly: true — por ahora NO se pagan en la
+    // página: el botón es "Pedir por WhatsApp". La tienda vieja no pide
+    // ?sedes=1, así que no los ve.
+    if (new URL(request.url).searchParams.get('sedes') === '1') {
+      let deSedes = [];
+      try {
+        deSedes = await sql`
+          SELECT p.*, c.nombre AS categoria_nombre, sc.nombre AS subcategoria_nombre,
+                 (to_jsonb(p) ->> 'precio_anterior')::numeric AS precio_anterior
+          FROM productos p
+          LEFT JOIN categorias c ON c.id = p.categoria_id
+          LEFT JOIN subcategorias sc ON sc.id = p.subcategoria_id
+          WHERE COALESCE(to_jsonb(p) ->> 'sede', 'kennedy') <> 'kennedy'
+            AND p.activo = true AND p.mostrar_en_tienda = true
+            AND COALESCE((to_jsonb(p) ->> 'sede_stock')::numeric, 0) > 0
+          ORDER BY p.nombre ASC
+        `;
+      } catch {
+        deSedes = []; // sin la migración de sedes todavía: nada que agregar
+      }
+      for (const p of deSedes.filter((x) => faltantesWeb(x).length === 0)) {
+        const datos = DATOS_SEDES[p.sede] || { nombre: p.sede, corto: p.sede };
+        const urlPortada = p.imagen_key ? `${origin}/api/imagenes/${p.imagen_key}` : null;
+        const todas = imagenesPorProducto.get(p.id) || [];
+        const images = urlPortada ? [urlPortada, ...todas.filter((u) => u !== urlPortada)] : todas;
+        resultado.push({
+          id: p.referencia,
+          name: p.nombre,
+          description: p.descripcion || '',
+          reference: p.referencia,
+          category: p.categoria_nombre || '',
+          subcategory: p.subcategoria_nombre || '',
+          gamer: Boolean(p.es_gamer),
+          price: Number(p.precio_venta) || 0,
+          priceBefore: null,
+          available: Number(p.sede_stock) || 0,
+          warehouses: [{ name: datos.corto, quantity: Number(p.sede_stock) || 0 }],
+          image: images[0] ?? null,
+          images,
+          video: p.video_youtube || null,
+          specs: Array.isArray(p.especificaciones) ? p.especificaciones.map((e) => ({ name: e.nombre, value: e.valor })) : [],
+          status: 'active',
+          seller: { id: p.sede, name: datos.nombre, short: datos.corto, whatsapp: whatsappSede(p.sede) || null },
+          whatsappOnly: true,
+        });
+      }
+    }
 
     // Ahorro de Neon: este catálogo lo pide la tienda (geekstore.com.co)
     // para armar la página principal, cada página de producto, el mapa del

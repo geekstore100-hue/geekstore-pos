@@ -25,10 +25,10 @@ export async function POST(request) {
     const { desde = 0, proveedor } = await request.json().catch(() => ({}));
     const inicio = Math.max(0, Math.floor(Number(desde) || 0));
 
-    const [{ total }] = await sql`SELECT COUNT(*)::int AS total FROM productos WHERE activo = true`;
+    const [{ total }] = await sql`SELECT COUNT(*)::int AS total FROM productos WHERE activo = true AND COALESCE(to_jsonb(productos) ->> 'sede', 'kennedy') = 'kennedy'`;
     const lote = await sql`
       SELECT id, referencia, nombre FROM productos
-      WHERE activo = true
+      WHERE activo = true AND COALESCE(to_jsonb(productos) ->> 'sede', 'kennedy') = 'kennedy'
       ORDER BY id ASC
       LIMIT ${TAMANO_LOTE} OFFSET ${inicio}
     `;

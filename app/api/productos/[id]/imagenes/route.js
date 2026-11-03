@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getStore } from '@netlify/blobs';
 import sql from '../../../../../lib/db';
 import { leerImagenSubida } from '../../../../../lib/validarImagen';
+import { bloqueadoParaSede } from '../../../../../lib/sedes';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +10,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(request, { params }) {
   try {
     const { id } = await params;
+    if (await bloqueadoParaSede(request, id)) return NextResponse.json({ ok: false, error: 'Producto no encontrado' }, { status: 404 });
     const imagenes = await sql`
       SELECT id, imagen_key, orden
       FROM producto_imagenes
@@ -26,6 +28,7 @@ export async function GET(request, { params }) {
 export async function POST(request, { params }) {
   try {
     const { id } = await params;
+    if (await bloqueadoParaSede(request, id)) return NextResponse.json({ ok: false, error: 'Producto no encontrado' }, { status: 404 });
 
     const [producto] = await sql`SELECT id, referencia, imagen_key FROM productos WHERE id = ${id}`;
     if (!producto) {

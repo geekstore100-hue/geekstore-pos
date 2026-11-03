@@ -3,6 +3,8 @@ import sql from '../../../lib/db';
 import { esUrlYoutubeValida } from '../../../lib/youtube';
 import { normalizarEspecificaciones } from '../../../lib/especificaciones';
 import { guardarPrecioAnterior } from '../../../lib/precioAnterior';
+import { DATOS_SEDES } from '../../../lib/sedes';
+import { altoDeFicha, esCategoriaColeccionable, MENSAJE_FALTA_ALTO } from '../../../lib/figuras';
 
 export async function GET(request) {
   try {
@@ -11,6 +13,13 @@ export async function GET(request) {
     // descripciones largas (hasta 600 letras cada una), costos, videos,
     // etc. Así cada carga de Vender saca muchísimos menos datos de Neon.
     const { searchParams } = new URL(request.url);
+    // Sedes (nov 2026, ver lib/sedes.js): los productos de Geek Store Venecia
+    // viven en esta tabla pero NO son de Kennedy: por defecto no salen. La
+    // sesión limitada de una sede solo ve los suyos; el administrador los ve
+    // con ?sede=venecia.
+    const sedeSesion = request.headers.get('x-pos-sede') || null;
+    const pedida = searchParams.get('sede');
+    const sedeVer = sedeSesion || (pedida && DATOS_SEDES[pedida] ? pedida : 'kennedy');
     if (searchParams.get('para') === 'venta') {
       const productos = await sql`
         SELECT
@@ -28,7 +37,7 @@ export async function GET(request) {
         FROM productos p
         LEFT JOIN stock s ON s.producto_id = p.id
         LEFT JOIN bodegas b ON b.id = s.bodega_id
-        WHERE p.activo = true
+        WHERE p.activo = true AND COALESCE(to_jsonb(p) ->> 'sede', 'kennedy') = ${sedeVer}
         GROUP BY p.id
         ORDER BY (p.imagen_key IS NULL) ASC, p.creado_en DESC, p.id DESC
       `;
@@ -59,6 +68,8 @@ export async function GET(request) {
         p.mostrar_en_tienda,
         p.es_gamer,
         p.especificaciones,
+        to_jsonb(p) ->> 'sede_codigo' AS sede_codigo,
+        (to_jsonb(p) ->> 'sede_stock')::numeric AS sede_stock,
         COALESCE(SUM(s.cantidad), 0) AS stock,
         COALESCE(SUM(s.cantidad) FILTER (WHERE b.nombre = 'Principal'), 0) AS stock_principal,
         COALESCE(SUM(s.cantidad) FILTER (WHERE b.nombre = 'Bodega Distribuidor'), 0) AS stock_distribuidor
@@ -67,9 +78,17 @@ export async function GET(request) {
       LEFT JOIN subcategorias sc ON sc.id = p.subcategoria_id
       LEFT JOIN stock s ON s.producto_id = p.id
       LEFT JOIN bodegas b ON b.id = s.bodega_id
+      WHERE COALESCE(to_jsonb(p) ->> 'sede', 'kennedy') = ${sedeVer}
       GROUP BY p.id, c.nombre, sc.nombre
       ORDER BY (p.imagen_key IS NULL) ASC, p.creado_en DESC, p.id DESC
     `;
+    if (sedeVer !== 'kennedy') {
+      // Productos de una sede: su stock es el que manda su POS; sin costos.
+      return NextResponse.json({
+        ok: true,
+        productos: productos.map(({ precio_costo, precio_distribuidor, ...p }) => ({ ...p, stock: Number(p.sede_stock) || 0 })),
+      });
+    }
     return NextResponse.json({ ok: true, productos });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
@@ -78,6 +97,10 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
+    // Una sede no crea productos aquí: los publica desde su propio POS.
+    if (request.headers.get('x-pos-sede')) {
+      return NextResponse.json({ ok: false, error: 'Los productos se publican desde el POS de la sede' }, { status: 403 });
+    }
     const body = await request.json();
     const {
       referencia,
@@ -123,6 +146,14 @@ export async function POST(request) {
       );
     }
     const precioCostoFinal = inventariable ? Number(precio_costo) : null;
+
+    // Coleccionables (nov 2026): el alto de la figura es obligatorio.
+    if (categoria_id && !altoDeFicha(especificaciones)) {
+      const [cat] = await sql`SELECT nombre FROM categorias WHERE id = ${categoria_id}`;
+      if (esCategoriaColeccionable(cat?.nombre)) {
+        return NextResponse.json({ ok: false, error: MENSAJE_FALTA_ALTO }, { status: 400 });
+      }
+    }
 
     const [producto] = await sql`
       INSERT INTO productos (

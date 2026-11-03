@@ -29,7 +29,7 @@ export async function GET(request) {
       FROM productos p
       LEFT JOIN stock s ON s.producto_id = p.id
       LEFT JOIN bodegas b ON b.id = s.bodega_id
-      WHERE p.activo = true AND p.es_inventariable = true
+      WHERE p.activo = true AND p.es_inventariable = true AND COALESCE(to_jsonb(p) ->> 'sede', 'kennedy') = 'kennedy'
       GROUP BY p.id
       ORDER BY p.nombre ASC
     `;

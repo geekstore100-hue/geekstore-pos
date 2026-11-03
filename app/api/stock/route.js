@@ -16,6 +16,7 @@ export async function GET(request) {
       SELECT p.id AS producto_id, COALESCE(s.cantidad, 0) AS cantidad
       FROM productos p
       LEFT JOIN stock s ON s.producto_id = p.id AND s.bodega_id = ${bodegaId}
+      WHERE COALESCE(to_jsonb(p) ->> 'sede', 'kennedy') = 'kennedy'
     `;
 
     return NextResponse.json({ ok: true, stock });

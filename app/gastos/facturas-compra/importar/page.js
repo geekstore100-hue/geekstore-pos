@@ -28,6 +28,7 @@ import { tipoDeProducto, camposFaltantes } from '../../../../lib/plantillasFicha
 import { ajustarDescripcion, REGLAS_DESCRIPCION_IA, DESCRIPCION_MAXIMA } from '../../../../lib/descripcionProducto';
 import { CAMPOS_CONFIGURABLES, OBLIGATORIOS_POR_DEFECTO } from '../../../../lib/camposFactura';
 import { TARIFAS_RETEICA as TARIFAS_LISTA } from '../../../../lib/tarifasReteica';
+import { esCategoriaColeccionable, altoDeFicha } from '../../../../lib/figuras';
 
 // ASISTENTE DE FACTURA DE COMPRA (oct 2026), con el diseño "Poder" de la
 // tienda (oscuro, neón cian y magenta). Sirve para las dos formas de
@@ -874,6 +875,8 @@ export default function ImportarBorradorPage() {
     const nombreCat = categorias.find((c) => String(c.id) === String(n.categoria_id))?.nombre;
     const nombreSub = subcategorias.find((x) => String(x.id) === String(n.subcategoria_id))?.nombre;
     const plantilla = tipoDeProducto({ nombre: n.nombre, categoria: nombreCat, subcategoria: nombreSub });
+    // Coleccionables (nov 2026): el alto de la figura es obligatorio.
+    if (esCategoriaColeccionable(nombreCat) && !altoDeFicha(filas)) ob.push('Alto de la figura (ficha: Alto)');
     camposFaltantes(plantilla, filas)
       .filter((c) => c.clave)
       .forEach((c) => rec.push(`Ficha: ${c.nombre}`));

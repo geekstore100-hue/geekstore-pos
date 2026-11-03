@@ -3,6 +3,7 @@ import { preguntarEnCadena } from '../../../../lib/iaCadena';
 import { interpretarRespuestaIA } from '../../../../lib/respuestaIA';
 import { leerPaginaFabricante, ErrorPagina, MAX_CARACTERES_TEXTO } from '../../../../lib/leerPaginaFabricante';
 import { guiaDeCamposParaIA } from '../../../../lib/plantillasFicha';
+import { clavesIADeSede, DATOS_SEDES } from '../../../../lib/sedes';
 
 // Recibe la información de un producto y devuelve nombre, descripción,
 // categoría y ficha técnica (especificaciones) sugeridos por IA, para
@@ -61,6 +62,16 @@ export async function POST(request) {
 
     const enlace = String(enlaceFabricante || '').trim();
     const textoPegado = String(textoFabricante || '').trim();
+
+    // Sede externa (Venecia, ver lib/sedes.js): usa SUS claves de IA.
+    const sede = request.headers.get('x-pos-sede');
+    const claves = sede ? clavesIADeSede(sede) : null;
+    if (claves && !Object.values(claves).some(Boolean)) {
+      return Response.json(
+        { ok: false, error: `${DATOS_SEDES[sede]?.nombre || 'La sede'} todavía no tiene sus claves de IA configuradas. Pídele a Nelson que las ponga.` },
+        { status: 400 }
+      );
+    }
 
     if (!imagenBase64 && !enlace && !textoPegado) {
       return Response.json(
@@ -126,6 +137,7 @@ export async function POST(request) {
       prompt: promptFinal,
       imagenBase64: imagenBase64 || null,
       maxTokens: 1800,
+      claves,
       // Si una IA no devuelve un JSON válido, se prueba la siguiente.
       interpretar: (texto, nombre) => interpretarRespuestaIA(texto, nombre),
     });

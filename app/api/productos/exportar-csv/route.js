@@ -49,6 +49,7 @@ export async function GET() {
         FROM stock
         GROUP BY producto_id
       ) st ON st.producto_id = p.id
+      WHERE COALESCE(to_jsonb(p) ->> 'sede', 'kennedy') = 'kennedy'
       ORDER BY c.nombre ASC NULLS LAST, p.nombre ASC
     `;
 

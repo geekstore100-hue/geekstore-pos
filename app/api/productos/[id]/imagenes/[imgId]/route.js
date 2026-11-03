@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getStore } from '@netlify/blobs';
 import sql from '../../../../../../lib/db';
+import { bloqueadoParaSede } from '../../../../../../lib/sedes';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +10,7 @@ export const dynamic = 'force-dynamic';
 export async function DELETE(request, { params }) {
   try {
     const { id, imgId } = await params;
+    if (await bloqueadoParaSede(request, id)) return NextResponse.json({ ok: false, error: 'Producto no encontrado' }, { status: 404 });
 
     const [fila] = await sql`
       SELECT imagen_key FROM producto_imagenes WHERE id = ${imgId} AND producto_id = ${id}
@@ -46,6 +48,7 @@ export async function DELETE(request, { params }) {
 export async function PATCH(request, { params }) {
   try {
     const { id, imgId } = await params;
+    if (await bloqueadoParaSede(request, id)) return NextResponse.json({ ok: false, error: 'Producto no encontrado' }, { status: 404 });
 
     const [fila] = await sql`
       SELECT imagen_key FROM producto_imagenes WHERE id = ${imgId} AND producto_id = ${id}

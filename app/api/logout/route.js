@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { COOKIE_SESION, OPCIONES_COOKIE } from '../../../lib/sesion';
+import { COOKIE_SEDE } from '../../../lib/sesionSede';
 
 // Cerrar sesión: borra la cookie de sesión y manda a la pantalla de login.
 // El botón "Cerrar sesión" del menú lateral apunta a /api/logout, pero esta
@@ -8,6 +9,8 @@ function cerrarSesion(request) {
   const response = NextResponse.redirect(new URL('/login', request.url));
   response.cookies.set(COOKIE_SESION, '', { ...OPCIONES_COOKIE, maxAge: 0 });
   response.cookies.set('pos_clave', '', { ...OPCIONES_COOKIE, maxAge: 0 });
+  // También la sesión limitada de una sede (Venecia), si la hay.
+  response.cookies.set(COOKIE_SEDE, '', { ...OPCIONES_COOKIE, maxAge: 0 });
   return response;
 }
 

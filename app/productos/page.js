@@ -5,6 +5,7 @@ import Shell from '../../components/Shell';
 import { tipoDeProducto, camposFaltantes } from '../../lib/plantillasFicha';
 import { quitarFondoFoto } from '../../lib/quitarFondoCliente';
 import { ajustarDescripcion, REGLAS_DESCRIPCION_IA } from '../../lib/descripcionProducto';
+import { esCategoriaColeccionable, altoDeFicha, conAlto, valorAltoDeFicha, MENSAJE_FALTA_ALTO } from '../../lib/figuras';
 
 const vacio = {
   id: null,
@@ -108,9 +109,29 @@ export default function ProductosPage() {
   const [facturasCompras, setFacturasCompras] = useState([]);
   const [cargandoFacturasDetalle, setCargandoFacturasDetalle] = useState(false);
 
+  // SEDES (nov 2026, ver lib/sedes.js): Geek Store Venecia entra aquí con
+  // una sesión limitada (desde su POS) y solo ve y edita la ficha web de sus
+  // coleccionables. El administrador también puede ver los de Venecia con
+  // el selector de la lista.
+  const [sedeSesion, setSedeSesion] = useState(null); // { sede, nombre } o null
+  const [verSede, setVerSede] = useState(''); // '' = Kennedy; 'venecia' (solo administrador)
+  const [sesionLista, setSesionLista] = useState(false);
+  useEffect(() => {
+    fetch('/api/sesion')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.ok && d.sede) setSedeSesion({ sede: d.sede, nombre: d.nombreSede || d.sede });
+      })
+      .catch(() => {})
+      .finally(() => setSesionLista(true));
+  }, []);
+  // Ficha de un producto de sede: sin costo, sin Alegra, precio y stock los
+  // manda su POS, categoría fija Coleccionables.
+  const esDeSede = Boolean(sedeSesion || form.sede_codigo);
+
   async function cargarProductos() {
     setCargando(true);
-    const res = await fetch('/api/productos');
+    const res = await fetch(`/api/productos${verSede && !sedeSesion ? `?sede=${verSede}` : ''}`);
     const data = await res.json();
     if (data.ok) setProductos(data.productos);
     setCargando(false);
@@ -138,6 +159,9 @@ export default function ProductosPage() {
 
   useEffect(() => {
     cargarProductos();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [verSede]);
+  useEffect(() => {
     cargarCategorias();
   }, []);
 
@@ -305,6 +329,11 @@ export default function ProductosPage() {
     const sub = subcategorias.find((x) => String(x.id) === String(form.subcategoria_id));
     return tipoDeProducto({ nombre: form.nombre, categoria: cat?.nombre, subcategoria: sub?.nombre });
   }, [form.nombre, form.categoria_id, form.subcategoria_id, categorias, subcategorias]);
+  const esColeccionable = useMemo(() => {
+    if (esDeSede) return true;
+    const cat = categorias.find((c) => String(c.id) === String(form.categoria_id));
+    return esCategoriaColeccionable(cat?.nombre);
+  }, [esDeSede, categorias, form.categoria_id]);
   const faltantesFicha = useMemo(
     () => camposFaltantes(plantillaFicha, form.especificaciones || []),
     [plantillaFicha, form.especificaciones]
@@ -744,7 +773,9 @@ export default function ProductosPage() {
         // subcategoría) que ya existe en el catálogo, se selecciona sola;
         // si no encuentra nada parecido, se deja solo como pista de texto
         // para que la elijas a mano.
-        const catMatch = buscarCoincidencia(categorias, data.categoria);
+        // Ficha de sede: la categoría es siempre Coleccionables; solo se busca
+        // la subcategoría (franquicia) dentro de ella.
+        const catMatch = esDeSede ? categorias.find((c) => String(c.id) === String(form.categoria_id)) : buscarCoincidencia(categorias, data.categoria);
         if (catMatch) {
           setForm((f) => ({ ...f, categoria_id: catMatch.id, subcategoria_id: '' }));
           const listaSubcategorias = await cargarSubcategorias(catMatch.id);
@@ -830,6 +861,7 @@ export default function ProductosPage() {
       es_gamer: Boolean(p.es_gamer),
       video_youtube: p.video_youtube || '',
       especificaciones: Array.isArray(p.especificaciones) ? p.especificaciones : [],
+      sede_codigo: p.sede_codigo || null,
     });
     setError('');
     setErrorImagen('');
@@ -947,6 +979,11 @@ export default function ProductosPage() {
   }
 
   function abrirDetalle(p) {
+    // Productos de sede: no hay ventas ni compras aquí; se abre la ficha.
+    if (sedeSesion || p.sede_codigo) {
+      editarProducto(p);
+      return;
+    }
     setDetalleProducto(p);
     setTabFacturasDetalle('venta');
     cargarFacturasProducto(p.id);
@@ -983,9 +1020,25 @@ export default function ProductosPage() {
     e.preventDefault();
     setError('');
 
-    if (form.es_inventariable && !(Number(form.precio_costo) > 0)) {
+    if (!esDeSede && form.es_inventariable && !(Number(form.precio_costo) > 0)) {
       setError('El precio de costo es obligatorio para un producto inventariable');
       return;
+    }
+    // Coleccionables (nov 2026): el alto de la figura es obligatorio.
+    if (esColeccionable && !altoDeFicha(form.especificaciones)) {
+      setError(MENSAJE_FALTA_ALTO);
+      return;
+    }
+    // Ficha de sede: para publicarla en la página tiene que estar completa.
+    if (esDeSede && form.mostrar_en_tienda) {
+      const faltan = [];
+      if (!portadaActual) faltan.push('una foto');
+      const largo = String(form.descripcion || '').trim().length;
+      if (largo < 400) faltan.push(`la descripción de al menos 400 letras (lleva ${largo})`);
+      if (faltan.length) {
+        setError(`Para publicarla en la página falta ${faltan.join(' y ')}. Puedes guardarla sin marcar "Publicar" y terminarla después.`);
+        return;
+      }
     }
     if (!form.id && form.con_iva !== true && form.con_iva !== false) {
       setError('Elige si el precio lleva IVA o no (el producto también se crea en Alegra para la factura electrónica).');
@@ -1137,19 +1190,32 @@ export default function ProductosPage() {
     return Math.round(n * 1.4);
   }
 
+  // Hasta saber si es una sede, no se pinta el menú del POS.
+  if (!sesionLista) return <div style={{ padding: '24px', color: 'var(--text-secondary)' }}>Cargando…</div>;
+
   return (
-    <Shell title="Productos">
+    <Shell title={sedeSesion ? 'Coleccionables' : 'Productos'} sede={sedeSesion?.nombre || null}>
       <div style={styles.header}>
-        <h2 style={{ margin: 0 }}>Catálogo</h2>
+        <h2 style={{ margin: 0 }}>{sedeSesion ? `Coleccionables de ${sedeSesion.nombre}` : verSede ? 'Coleccionables de Venecia (web)' : 'Catálogo'}</h2>
+        {sedeSesion ? (
+          <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+            Los productos nuevos se publican desde el POS de la sede (botón "Publicar en la web").
+          </span>
+        ) : (
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <select value={verSede} onChange={(e) => setVerSede(e.target.value)} style={{ ...styles.input, width: 'auto', marginTop: 0 }} aria-label="Sede">
+            <option value="">Kennedy</option>
+            <option value="venecia">Venecia (web)</option>
+          </select>
           <a href="/productos/revisar-nombres" style={{ ...styles.btnSecundario, marginLeft: 0, textDecoration: 'none', color: 'inherit', fontSize: '14px' }}>
             🪄 Revisar nombres con IA
           </a>
           <a href="/productos/fichas" style={{ ...styles.btnSecundario, marginLeft: 0, textDecoration: 'none', color: 'inherit', fontSize: '14px' }}>
             📋 Fichas incompletas
           </a>
-          <button onClick={nuevoProducto} style={styles.btnPrimario}>+ Nuevo producto</button>
+          {!verSede && <button onClick={nuevoProducto} style={styles.btnPrimario}>+ Nuevo producto</button>}
         </div>
+        )}
       </div>
 
       {mostrarForm && (
@@ -1168,8 +1234,14 @@ export default function ProductosPage() {
           onMouseDown={(e) => e.stopPropagation()}
           style={{ ...styles.formCard, ...styles.formModal, ...(embebido ? { width: '100%', maxHeight: '100vh', boxShadow: 'none', borderRadius: 0, border: 'none' } : {}) }}
         >
-          <h3 style={{ marginTop: 0 }}>{form.id ? 'Editar producto' : 'Nuevo producto'}</h3>
+          <h3 style={{ marginTop: 0 }}>{esDeSede ? 'Ficha web del coleccionable' : form.id ? 'Editar producto' : 'Nuevo producto'}</h3>
+          {esDeSede && (
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '-6px' }}>
+              Código en el POS de Venecia: <b>{form.sede_codigo || form.referencia}</b>. El precio y el stock los manda ese POS.
+            </p>
+          )}
 
+          {!esDeSede && (<>
           <label style={{ display: 'block', marginBottom: '8px' }}>Tipo de producto</label>
           <div style={styles.tipoSelector}>
             <button
@@ -1192,6 +1264,7 @@ export default function ProductosPage() {
               ? 'Maneja stock y precio de compra, y no se puede vender si no hay existencias en Principal.'
               : 'No maneja stock ni precio de compra, y nunca bloquea la venta por falta de existencias (por ejemplo servicio técnico o servicio de envío).'}
           </p>
+          </>)}
 
           {/* Al editar un producto que ya existe, la ayuda de IA queda
               plegada (un botón) para no estorbar; al crear, se ve de una. */}
@@ -1304,7 +1377,7 @@ export default function ProductosPage() {
           <div className="pos-grid2" style={styles.grid2}>
             <label>
               Referencia
-              <input required value={form.referencia} onChange={(e) => setForm({ ...form, referencia: e.target.value })} style={styles.input} />
+              <input required value={form.referencia} readOnly={esDeSede} onChange={(e) => setForm({ ...form, referencia: e.target.value })} style={{ ...styles.input, ...(esDeSede ? { background: '#f3f5f9' } : null) }} />
               {errorReferenciaSugerida && !form.id && (
                 <small style={{ display: 'block', color: '#b45309', fontWeight: 400 }}>
                   No se pudo sugerir sola ({errorReferenciaSugerida}) — escríbela a mano.
@@ -1317,7 +1390,7 @@ export default function ProductosPage() {
             </label>
             <label>
               Categoría
-              <select value={form.categoria_id} onChange={(e) => cambiarCategoria(e.target.value)} style={styles.input}>
+              <select value={form.categoria_id} disabled={esDeSede} onChange={(e) => cambiarCategoria(e.target.value)} style={styles.input}>
                 <option value="">Sin categoría</option>
                 {categorias.map((c) => (
                   <option key={c.id} value={c.id}>{c.nombre}</option>
@@ -1338,9 +1411,32 @@ export default function ProductosPage() {
                 ))}
               </select>
             </label>
+            {esColeccionable && (
+              <label>
+                Alto de la figura (cm) *
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  required
+                  value={valorAltoDeFicha(form.especificaciones)}
+                  onChange={(e) => setForm((f) => ({ ...f, especificaciones: conAlto(f.especificaciones, e.target.value.replace(/[^\d.,]/g, '')) }))}
+                  placeholder="Ej. 15"
+                  style={styles.input}
+                  aria-label="Alto de la figura en centímetros"
+                />
+                <span style={{ display: 'block', marginTop: '4px', fontWeight: 400, fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  Obligatorio en Coleccionables. Queda en la ficha técnica como "Alto".
+                </span>
+              </label>
+            )}
             <label>
               Precio de venta
-              <input type="number" step="0.01" value={form.precio_venta} onChange={(e) => setForm({ ...form, precio_venta: e.target.value })} style={styles.input} />
+              <input type="number" step="0.01" value={form.precio_venta} readOnly={esDeSede} onChange={(e) => setForm({ ...form, precio_venta: e.target.value })} style={{ ...styles.input, ...(esDeSede ? { background: '#f3f5f9' } : null) }} />
+              {esDeSede && (
+                <span style={{ display: 'block', marginTop: '4px', fontWeight: 400, fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  Para cambiarlo, cámbialo en el POS de Venecia.
+                </span>
+              )}
             </label>
             {!form.id && (
               // div (no label): dentro de un label, tocar el texto "presionaría" el primer botón.
@@ -1367,6 +1463,7 @@ export default function ProductosPage() {
                 </span>
               </div>
             )}
+            {!esDeSede && (<>
             <label>
               Precio antes (oferta)
               <input
@@ -1431,6 +1528,7 @@ export default function ProductosPage() {
               <input type="checkbox" checked={form.activo} onChange={(e) => setForm({ ...form, activo: e.target.checked })} />
               Activo
             </label>
+            </>)}
           </div>
 
           {/* Estos dos se sacaron de la grilla de 2 columnas: sus textos de
@@ -1445,13 +1543,20 @@ export default function ProductosPage() {
                 checked={form.mostrar_en_tienda}
                 onChange={(e) => setForm({ ...form, mostrar_en_tienda: e.target.checked })}
               />
-              Mostrar en la tienda (geekstore.com.co)
+              {esDeSede ? 'Publicar en geekstore.com.co' : 'Mostrar en la tienda (geekstore.com.co)'}
             </label>
+            {esDeSede ? (
+              <p style={styles.ayudaCheckbox}>
+                Sale en la página cuando tiene foto, descripción de 400 letras, el alto y stock en el POS de Venecia.
+                Por ahora el cliente lo pide por WhatsApp a Venecia.
+              </p>
+            ) : (
             <p style={styles.ayudaCheckbox}>
               Desmárcalo para productos que quieras manejar solo aquí en el POS (o solo con
               distribuidores) sin que aparezcan en la página pública — no afecta el portal de
               distribuidores, que sigue su propio filtro de precio de distribuidor.
             </p>
+            )}
           </div>
           <div style={styles.bloqueCheckbox}>
             <label style={styles.filaCheckbox}>
@@ -1820,8 +1925,8 @@ export default function ProductosPage() {
                 <th style={styles.th}>Nombre</th>
                 <th style={styles.th}>Categoría</th>
                 <th style={styles.th}>Precio venta</th>
-                <th style={styles.th}>Costo (promedio)</th>
-                <th style={styles.th}>Precio distribuidor</th>
+                {!sedeSesion && !verSede && <th style={styles.th}>Costo (promedio)</th>}
+                {!sedeSesion && !verSede && <th style={styles.th}>Precio distribuidor</th>}
                 <th style={styles.th}>Stock</th>
                 <th style={styles.th}>Activo</th>
                 <th style={styles.th}>En tienda</th>
@@ -1848,8 +1953,8 @@ export default function ProductosPage() {
                   </td>
                   <td style={styles.td}>{p.categoria_nombre || '-'}</td>
                   <td style={styles.td}>{moneda(p.precio_venta)}</td>
-                  <td style={styles.td}>{p.es_inventariable === false ? '—' : moneda(p.precio_costo)}</td>
-                  <td style={styles.td}>{moneda(p.precio_distribuidor)}</td>
+                  {!sedeSesion && !verSede && <td style={styles.td}>{p.es_inventariable === false ? '—' : moneda(p.precio_costo)}</td>}
+                  {!sedeSesion && !verSede && <td style={styles.td}>{moneda(p.precio_distribuidor)}</td>}
                   <td style={styles.td}>{p.es_inventariable === false ? '—' : p.stock}</td>
                   <td style={styles.td}>{p.activo ? 'Sí' : 'No'}</td>
                   <td style={styles.td}>

@@ -3,11 +3,56 @@ import sql from '../../../../lib/db';
 import { esUrlYoutubeValida } from '../../../../lib/youtube';
 import { normalizarEspecificaciones } from '../../../../lib/especificaciones';
 import { guardarPrecioAnterior } from '../../../../lib/precioAnterior';
+import { altoDeFicha, esCategoriaColeccionable, MENSAJE_FALTA_ALTO } from '../../../../lib/figuras';
+import { categoriaColeccionables } from '../../../../lib/sedes';
+
+// Edición desde la sesión limitada de una sede (Venecia, ver lib/sedes.js):
+// solo sus productos y solo la ficha web — nombre, descripción, subcategoría
+// (de Coleccionables), ficha técnica (con el alto), Zona Gamer, video y si
+// se publica. El precio y el stock los manda su POS; la referencia no cambia.
+async function guardarDeSede(sede, id, body) {
+  const [p] = await sql`SELECT id, to_jsonb(productos) ->> 'sede' AS sede FROM productos WHERE id = ${id}`;
+  if (!p || p.sede !== sede) return NextResponse.json({ ok: false, error: 'Producto no encontrado' }, { status: 404 });
+  const nombre = String(body.nombre || '').trim();
+  if (!nombre) return NextResponse.json({ ok: false, error: 'El nombre es obligatorio' }, { status: 400 });
+  const descripcion = String(body.descripcion || '');
+  if (descripcion.length > 600) return NextResponse.json({ ok: false, error: 'La descripción no puede pasar de 600 caracteres' }, { status: 400 });
+  if (!esUrlYoutubeValida(body.video_youtube)) {
+    return NextResponse.json({ ok: false, error: 'Pon un enlace válido de YouTube (youtube.com o youtu.be)' }, { status: 400 });
+  }
+  const especificaciones = normalizarEspecificaciones(body.especificaciones);
+  if (!altoDeFicha(especificaciones)) return NextResponse.json({ ok: false, error: MENSAJE_FALTA_ALTO }, { status: 400 });
+  const cat = await categoriaColeccionables();
+  let subId = Number(body.subcategoria_id) || null;
+  if (subId) {
+    const [sc] = await sql`SELECT id FROM subcategorias WHERE id = ${subId} AND categoria_id = ${cat.id}`;
+    if (!sc) subId = null;
+  }
+  const [producto] = await sql`
+    UPDATE productos SET
+      nombre = ${nombre.slice(0, 150)}, descripcion = ${descripcion || null}, categoria_id = ${cat.id}, subcategoria_id = ${subId},
+      mostrar_en_tienda = ${Boolean(body.mostrar_en_tienda)}, es_gamer = ${Boolean(body.es_gamer)},
+      video_youtube = ${String(body.video_youtube || '').trim() || null},
+      especificaciones = ${especificaciones ? JSON.stringify(especificaciones) : null}::jsonb, actualizado_en = now()
+    WHERE id = ${id}
+    RETURNING id
+  `;
+  return NextResponse.json({ ok: true, producto });
+}
 
 export async function PUT(request, { params }) {
   try {
     const { id } = await params;
     const body = await request.json();
+    // Sesión de una sede, o el administrador editando un producto de una sede:
+    // en los dos casos solo se edita la ficha web (precio y stock los manda
+    // el POS de la sede; no tiene costo ni va a Alegra).
+    let sede = request.headers.get('x-pos-sede');
+    if (!sede) {
+      const [p] = await sql`SELECT to_jsonb(productos) ->> 'sede' AS sede FROM productos WHERE id = ${Number(id) || 0}`;
+      if (p?.sede && p.sede !== 'kennedy') sede = p.sede;
+    }
+    if (sede) return guardarDeSede(sede, Number(id), body);
     const {
       referencia,
       nombre,
@@ -55,6 +100,14 @@ export async function PUT(request, { params }) {
       );
     }
     const precioCostoFinal = inventariable ? Number(precio_costo) : null;
+
+    // Coleccionables (nov 2026): el alto de la figura es obligatorio.
+    if (traeEspecificaciones && categoria_id && !altoDeFicha(especificaciones)) {
+      const [cat] = await sql`SELECT nombre FROM categorias WHERE id = ${categoria_id}`;
+      if (esCategoriaColeccionable(cat?.nombre)) {
+        return NextResponse.json({ ok: false, error: MENSAJE_FALTA_ALTO }, { status: 400 });
+      }
+    }
 
     const [producto] = await sql`
       UPDATE productos SET

@@ -8,7 +8,10 @@ import PanicoBoton from './PanicoBoton';
 import PanicoReceptor from './PanicoReceptor';
 import AvisoPedidoDistribuidor from './AvisoPedidoDistribuidor';
 
-export default function Shell({ title, children }) {
+// sede (nov 2026): nombre de la sede externa con sesión limitada (Geek
+// Store Venecia, ver lib/sesionSede.js). Se muestra solo una barra simple
+// con "Salir": sin menú lateral ni las demás pantallas del POS.
+export default function Shell({ title, children, sede = null }) {
   const pathname = usePathname();
   // ?embebido=1: la pantalla se abre DENTRO de otra (ej. el formulario de
   // producto nuevo dentro de la factura de compra, oct 2026). Sin barra
@@ -74,6 +77,21 @@ export default function Shell({ title, children }) {
   }, []);
 
   if (embebido) return <main style={{ minHeight: '100vh' }}>{children}</main>;
+
+  if (sede) {
+    return (
+      <div style={{ minHeight: '100vh' }}>
+        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', padding: '12px 18px', background: '#0b0f1a', color: '#fff', borderBottom: '3px solid #ff2e88' }}>
+          <div>
+            <strong style={{ fontSize: '16px' }}>{sede}</strong>
+            <div style={{ fontSize: '12px', color: '#a3aec2' }}>{title} · fichas para geekstore.com.co</div>
+          </div>
+          <a href="/api/logout" style={{ color: '#fff', fontSize: '14px', border: '1px solid #2a3550', borderRadius: '8px', padding: '6px 12px', textDecoration: 'none' }}>Salir</a>
+        </header>
+        <main style={{ padding: '18px', maxWidth: '1200px', margin: '0 auto' }}>{children}</main>
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>

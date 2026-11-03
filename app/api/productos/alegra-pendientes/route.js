@@ -15,7 +15,7 @@ export async function GET() {
              c.nombre AS categoria_nombre
       FROM productos p
       LEFT JOIN categorias c ON c.id = p.categoria_id
-      WHERE p.alegra_id IS NULL AND p.alegra2_id IS NULL
+      WHERE p.alegra_id IS NULL AND p.alegra2_id IS NULL AND COALESCE(to_jsonb(p) ->> 'sede', 'kennedy') = 'kennedy'
       ORDER BY p.creado_en DESC, p.id DESC
       LIMIT 300
     `;
