@@ -727,7 +727,7 @@ export default function VentaRapidaPage() {
             {!dcCupon ? (
               <>
                 <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: '6px 0 0' }}>
-                  Se crea un código único y se abre WhatsApp con el mensaje listo: descuento en la página y bono + doble garantía en servicio técnico.
+                  Se crea un código único de la campaña activa (se elige en Cupones) y se abre WhatsApp con el mensaje listo.
                 </p>
                 <label className="vr-label">Celular / WhatsApp</label>
                 <input className="vr-input" type="tel" inputMode="tel" value={dcTel} onChange={(e) => setDcTel(e.target.value)} placeholder="300 123 4567" autoFocus />

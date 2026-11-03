@@ -43,7 +43,7 @@ export async function POST(request, { params }) {
       const c = await leerCupon(decodeURIComponent(codigo));
       if (!c) throw new ErrorCupon('Ese cupón no existe', 404);
       const total = Math.round(Number(body.total) || 0);
-      if (!(total > 0)) throw new ErrorCupon('Escribe el valor de la compra (sin consolas)');
+      if (!(total > 0)) throw new ErrorCupon('Escribe el valor de la compra');
       const r = await usarCompra(c.codigo, { donde: 'tienda', referencia: body.referencia, total, descuento: descuentoCompra(c, total) });
       return NextResponse.json({ ok: true, descuento: r.descuento, cupon: r.cupon });
     }

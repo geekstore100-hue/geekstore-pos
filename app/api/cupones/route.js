@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../lib/db';
-import { CAMPANA, crearCupon, existeTablaCupones, ErrorCupon, MENSAJE_MIGRACION } from '../../../lib/cupones';
+import { CAMPANA, crearCupon, existeTablaCupones, ErrorCupon, MENSAJE_MIGRACION, leerCampana, listarCampanas } from '../../../lib/cupones';
 
 // Cupones (octubre 2026). Ver lib/cupones.js.
 //   GET  ?campana=X → cupones de la campaña con sus números (entregados,
 //                     usados en la web / en la tienda / en servicio técnico).
-//   POST            → entregar un cupón { telefono?, nombre?, venta_id? }.
+//                     Sin ?campana se muestra la campaña activa.
+//   POST            → entregar un cupón { telefono?, nombre?, venta_id?,
+//                     campana?, codigo? }. Sin campana usa la activa (la de
+//                     "🎟️ Dar cupón"). codigo: opcional, escrito a mano.
 //                     Un celular recibe un solo cupón por campaña.
 
 export async function GET(request) {
@@ -13,8 +16,10 @@ export async function GET(request) {
     if (!(await existeTablaCupones())) {
       return NextResponse.json({ ok: true, faltaMigracion: true, mensaje: MENSAJE_MIGRACION, cupones: [], campanas: [], campana: CAMPANA.nombre });
     }
-    const campana = new URL(request.url).searchParams.get('campana') || CAMPANA.nombre;
-    const campanas = await sql`SELECT campana, COUNT(*)::int AS n FROM cupones GROUP BY campana ORDER BY MAX(creado_en) DESC`;
+    const pedida = new URL(request.url).searchParams.get('campana');
+    const k = await leerCampana(pedida);
+    const campana = pedida || k?.nombre || CAMPANA.nombre;
+    const campanas = await listarCampanas();
     const cupones = await sql`
       SELECT id, codigo, cliente_nombre, cliente_telefono, venta_id, creado_en,
              compra_usada_en, compra_donde, compra_ref, compra_descuento, compra_total,
@@ -30,7 +35,7 @@ export async function GET(request) {
       ok: true,
       campana,
       campanas,
-      config: campana === CAMPANA.nombre ? CAMPANA : null,
+      config: k && k.nombre === campana ? k : null,
       resumen: {
         entregados: cupones.length,
         conCelular: cupones.filter((c) => c.cliente_telefono).length,
@@ -50,7 +55,13 @@ export async function POST(request) {
   try {
     if (!(await existeTablaCupones())) return NextResponse.json({ ok: false, error: MENSAJE_MIGRACION }, { status: 500 });
     const body = await request.json();
-    const { cupon, existente } = await crearCupon({ telefono: body.telefono, nombre: body.nombre, ventaId: body.venta_id });
+    const { cupon, existente } = await crearCupon({
+      telefono: body.telefono,
+      nombre: body.nombre,
+      ventaId: body.venta_id,
+      campana: body.campana,
+      codigo: body.codigo,
+    });
     return NextResponse.json({ ok: true, cupon, existente });
   } catch (error) {
     if (error instanceof ErrorCupon) return NextResponse.json({ ok: false, error: error.message }, { status: error.status });
