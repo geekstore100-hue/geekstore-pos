@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../lib/db';
-import { asegurarTabla, prepararCotizacion, ErrorCotizacionCliente } from '../../../lib/cotizacionesCliente';
+import { asegurarTabla, prepararCotizacion, ErrorCotizacionCliente, enriquecerCotizacion } from '../../../lib/cotizacionesCliente';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,7 +43,7 @@ export async function POST(request) {
          ${c.validez_dias}, ${JSON.stringify(c.items)}::jsonb, ${c.subtotal}, ${c.descuento}, ${c.total})
       RETURNING *
     `;
-    return NextResponse.json({ ok: true, cotizacion: fila });
+    return NextResponse.json({ ok: true, cotizacion: await enriquecerCotizacion(fila) });
   } catch (error) {
     if (error instanceof ErrorCotizacionCliente) return NextResponse.json({ ok: false, error: error.message }, { status: error.status });
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });

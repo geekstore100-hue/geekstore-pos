@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../../lib/db';
-import { asegurarTabla, prepararCotizacion, ErrorCotizacionCliente } from '../../../../lib/cotizacionesCliente';
+import { asegurarTabla, prepararCotizacion, ErrorCotizacionCliente, enriquecerCotizacion } from '../../../../lib/cotizacionesCliente';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +16,7 @@ export async function GET(request, { params }) {
     if (!id) return NextResponse.json({ ok: false, error: 'Cotización no encontrada' }, { status: 404 });
     const [cotizacion] = await sql`SELECT * FROM cotizaciones_cliente WHERE id = ${id}`;
     if (!cotizacion) return NextResponse.json({ ok: false, error: 'Cotización no encontrada' }, { status: 404 });
-    return NextResponse.json({ ok: true, cotizacion });
+    return NextResponse.json({ ok: true, cotizacion: await enriquecerCotizacion(cotizacion) });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
@@ -39,7 +39,7 @@ export async function PUT(request, { params }) {
       RETURNING *
     `;
     if (!fila) return NextResponse.json({ ok: false, error: 'Cotización no encontrada' }, { status: 404 });
-    return NextResponse.json({ ok: true, cotizacion: fila });
+    return NextResponse.json({ ok: true, cotizacion: await enriquecerCotizacion(fila) });
   } catch (error) {
     if (error instanceof ErrorCotizacionCliente) return NextResponse.json({ ok: false, error: error.message }, { status: error.status });
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });

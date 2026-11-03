@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import Shell from '../../components/Shell';
 import { enlaceWhatsapp } from '../../lib/comprobanteWhatsapp';
+import RecordatoriosCupones from '../../components/RecordatoriosCupones';
 import {
   textoCuponWhatsapp,
   descripcionCompra,
@@ -151,6 +152,8 @@ export default function CuponesPage() {
   const [generando, setGenerando] = useState(false);
   const [errGen, setErrGen] = useState('');
   const [copiado, setCopiado] = useState('');
+  // Recordatorios por WhatsApp a quien no ha usado su cupón (nov 2026).
+  const [verRecordatorios, setVerRecordatorios] = useState(false);
 
   const campana = useMemo(() => campanas.find((k) => k.nombre === sel) || null, [campanas, sel]);
 
@@ -694,6 +697,28 @@ export default function CuponesPage() {
                     )}
                   </>
                 )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── Recordatorios ─── */}
+        {datos && r && sel !== '__nueva' && r.entregados > 0 && (
+          <div className="cp-box" id="recordatorios">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <div>
+                <h3 style={{ margin: 0 }}>📣 Recordatorios · {datos.campana}</h3>
+                <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                  Escríbele por WhatsApp, uno por uno, a quien no ha usado su cupón.
+                </div>
+              </div>
+              <button type="button" className="cp-sec" onClick={() => setVerRecordatorios((v) => !v)}>
+                {verRecordatorios ? 'Cerrar' : 'Abrir'}
+              </button>
+            </div>
+            {verRecordatorios && (
+              <div style={{ marginTop: '12px' }}>
+                <RecordatoriosCupones key={datos.campana} campana={datos.campana} />
               </div>
             )}
           </div>
