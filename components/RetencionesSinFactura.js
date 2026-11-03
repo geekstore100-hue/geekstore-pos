@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { TARIFAS_RETEICA } from '../lib/tarifasReteica';
 
 // Retenciones de ReteICA SIN factura de compra (octubre 2026): para las
 // compras de Eve Jeans (ropa), que declaran con el mismo NIT que Geek
@@ -10,9 +11,9 @@ import { useEffect, useMemo, useState } from 'react';
 // suman solas al resumen y a los certificados de arriba.
 
 const NEGOCIOS = ['Eve Jeans', 'Geek Store'];
+// Tarifas de Bogotá (por mil): ver lib/tarifasReteica.js.
 const TARIFAS = [
-  { valor: '1.1', texto: '1,1 %' },
-  { valor: '0.41', texto: '0,41 %' },
+  ...TARIFAS_RETEICA.map((t) => ({ valor: String(t.valor), texto: t.texto })),
   { valor: 'otra', texto: 'Otra' },
 ];
 
@@ -34,7 +35,7 @@ const formVacio = () => ({
   numero_factura: '',
   concepto: '',
   base: '',
-  tarifa: '1.1',
+  tarifa: String(TARIFAS_RETEICA[0].valor),
   otraTarifa: '',
   valor: '',
   valorManual: false,

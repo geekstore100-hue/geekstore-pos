@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../lib/db';
+import { tarifaValida } from '../../../lib/tarifasReteica';
+import { asegurarDecimalesTarifa } from '../../../lib/retencionesReteica';
 import { actualizarCostoPromedio, sumarStock } from '../../../lib/transaccion';
 
-// Tarifas de ReteICA permitidas. 0 = "Sin retención".
-const TARIFAS_RETEICA = [0, 1.1, 0.41];
+// Tarifas de ReteICA permitidas (0 = "Sin retención"): ver lib/tarifasReteica.js.
 
 // Oct 2026: el costo promedio se calculaba con el precio ANTES del descuento
 // de la línea (un 3 % de descuento no bajaba el costo). Desde el arreglo, el
@@ -86,7 +87,7 @@ export async function POST(request) {
     if (!fecha_creacion) {
       return NextResponse.json({ ok: false, error: 'La fecha de creación es obligatoria' }, { status: 400 });
     }
-    if (!TARIFAS_RETEICA.includes(retencionPorcentaje)) {
+    if (!tarifaValida(retencionPorcentaje)) {
       return NextResponse.json({ ok: false, error: 'La tarifa de ReteICA no es válida' }, { status: 400 });
     }
     if (retencionPorcentaje > 0 && retencionBase <= 0) {
@@ -144,6 +145,7 @@ export async function POST(request) {
     // puede seguir cambiando después desde "Editar retención" en el detalle.
     const retencionValor = retencionBase * (retencionPorcentaje / 100);
     await asegurarColumna();
+    if (retencionPorcentaje > 0) await asegurarDecimalesTarifa();
 
     // Todo en una sola transacción (ver lib/transaccion.js): la factura, el
     // costo promedio, el stock y los movimientos de TODAS las líneas se

@@ -27,6 +27,7 @@ import { recortarEspaciosBlancos, redimensionarParaIA } from '../../../../lib/fo
 import { tipoDeProducto, camposFaltantes } from '../../../../lib/plantillasFicha';
 import { ajustarDescripcion, REGLAS_DESCRIPCION_IA, DESCRIPCION_MAXIMA } from '../../../../lib/descripcionProducto';
 import { CAMPOS_CONFIGURABLES, OBLIGATORIOS_POR_DEFECTO } from '../../../../lib/camposFactura';
+import { TARIFAS_RETEICA as TARIFAS_LISTA } from '../../../../lib/tarifasReteica';
 
 // ASISTENTE DE FACTURA DE COMPRA (oct 2026), con el diseño "Poder" de la
 // tienda (oscuro, neón cian y magenta). Sirve para las dos formas de
@@ -48,11 +49,7 @@ import { CAMPOS_CONFIGURABLES, OBLIGATORIOS_POR_DEFECTO } from '../../../../lib/
 // Si algo falla a mitad, "Aprobar" otra vez sigue desde donde quedó (no
 // duplica lo que ya se creó).
 
-const TARIFAS_RETEICA = [
-  [0, 'Sin retención'],
-  [1.1, 'ReteICA 1,1 %'],
-  [0.41, 'ReteICA 0,41 %'],
-];
+const TARIFAS_RETEICA = [[0, 'Sin retención'], ...TARIFAS_LISTA.map((t) => [t.valor, `ReteICA ${t.texto}`])];
 
 const FOTO_MAX_LADO = 1600;
 const FOTO_MAX_BYTES = 1.2 * 1024 * 1024;

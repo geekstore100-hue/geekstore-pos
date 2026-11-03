@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../../../lib/db';
+import { tarifaValida } from '../../../../../lib/tarifasReteica';
+import { asegurarDecimalesTarifa } from '../../../../../lib/retencionesReteica';
 
-// Tarifas de ReteICA permitidas. 0 = "Sin retención".
-const TARIFAS_RETEICA = [0, 1.1, 0.41];
+// Tarifas de ReteICA permitidas (0 = "Sin retención"): ver lib/tarifasReteica.js.
 
 // Agrega o edita la retención de ReteICA de una factura ya creada, como en
 // Alegra ("Más acciones" → "Agregar retenciones"): se puede elegir la
@@ -22,13 +23,14 @@ export async function POST(request, { params }) {
     const retencionBase = Number(body.retencion_base) || 0;
     const retencionValor = Number(body.retencion_valor) || 0;
 
-    if (!TARIFAS_RETEICA.includes(retencionPorcentaje)) {
+    if (!tarifaValida(retencionPorcentaje)) {
       return NextResponse.json({ ok: false, error: 'La tarifa de ReteICA no es válida' }, { status: 400 });
     }
     if (retencionBase < 0 || retencionValor < 0) {
       return NextResponse.json({ ok: false, error: 'La base y el valor de la retención no pueden ser negativos' }, { status: 400 });
     }
 
+    await asegurarDecimalesTarifa();
     const [factura] = await sql`
       UPDATE facturas_compra
       SET retencion_porcentaje = ${retencionPorcentaje}, retencion_base = ${retencionBase}, retencion_valor = ${retencionValor}

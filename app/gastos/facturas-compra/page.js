@@ -6,6 +6,7 @@ import { descargarExcelEtiquetas } from '../../../lib/etiquetasOpenLabel';
 import { achicarFoto, dataUrlABlob, fotosAPdf, cabeEnUnaSubida } from '../../../lib/manifiestoFotos';
 import ModalProductoNuevo from '../../../components/ModalProductoNuevo';
 import EditarFacturaCompra from '../../../components/EditarFacturaCompra';
+import { TARIFAS_RETEICA, TARIFAS_VIEJAS } from '../../../lib/tarifasReteica';
 
 // Fecha de HOY en hora de Colombia (AAAA-MM-DD). Antes usaba
 // toISOString(), que da la fecha en hora UTC (5 horas adelante): después de
@@ -556,10 +557,14 @@ export default function FacturasCompraPage() {
   // factura ya puestos, o en ceros si todavía no tenía retención.
   function abrirEditarRetencion() {
     const f = detalleFactura?.factura;
+    const pctGuardado = Number(f?.retencion_porcentaje) || 0;
+    // Tarifa vieja (0,41 % / 1,1 %) → la correcta, con el valor recalculado.
+    const pct = TARIFAS_VIEJAS[pctGuardado] ?? pctGuardado;
+    const base = Number(f?.retencion_base ?? f?.subtotal) || 0;
     setRetForm({
-      retencion_porcentaje: Number(f?.retencion_porcentaje) || 0,
-      retencion_base: Number(f?.retencion_base ?? f?.subtotal) || 0,
-      retencion_valor: Number(f?.retencion_valor) || 0,
+      retencion_porcentaje: pct,
+      retencion_base: base,
+      retencion_valor: pct !== pctGuardado ? Math.round(base * (pct / 100)) : Number(f?.retencion_valor) || 0,
     });
     setErrorRetencion('');
     setEditandoRetencion(true);
@@ -1010,8 +1015,9 @@ export default function FacturasCompraPage() {
                   style={styles.selectChico}
                 >
                   <option value={0}>Sin retención</option>
-                  <option value={1.1}>1.1%</option>
-                  <option value={0.41}>0.41%</option>
+                  {TARIFAS_RETEICA.map((t) => (
+                    <option key={t.valor} value={t.valor}>{t.texto}</option>
+                  ))}
                 </select>
               </div>
               {Number(form.retencion_porcentaje) > 0 && (
@@ -1241,8 +1247,9 @@ export default function FacturasCompraPage() {
                       style={{ ...styles.select, width: '100%', marginBottom: '8px' }}
                     >
                       <option value={0}>Sin retención</option>
-                      <option value={1.1}>ReteICA 1.1%</option>
-                      <option value={0.41}>ReteICA 0.41%</option>
+                      {TARIFAS_RETEICA.map((t) => (
+                        <option key={t.valor} value={t.valor}>ReteICA {t.texto}</option>
+                      ))}
                     </select>
                     <div className="pos-grid2" style={styles.grid2}>
                       <div>

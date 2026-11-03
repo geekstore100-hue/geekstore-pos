@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Shell from '../../components/Shell';
 import RetencionesSinFactura from '../../components/RetencionesSinFactura';
+import CorregirTarifasReteica from '../../components/CorregirTarifasReteica';
 import { opcionesBimestres, nombreBimestre } from '../../lib/bimestres';
 
 // Fecha de HOY en hora de Colombia (AAAA-MM-DD). Antes usaba
@@ -53,6 +54,8 @@ export default function ReteicaPage() {
   const [generandoPdf, setGenerandoPdf] = useState(false);
 
   const [empresaConfigurada, setEmpresaConfigurada] = useState(true);
+  // Sube cuando se corrigen tarifas viejas: vuelve a cargar las retenciones sin factura.
+  const [versionTarifas, setVersionTarifas] = useState(0);
 
   // Bimestres para elegir el período de un clic (ver lib/bimestres.js).
   const [bimestres] = useState(() => opcionesBimestres(hoyISO()));
@@ -176,6 +179,14 @@ export default function ReteicaPage() {
         </p>
       )}
 
+      <CorregirTarifasReteica
+        onCorregido={() => {
+          setVersionTarifas((v) => v + 1);
+          cargarResumen(periodo.desde, periodo.hasta);
+          if (datos) consultarProveedor(datos.proveedor.id, periodo.desde, periodo.hasta);
+        }}
+      />
+
       <form onSubmit={actualizarPeriodo} style={styles.barra}>
         <label>
           Período
@@ -279,6 +290,7 @@ export default function ReteicaPage() {
       )}
 
       <RetencionesSinFactura
+        key={versionTarifas}
         desde={periodo.desde}
         hasta={periodo.hasta}
         proveedores={proveedores}
@@ -346,7 +358,7 @@ export default function ReteicaPage() {
                   <td style={styles.td}>{f.negocio || 'Geek Store'}</td>
                   <td style={styles.td}>{numeroFactura(f)}</td>
                   <td style={styles.td}>{moneda(f.retencion_base)}</td>
-                  <td style={styles.td}>{Number(f.retencion_porcentaje).toLocaleString('es-CO', { maximumFractionDigits: 2 })}%</td>
+                  <td style={styles.td}>{Number(f.retencion_porcentaje).toLocaleString('es-CO', { maximumFractionDigits: 3 })}%</td>
                   <td style={styles.td}>{moneda(f.retencion_valor)}</td>
                 </tr>
               ))}
