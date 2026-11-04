@@ -46,6 +46,12 @@ export default function ProductosPage() {
   const [subiendoImagen, setSubiendoImagen] = useState(false);
   const [errorImagen, setErrorImagen] = useState('');
   const [procesandoImagenId, setProcesandoImagenId] = useState(null);
+  // Nueva portada al EDITAR un producto (nov 2026): foto con la cámara o
+  // un archivo, vista previa, quitar fondo y "Subir como portada".
+  // { original, actual } (data URIs) o null.
+  const [portadaNueva, setPortadaNueva] = useState(null);
+  const [mensajePortada, setMensajePortada] = useState('');
+  const [trabajandoPortada, setTrabajandoPortada] = useState(false);
   const [portadaActual, setPortadaActual] = useState(null);
 
   // "Nuevo producto" con ayuda de IA: una foto para que la IA sugiera
@@ -866,6 +872,8 @@ export default function ProductosPage() {
     setError('');
     setErrorImagen('');
     setPortadaActual(p.imagen_key || null);
+    setPortadaNueva(null);
+    setMensajePortada('');
     setAutoDistribuidor(false);
     setImagenAnalisis(null);
     setInfoAdicionalIA('');
@@ -931,6 +939,107 @@ export default function ProductosPage() {
     } else {
       setErrorImagen(data.error || 'No se pudo subir la imagen');
     }
+  }
+
+  // ---- Nueva portada al editar (nov 2026) ----
+  async function elegirPortadaNueva(e) {
+    const archivo = e.target.files?.[0];
+    e.target.value = '';
+    if (!archivo) return;
+    setErrorImagen('');
+    setMensajePortada('');
+    try {
+      const original = await leerComoDataUri(archivo);
+      const recortada = recortarActivo ? await recortarEspaciosBlancos(original) : original;
+      const lista = await achicarFotoProducto(recortada);
+      setPortadaNueva({ original: lista, actual: lista, sinFondo: false });
+    } catch {
+      setErrorImagen('No se pudo leer la foto. Prueba con otra.');
+    }
+  }
+
+  async function quitarFondoPortadaNueva() {
+    if (!portadaNueva) return;
+    setTrabajandoPortada(true);
+    setErrorImagen('');
+    try {
+      const r = await quitarFondoFoto(portadaNueva.original, { onProgreso: setMensajePortada });
+      setPortadaNueva((p) => (p ? { ...p, actual: r.imagen, sinFondo: true } : p));
+      setMensajePortada('');
+    } catch (err) {
+      setMensajePortada('');
+      setErrorImagen(`No se pudo quitar el fondo: ${err?.message || 'error'}.`);
+    }
+    setTrabajandoPortada(false);
+  }
+
+  // Sube una foto (data URI) al producto que se está editando; devuelve la
+  // fila nueva { id, imagen_key } o lanza un error.
+  async function subirFotoDataUri(dataUri, nombre) {
+    const archivo = await dataUriAFile(dataUri, nombre);
+    const cuerpo = new FormData();
+    cuerpo.append('imagen', archivo);
+    const res = await fetch(`/api/productos/${form.id}/imagenes`, { method: 'POST', body: cuerpo });
+    const data = await res.json().catch(() => ({}));
+    if (!data.ok) throw new Error(data.error || 'No se pudo subir la foto');
+    return data.imagen;
+  }
+
+  async function marcarPortada(imgId) {
+    const res = await fetch(`/api/productos/${form.id}/imagenes/${imgId}`, { method: 'PATCH' });
+    const data = await res.json().catch(() => ({}));
+    if (!data.ok) throw new Error(data.error || 'No se pudo cambiar la portada');
+  }
+
+  async function subirPortadaNueva() {
+    if (!portadaNueva || !form.id) return;
+    setTrabajandoPortada(true);
+    setErrorImagen('');
+    setMensajePortada('Subiendo la portada…');
+    try {
+      const fila = await subirFotoDataUri(portadaNueva.actual, `portada${portadaNueva.sinFondo ? '-sin-fondo' : ''}.jpg`);
+      await marcarPortada(fila.id);
+      setPortadaActual(fila.imagen_key);
+      setPortadaNueva(null);
+      setMensajePortada('');
+      cargarImagenes(form.id);
+      cargarProductos();
+    } catch (err) {
+      setMensajePortada('');
+      setErrorImagen(err?.message || 'No se pudo subir la portada');
+    }
+    setTrabajandoPortada(false);
+  }
+
+  // "✨ Quitar fondo" sobre una foto que ya está subida: crea la versión
+  // sin fondo, la deja en el lugar de la original (si era la portada,
+  // queda de portada) y borra la original.
+  async function quitarFondoFotoSubida(img) {
+    setProcesandoImagenId(img.id);
+    setErrorImagen('');
+    setMensajeFondo('');
+    try {
+      const blob = await fetch(`/api/imagenes/${img.imagen_key}`).then((r) => {
+        if (!r.ok) throw new Error('No se pudo abrir la foto');
+        return r.blob();
+      });
+      const original = await leerComoDataUri(blob);
+      const r = await quitarFondoFoto(original, { onProgreso: setMensajeFondo });
+      const fila = await subirFotoDataUri(r.imagen, 'foto-sin-fondo.jpg');
+      const eraPortada = img.imagen_key === portadaActual;
+      if (eraPortada) {
+        await marcarPortada(fila.id);
+        setPortadaActual(fila.imagen_key);
+      }
+      await fetch(`/api/productos/${form.id}/imagenes/${img.id}`, { method: 'DELETE' });
+      setMensajeFondo('');
+      cargarImagenes(form.id);
+      cargarProductos();
+    } catch (err) {
+      setMensajeFondo('');
+      setErrorImagen(`No se pudo quitar el fondo: ${err?.message || 'error'}.`);
+    }
+    setProcesandoImagenId(null);
   }
 
   async function eliminarImagen(imgId) {
@@ -1808,6 +1917,42 @@ export default function ProductosPage() {
               </div>
             ) : (
               <>
+                <div style={styles.cajaPortada}>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <strong style={{ fontSize: '14px', marginRight: '4px' }}>Nueva portada:</strong>
+                    <label style={styles.btnSubirFoto}>
+                      📷 Tomar foto
+                      <input type="file" accept="image/*" capture="environment" onChange={elegirPortadaNueva} disabled={trabajandoPortada} style={{ display: 'none' }} />
+                    </label>
+                    <label style={styles.btnSubirFoto}>
+                      🖼️ Elegir archivo
+                      <input type="file" accept="image/*" onChange={elegirPortadaNueva} disabled={trabajandoPortada} style={{ display: 'none' }} />
+                    </label>
+                  </div>
+                  {portadaNueva && (
+                    <div style={{ marginTop: '10px' }}>
+                      <img src={portadaNueva.actual} alt="Nueva portada" style={{ ...styles.previewIA, maxWidth: '220px', maxHeight: '220px' }} />
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginTop: '8px' }}>
+                        {!portadaNueva.sinFondo ? (
+                          <button type="button" onClick={quitarFondoPortadaNueva} disabled={trabajandoPortada} style={{ ...styles.btnSecundario, marginLeft: 0 }}>
+                            {trabajandoPortada ? 'Quitando fondo…' : '✨ Quitar fondo con IA'}
+                          </button>
+                        ) : (
+                          <button type="button" onClick={() => setPortadaNueva((p) => ({ ...p, actual: p.original, sinFondo: false }))} disabled={trabajandoPortada} style={{ ...styles.btnSecundario, marginLeft: 0 }}>
+                            ↩ Volver a la original
+                          </button>
+                        )}
+                        <button type="button" onClick={subirPortadaNueva} disabled={trabajandoPortada} style={{ ...styles.btnPrimario, marginLeft: 0 }}>
+                          {trabajandoPortada && !mensajePortada.startsWith('Subiendo') ? 'Espera…' : 'Subir como portada'}
+                        </button>
+                        <button type="button" onClick={() => setPortadaNueva(null)} disabled={trabajandoPortada} style={{ ...styles.btnSecundario, marginLeft: 0 }}>
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {mensajePortada && <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '6px 0 0' }}>{mensajePortada}</p>}
+                </div>
                 {cargandoImagenes ? (
                   <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Cargando fotos...</p>
                 ) : (
@@ -1832,6 +1977,15 @@ export default function ProductosPage() {
                             )}
                             <button
                               type="button"
+                              onClick={() => quitarFondoFotoSubida(img)}
+                              disabled={procesando || procesandoImagenId !== null}
+                              style={styles.btnFotoAccion}
+                              title="Le quita el fondo con IA (queda en fondo blanco) y reemplaza esta foto"
+                            >
+                              {procesando ? 'Procesando…' : '✨ Quitar fondo'}
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => eliminarImagen(img.id)}
                               disabled={procesando}
                               style={{ ...styles.btnFotoAccion, color: 'var(--danger)' }}
@@ -1853,6 +2007,10 @@ export default function ProductosPage() {
                     {subiendoImagen ? 'Subiendo...' : '+ Agregar foto'}
                     <input type="file" accept="image/*" onChange={(e) => subirImagen(e)} disabled={subiendoImagen} style={{ display: 'none' }} />
                   </label>
+                  <label style={styles.btnSubirFoto}>
+                    📷 Agregar con la cámara
+                    <input type="file" accept="image/*" capture="environment" onChange={(e) => subirImagen(e)} disabled={subiendoImagen} style={{ display: 'none' }} />
+                  </label>
                   <label style={styles.btnSubirFoto} title="Le quita el fondo con IA (queda en fondo blanco) antes de subirla">
                     {subiendoImagen ? 'Procesando…' : '✨ Agregar foto sin fondo'}
                     <input type="file" accept="image/*" onChange={(e) => subirImagen(e, true)} disabled={subiendoImagen} style={{ display: 'none' }} />
@@ -1862,7 +2020,7 @@ export default function ProductosPage() {
                   <input type="checkbox" checked={recortarActivo} onChange={(e) => setRecortarActivo(e.target.checked)} />
                   Recortar espacios en blanco alrededor
                 </label>
-                {subiendoImagen && mensajeFondo && <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{mensajeFondo}</p>}
+                {(subiendoImagen || procesandoImagenId !== null) && mensajeFondo && <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{mensajeFondo}</p>}
                 {errorImagen && <p style={{ color: 'var(--danger)', fontSize: '13px' }}>{errorImagen}</p>}
               </>
             )}
@@ -2388,6 +2546,7 @@ const styles = {
     fontSize: '12px',
     padding: '2px 0',
   },
+  cajaPortada: { border: '1px dashed var(--border)', borderRadius: '10px', padding: '10px 12px', marginBottom: '12px', background: 'var(--bg-secondary, transparent)' },
   btnSubirFoto: {
     display: 'inline-block',
     padding: '9px 16px',
