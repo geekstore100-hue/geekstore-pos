@@ -153,7 +153,8 @@ export default function CuponesPage() {
   const [errGen, setErrGen] = useState('');
   const [copiado, setCopiado] = useState('');
   // Recordatorios por WhatsApp a quien no ha usado su cupón (nov 2026).
-  const [verRecordatorios, setVerRecordatorios] = useState(false);
+  // Abierto de una vez (antes había que tocar "Abrir" y no se veía).
+  const [verRecordatorios, setVerRecordatorios] = useState(true);
 
   const campana = useMemo(() => campanas.find((k) => k.nombre === sel) || null, [campanas, sel]);
 
@@ -712,8 +713,8 @@ export default function CuponesPage() {
                   Escríbele por WhatsApp, uno por uno, a quien no ha usado su cupón.
                 </div>
               </div>
-              <button type="button" className="cp-sec" onClick={() => setVerRecordatorios((v) => !v)}>
-                {verRecordatorios ? 'Cerrar' : 'Abrir'}
+              <button type="button" className={verRecordatorios ? 'cp-sec' : 'cp-btn'} onClick={() => setVerRecordatorios((v) => !v)}>
+                {verRecordatorios ? 'Ocultar' : '📣 Escribirles por WhatsApp'}
               </button>
             </div>
             {verRecordatorios && (
@@ -729,7 +730,17 @@ export default function CuponesPage() {
           <div className="cp-box">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
               <h3 style={{ margin: 0 }}>Reporte · {datos.campana}</h3>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="cp-sec"
+                  onClick={() => {
+                    setVerRecordatorios(true);
+                    setTimeout(() => document.getElementById('recordatorios')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+                  }}
+                >
+                  📣 Recordar por WhatsApp
+                </button>
                 <Link href="/ventas/rapida?cupon=1" className="cp-sec">🎟️ Dar cupón</Link>
                 <button type="button" className="cp-sec" onClick={csvContactos}>⬇ Cupones (CSV)</button>
               </div>

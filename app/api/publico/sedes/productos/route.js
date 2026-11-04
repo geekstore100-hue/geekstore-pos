@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../../../lib/db';
-import { asegurarSedes, sedeDeClave, cabecerasCors, filaParaSede } from '../../../../../lib/sedes';
+import { atenderSede, cabecerasCors, filaParaSede } from '../../../../../lib/sedes';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,15 +12,10 @@ export async function OPTIONS(request) {
 }
 
 export async function GET(request) {
-  const cors = cabecerasCors(request);
-  try {
-    const sede = sedeDeClave(request);
-    if (!sede) return NextResponse.json({ ok: false, error: 'Clave inválida' }, { status: 401, headers: cors });
-    await asegurarSedes();
+  return atenderSede(request, 'productos', async ({ sede, paso, responder }) => {
+    paso('leyendo los productos');
     const filas = await sql`SELECT * FROM productos WHERE sede = ${sede} ORDER BY nombre`;
     const origen = new URL(request.url).origin;
-    return NextResponse.json({ ok: true, productos: filas.map((p) => filaParaSede(p, origen)) }, { headers: cors });
-  } catch (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500, headers: cors });
-  }
+    return responder(200, { ok: true, productos: filas.map((p) => filaParaSede(p, origen)) });
+  });
 }

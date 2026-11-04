@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../../../lib/db';
-import { asegurarSedes, sedeDeClave, cabecerasCors, limpiarCodigo, categoriaColeccionables, filaParaSede, DATOS_SEDES } from '../../../../../lib/sedes';
+import { atenderSede, cabecerasCors, cuerpoJson, limpiarCodigo, categoriaColeccionables, filaParaSede, DATOS_SEDES } from '../../../../../lib/sedes';
 import { crearEnlaceSede } from '../../../../../lib/sesionSede';
 
 export const dynamic = 'force-dynamic';
@@ -17,21 +17,20 @@ export async function OPTIONS(request) {
 }
 
 export async function POST(request) {
-  const cors = cabecerasCors(request);
-  try {
-    const sede = sedeDeClave(request);
-    if (!sede) return NextResponse.json({ ok: false, error: 'Clave inválida' }, { status: 401, headers: cors });
-    await asegurarSedes();
-    const body = await request.json();
+  return atenderSede(request, 'publicar', async ({ sede, paso, responder }) => {
+    const body = await cuerpoJson(request);
+    if (!body || typeof body !== 'object') return responder(400, { ok: false, codigo: 'datos', error: 'Datos inválidos' });
     const codigo = limpiarCodigo(body.codigo);
-    if (!codigo) return NextResponse.json({ ok: false, error: 'Falta el código del producto' }, { status: 400, headers: cors });
+    if (!codigo) return responder(400, { ok: false, codigo: 'datos', error: 'Falta el código del producto' });
     const nombre = String(body.nombre || '').replace(/\s+/g, ' ').trim().slice(0, 150);
     const precio = Math.round(Number(body.precio) || 0);
     const stock = Math.max(0, Math.floor(Number(body.stock) || 0));
 
+    paso('buscando el producto');
     let [p] = await sql`SELECT * FROM productos WHERE sede = ${sede} AND sede_codigo = ${codigo}`;
     if (!p) {
-      if (!nombre) return NextResponse.json({ ok: false, error: 'Falta el nombre del producto' }, { status: 400, headers: cors });
+      if (!nombre) return responder(400, { ok: false, codigo: 'datos', error: 'Falta el nombre del producto' });
+      paso('creando la ficha web');
       const cat = await categoriaColeccionables();
       const referencia = `${DATOS_SEDES[sede].prefijo}${codigo}`;
       [p] = await sql`
@@ -42,6 +41,7 @@ export async function POST(request) {
         RETURNING *
       `;
     } else {
+      paso('actualizando precio y stock');
       [p] = await sql`
         UPDATE productos SET
           precio_venta = CASE WHEN ${precio} > 0 THEN ${precio} ELSE precio_venta END,
@@ -50,14 +50,13 @@ export async function POST(request) {
         RETURNING *
       `;
     }
+    paso('creando el enlace al editor');
     const origen = new URL(request.url).origin;
     const t = await crearEnlaceSede(sede, p.id);
-    return NextResponse.json(
-      { ok: true, producto: filaParaSede(p, origen), enlace: `${origen}/api/publico/sedes/entrar?t=${encodeURIComponent(t)}` },
-      { headers: cors }
-    );
-  } catch (error) {
-    const msg = String(error.message).includes('duplicate key') ? 'Ya existe un producto con esa referencia' : error.message;
-    return NextResponse.json({ ok: false, error: msg }, { status: 500, headers: cors });
-  }
+    return responder(200, {
+      ok: true,
+      producto: filaParaSede(p, origen),
+      enlace: `${origen}/api/publico/sedes/entrar?t=${encodeURIComponent(t)}`,
+    });
+  });
 }

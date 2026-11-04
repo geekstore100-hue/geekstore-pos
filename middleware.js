@@ -1,6 +1,14 @@
 import { NextResponse } from 'next/server';
 import { COOKIE_SESION, tokenSesionValido } from './lib/sesion';
 import { COOKIE_SEDE, sedeDeSesion } from './lib/sesionSede';
+import { cabecerasCors } from './lib/corsSedes';
+
+// API de sedes (POS de Venecia, ver lib/sedes.js): el CORS se pone AQUÍ,
+// en el Edge, para que vaya en todas las respuestas — también cuando la
+// función falla o Netlify la corta por tiempo (502/503/504). Así el POS de
+// Venecia puede leer el error real en vez de "sin conexión". El preflight
+// (OPTIONS) se contesta aquí mismo, sin despertar la función.
+const API_SEDES = /^\/api\/publico\/sedes\/(publicar|stock|productos|estado)\/?$/;
 
 // SESIÓN DE SEDE (nov 2026, ver lib/sesionSede.js): la gente de Geek Store
 // Venecia entra al editor de productos con un enlace de su POS, sin la
@@ -62,6 +70,14 @@ const METODOS_SOLO_LECTURA = ['GET', 'HEAD', 'OPTIONS'];
 
 export async function middleware(request) {
   const { pathname } = request.nextUrl;
+
+  if (API_SEDES.test(pathname)) {
+    const cors = cabecerasCors(request);
+    if (request.method === 'OPTIONS') return new NextResponse(null, { status: 204, headers: cors });
+    const res = siguienteCon(request, null);
+    for (const [k, v] of Object.entries(cors)) res.headers.set(k, v);
+    return res;
+  }
 
   // Protección contra ataques desde otras páginas (CSRF): si estás con la
   // sesión abierta y visitas una página maliciosa, esa página podría
