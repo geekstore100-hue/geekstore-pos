@@ -414,6 +414,11 @@ export default function ReabastecimientoPage() {
         Productos agotados en Principal, y productos que según su ritmo de venta se van a agotar pronto. Se calcula
         con las ventas de los últimos 30 días.
       </p>
+      {/* Nov 2026: el mismo análisis, pero por proveedor (incluye los que
+          llevan más de 2 meses en cero). */}
+      <p style={{ margin: '4px 0 12px' }}>
+        <a href="/agotados-proveedor" style={{ fontWeight: 600 }}>📦 Ver agotados por proveedor →</a>
+      </p>
 
       {deudaConDistribuidor > 0 && (
         <div style={styles.tarjetaDeuda}>
