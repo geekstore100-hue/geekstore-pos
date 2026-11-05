@@ -5,7 +5,7 @@ import Shell from '../../components/Shell';
 import { tipoDeProducto, camposFaltantes } from '../../lib/plantillasFicha';
 import { quitarFondoFoto } from '../../lib/quitarFondoCliente';
 import { cajaDelProducto } from '../../lib/recorteFoto';
-import { ajustarDescripcion, REGLAS_DESCRIPCION_IA } from '../../lib/descripcionProducto';
+import { ajustarDescripcion, REGLAS_DESCRIPCION_IA, DESCRIPCION_MAXIMA_SEDE } from '../../lib/descripcionProducto';
 import { esCategoriaColeccionable, altoDeFicha, conAlto, valorAltoDeFicha, MENSAJE_FALTA_ALTO } from '../../lib/figuras';
 
 const vacio = {
@@ -770,6 +770,8 @@ export default function ProductosPage() {
             : infoAdicionalIA,
           enlaceFabricante: enlaceFabricante.trim() || undefined,
           textoFabricante: textoFabricante.trim() || undefined,
+          // Venecia: descripción 50 letras más corta (la IA se pasaba).
+          maxDescripcion: esDeSede ? DESCRIPCION_MAXIMA_SEDE : undefined,
         }),
       });
       const data = await res.json();
@@ -783,7 +785,7 @@ export default function ProductosPage() {
           ...f,
           nombre: data.nombre || f.nombre,
           // Sin cortar a mitad de palabra (lib/descripcionProducto.js).
-          descripcion: ajustarDescripcion(data.descripcion || ''),
+          descripcion: ajustarDescripcion(data.descripcion || '', esDeSede ? DESCRIPCION_MAXIMA_SEDE : undefined),
           // La ficha técnica solo se reemplaza si la IA encontró datos; si
           // no encontró ninguno verificable, se deja la que ya hubiera.
           especificaciones:

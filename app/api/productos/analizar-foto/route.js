@@ -34,12 +34,14 @@ import { clavesIADeSede, DATOS_SEDES } from '../../../../lib/sedes';
 // middleware.js).
 export const dynamic = 'force-dynamic';
 
-const FORMATO_RESPUESTA = `INSTRUCCIONES FINALES (tienen prioridad sobre cualquier instrucción anterior sobre el formato de la respuesta):
+// maxDesc (nov 2026): Venecia pide 550 en vez de 600 — la IA no cuenta
+// bien las letras y se pasaba del límite.
+const formatoRespuesta = (maxDesc = 600) => `INSTRUCCIONES FINALES (tienen prioridad sobre cualquier instrucción anterior sobre el formato de la respuesta):
 
 Responde SOLO con un objeto JSON válido, sin texto adicional y sin markdown, con esta forma exacta:
 {"nombre": "...", "descripcion": "...", "categoria": "...", "subcategoria": "...", "especificaciones": [{"nombre": "...", "valor": "..."}]}
 
-"descripcion" (máximo 600 caracteres en total): es el texto para VENDER, no una ficha técnica. Empieza con una frase que diga qué es el producto y para quién o para qué sirve. Después pon de 2 a 4 beneficios concretos, cada uno en su propia línea y empezando con "✓ " — habla de lo que gana el cliente (por ejemplo: cargar el celular más rápido, trabajar más cómodo, no preocuparse por la batería). NO pongas en la descripción cifras técnicas ni listas de características: esas van en "especificaciones". Español de Colombia con trato de "tú" (nunca "vos" ni voseo).
+"descripcion" (entre 400 y ${maxDesc} caracteres en total, contando espacios y saltos de línea; NUNCA más de ${maxDesc}): es el texto para VENDER, no una ficha técnica. Empieza con una frase que diga qué es el producto y para quién o para qué sirve. Después pon de 2 a 4 beneficios concretos, cada uno en su propia línea y empezando con "✓ " — habla de lo que gana el cliente (por ejemplo: cargar el celular más rápido, trabajar más cómodo, no preocuparse por la batería). NO pongas en la descripción cifras técnicas ni listas de características: esas van en "especificaciones". Español de Colombia con trato de "tú" (nunca "vos" ni voseo).
 
 "especificaciones": la ficha técnica, normalmente de 4 a 15 filas. Cada fila tiene un "nombre" corto (por ejemplo "Marca", "Modelo", "Potencia", "Conector", "Compatibilidad", "Dimensiones", "Peso", "Batería", "Incluye") y un "valor" concreto con su unidad (por ejemplo "20 W", "USB-C", "iPhone 12 en adelante"). Escribe cada "nombre" en español y solo con la primera letra en mayúscula (por ejemplo "Velocidad del ventilador", NO "VELOCIDAD DEL VENTILADOR" ni "Velocidad Del Ventilador"); las marcas, modelos y siglas se dejan como son (por ejemplo "TDP", "RGB", "USB", "Thermalright"). Los valores tampoco van en mayúsculas sostenidas.
 
@@ -58,6 +60,7 @@ export async function POST(request) {
       infoAdicional,
       enlaceFabricante,
       textoFabricante,
+      maxDescripcion,
     } = await request.json();
 
     const enlace = String(enlaceFabricante || '').trim();
@@ -128,7 +131,10 @@ export async function POST(request) {
         `Información adicional que dio el usuario sobre este producto — tenla en cuenta junto con lo demás: "${infoAdicional.trim()}"`
       );
     }
-    bloques.push(FORMATO_RESPUESTA);
+    // Venecia (sede) o una ficha de Venecia abierta por el administrador:
+    // descripción 50 letras más corta (ver lib/descripcionProducto.js).
+    const maxDesc = Math.min(600, Math.max(300, Number(maxDescripcion) || (sede ? 550 : 600)));
+    bloques.push(formatoRespuesta(maxDesc));
     const promptFinal = bloques.join('\n\n');
 
     const r = await preguntarEnCadena({
