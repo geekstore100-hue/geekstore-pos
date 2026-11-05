@@ -47,7 +47,7 @@ export async function POST(request) {
         INSERT INTO productos (referencia, nombre, categoria_id, precio_venta, precio_costo, activo, es_inventariable,
                                mostrar_en_tienda, es_gamer, sede, sede_codigo, sede_stock, sede_sincronizado_en)
         VALUES (${referencia}, ${nombre}, ${cat.id}, ${precio || null}, NULL, true, true,
-                false, false, ${sede}, ${codigo}, ${stock}, now())
+                true, false, ${sede}, ${codigo}, ${stock}, now())
         RETURNING *
       `;
     } else {
@@ -55,7 +55,7 @@ export async function POST(request) {
       [p] = await sql`
         UPDATE productos SET
           precio_venta = CASE WHEN ${precio} > 0 THEN ${precio} ELSE precio_venta END,
-          sede_stock = ${stock}, sede_sincronizado_en = now(), activo = true
+          sede_stock = ${stock}, sede_sincronizado_en = now(), activo = true, mostrar_en_tienda = true, es_gamer = false
         WHERE id = ${p.id}
         RETURNING *
       `;

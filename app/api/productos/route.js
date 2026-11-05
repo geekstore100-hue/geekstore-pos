@@ -91,7 +91,6 @@ export async function GET(request) {
         productos: productos.map(({ precio_costo, precio_distribuidor, ...p }) => {
           const stock = Number(p.sede_stock) || 0;
           const faltan = faltantesWeb(p);
-          if (p.mostrar_en_tienda === false) faltan.unshift('Marcar "Publicar en geekstore.com.co"');
           if (p.activo === false) faltan.unshift('Activarlo');
           if (stock <= 0) faltan.push('Stock (el POS de la sede lo tiene en 0)');
           return { ...p, stock, estado_web: { enLaPagina: faltan.length === 0, faltan } };

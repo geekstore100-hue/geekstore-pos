@@ -170,7 +170,9 @@ export async function GET(request) {
           LEFT JOIN categorias c ON c.id = p.categoria_id
           LEFT JOIN subcategorias sc ON sc.id = p.subcategoria_id
           WHERE COALESCE(to_jsonb(p) ->> 'sede', 'kennedy') <> 'kennedy'
-            AND p.activo = true AND p.mostrar_en_tienda = true
+            -- (sin mirar mostrar_en_tienda: los de las sedes siempre se
+            -- publican apenas la ficha está completa — nov 2026)
+            AND p.activo = true
             AND COALESCE((to_jsonb(p) ->> 'sede_stock')::numeric, 0) > 0
           ORDER BY p.nombre ASC
         `;
@@ -189,7 +191,7 @@ export async function GET(request) {
           reference: p.referencia,
           category: p.categoria_nombre || '',
           subcategory: p.subcategoria_nombre || '',
-          gamer: Boolean(p.es_gamer),
+          gamer: false, // coleccionables de las sedes: nunca Zona Gamer
           price: Number(p.precio_venta) || 0,
           priceBefore: null,
           available: Number(p.sede_stock) || 0,

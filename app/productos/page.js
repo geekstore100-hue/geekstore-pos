@@ -1189,16 +1189,15 @@ export default function ProductosPage() {
       return;
     }
     // Ficha de sede: para publicarla en la página tiene que estar completa.
-    if (esDeSede && form.mostrar_en_tienda) {
-      const faltan = [];
-      if (!(Number(form.precio_venta) > 0)) faltan.push('el precio de venta (se pone en el POS de Venecia)');
-      if (!portadaActual) faltan.push('una foto');
+    // Venecia (nov 2026): siempre se guarda (y queda "publicado"); si a la
+    // ficha le falta algo para salir en la página, se avisa después de
+    // guardar en vez de bloquear.
+    let faltanWebSede = [];
+    if (esDeSede) {
+      if (!(Number(form.precio_venta) > 0)) faltanWebSede.push('el precio de venta (se pone en el POS de Venecia)');
+      if (!portadaActual) faltanWebSede.push('una foto');
       const largo = String(form.descripcion || '').trim().length;
-      if (largo < 400) faltan.push(`la descripción de al menos 400 letras (lleva ${largo})`);
-      if (faltan.length) {
-        setError(`Para publicarla en la página falta ${faltan.join(' y ')}. Puedes guardarla sin marcar "Publicar" y terminarla después.`);
-        return;
-      }
+      if (largo < 400) faltanWebSede.push(`la descripción de al menos 400 letras (lleva ${largo})`);
     }
     if (!form.id && form.con_iva !== true && form.con_iva !== false) {
       setError('Elige si el precio lleva IVA o no (el producto también se crea en Alegra para la factura electrónica).');
@@ -1331,6 +1330,10 @@ export default function ProductosPage() {
       cargarProductos();
       if (alegraFallo && !form.id) editarProducto({ ...form, id: data.producto.id });
       setError(`${data.aviso || 'El producto se guardó en el POS.'}${avisoAlegra}`);
+    } else if (data.ok && faltanWebSede.length) {
+      // Venecia: guardado, pero todavía no sale en la página.
+      cargarProductos();
+      setError(`Guardado ✓. Para que salga en la página todavía falta ${faltanWebSede.join(' y ')}.`);
     } else if (data.ok) {
       setMostrarForm(false);
       cargarProductos();
@@ -1730,6 +1733,15 @@ export default function ProductosPage() {
               en la misma fila (no se notaba a cuál de los dos aplicaba cada
               explicación). Ahora cada uno va en su propia fila, de ancho
               completo, con su explicación justo debajo. */}
+          {esDeSede ? (
+            // Venecia (nov 2026): sus coleccionables siempre se publican (salen
+            // en la página apenas la ficha está completa) y nunca son Zona
+            // Gamer, así que estas dos casillas no se muestran.
+            <p style={{ ...styles.ayudaCheckbox, marginTop: '10px' }}>
+              Sale solo en geekstore.com.co apenas tenga foto, descripción de 400 letras, el alto, precio y stock en el
+              POS de Venecia. El cliente lo pide por WhatsApp a Venecia.
+            </p>
+          ) : (<>
           <div style={styles.bloqueCheckbox}>
             <label style={styles.filaCheckbox}>
               <input
@@ -1766,6 +1778,7 @@ export default function ProductosPage() {
               que el producto también se pueda encontrar como artículo de Zona Gamer.
             </p>
           </div>
+          </>)}
 
           <label style={{ display: 'block', marginTop: '10px' }}>
             Descripción

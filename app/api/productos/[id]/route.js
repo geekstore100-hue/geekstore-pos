@@ -31,7 +31,9 @@ async function guardarDeSede(sede, id, body) {
   const [producto] = await sql`
     UPDATE productos SET
       nombre = ${nombre.slice(0, 150)}, descripcion = ${descripcion || null}, categoria_id = ${cat.id}, subcategoria_id = ${subId},
-      mostrar_en_tienda = ${Boolean(body.mostrar_en_tienda)}, es_gamer = ${Boolean(body.es_gamer)},
+      -- Venecia (nov 2026): sus coleccionables siempre van publicados y
+      -- nunca son Zona Gamer (el editor ya no muestra esas casillas).
+      mostrar_en_tienda = true, es_gamer = false,
       video_youtube = ${String(body.video_youtube || '').trim() || null},
       especificaciones = ${especificaciones ? JSON.stringify(especificaciones) : null}::jsonb, actualizado_en = now()
     WHERE id = ${id}
