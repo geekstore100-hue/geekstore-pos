@@ -28,7 +28,9 @@ export async function GET(request, { params }) {
              (to_jsonb(c) ->> 'venta_id')::int AS venta_id,
              (to_jsonb(c) ->> 'venta_principal_id')::int AS venta_principal_id,
              (to_jsonb(c) ->> 'editada_en') AS editada_en,
-             (to_jsonb(c) ->> 'total_original')::numeric AS total_original
+             (to_jsonb(c) ->> 'total_original')::numeric AS total_original,
+             -- Verificación del pedido (nov 2026, lib/verificacionDistribuidor.js).
+             (to_jsonb(c) -> 'verificacion') AS verificacion
       FROM cotizaciones_distribuidor c
       WHERE c.id = ${id}
     `;
@@ -139,6 +141,16 @@ export async function PUT(request, { params }) {
       `,
       ...consultasReemplazarLineas(id, lineas),
     ]);
+    // Si ya estaba verificada y cambió lo pedido, se vuelve a revisar qué
+    // falta (lo ya contado por producto se conserva).
+    try {
+      await sql`
+        UPDATE cotizaciones_distribuidor SET verificacion = verificacion - 'completa_en'
+        WHERE id = ${id} AND (to_jsonb(cotizaciones_distribuidor) -> 'verificacion') IS NOT NULL
+      `;
+    } catch (e) {
+      console.error('[cotizacion distribuidor] verificación al editar:', e?.message);
+    }
     return NextResponse.json({ ok: true, total });
   } catch (error) {
     if (error instanceof ErrorCotizacion) return NextResponse.json({ ok: false, error: error.message }, { status: error.status });

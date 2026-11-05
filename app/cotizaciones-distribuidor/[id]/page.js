@@ -150,11 +150,126 @@ function EditorLineas({ lineas, setLineas, productos, stockDe, repartoDe }) {
   );
 }
 
+
+// VERIFICAR EL PEDIDO (nov 2026, ver lib/verificacionDistribuidor.js):
+// después de alistar, se revisa la caja renglón por renglón. Cada producto
+// tiene −, +1 y "✓ Completo"; queda en verde cuando ya están todas sus
+// unidades. El avance se guarda (se puede seguir en otro aparato).
+function VerificarPedido({ cotizacion, alCambiar, alSalir }) {
+  const [hechas, setHechas] = useState(() => ({ ...(cotizacion.verificacion?.items || {}) }));
+  const [completaEn, setCompletaEn] = useState(cotizacion.verificacion?.completa_en || null);
+  const [error, setError] = useState('');
+
+  // Un renglón por producto (si un producto viene repetido, se suma).
+  const renglones = useMemo(() => {
+    const porProducto = new Map();
+    for (const it of cotizacion.items) {
+      const pid = String(it.producto_id);
+      const r = porProducto.get(pid) || { pid, referencia: it.referencia, nombre: it.nombre, cantidad: 0, principal: 0 };
+      r.cantidad += Number(it.cantidad) || 0;
+      r.principal += Number(cotizacion.alistar?.items?.[it.id]?.principal) || 0;
+      porProducto.set(pid, r);
+    }
+    return [...porProducto.values()];
+  }, [cotizacion]);
+
+  const listos = renglones.filter((r) => (Number(hechas[r.pid]) || 0) >= r.cantidad).length;
+  const todo = renglones.length > 0 && listos === renglones.length;
+
+  async function guardar(body, optimista) {
+    setError('');
+    const antes = hechas;
+    if (optimista) setHechas(optimista);
+    try {
+      const res = await fetch(`/api/cotizaciones-distribuidor/${cotizacion.id}/verificar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const d = await res.json();
+      if (!d.ok) throw new Error(d.error || 'No se pudo guardar');
+      setHechas({ ...(d.verificacion.items || {}) });
+      setCompletaEn(d.verificacion.completa_en || null);
+      alCambiar?.(d.verificacion);
+    } catch (e) {
+      setHechas(antes);
+      setError(e.message || 'Error de conexión');
+    }
+  }
+
+  function poner(r, n) {
+    const valor = Math.max(0, Math.min(r.cantidad, n));
+    guardar({ producto_id: Number(r.pid), cantidad: valor }, { ...hechas, [r.pid]: valor });
+  }
+
+  function reiniciar() {
+    if (!window.confirm('¿Empezar la verificación de cero?')) return;
+    guardar({ reiniciar: true }, {});
+  }
+
+  return (
+    <div style={styles.hoja}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <h2 style={{ margin: 0, fontSize: 18 }}>✅ Verificar pedido · {cotizacion.distribuidor_nombre}</h2>
+        <button onClick={alSalir} style={styles.botonSecundario}>Listo</button>
+      </div>
+      <p style={{ color: '#667', margin: '6px 0 12px', fontSize: '0.9rem' }}>
+        Revisa la caja y marca cuántas unidades de cada producto ya están. El renglón se pone verde cuando está completo.
+      </p>
+
+      <div style={styles.progreso}>
+        <div style={{ ...styles.progresoBarra, width: `${renglones.length ? (listos / renglones.length) * 100 : 0}%` }} />
+      </div>
+      <p style={{ margin: '6px 0 14px', fontWeight: 600 }}>
+        {listos} de {renglones.length} renglones listos
+      </p>
+
+      {todo ? (
+        <div style={{ ...styles.ok, fontWeight: 600 }}>
+          ✅ Pedido verificado: todo está completo en la caja.
+          {completaEn ? <span style={{ fontWeight: 400 }}> ({new Date(completaEn).toLocaleString('es-CO')})</span> : null}
+        </div>
+      ) : null}
+      {error ? <div style={styles.error}>{error}</div> : null}
+
+      <div style={{ display: 'grid', gap: 8 }}>
+        {renglones.map((r) => {
+          const n = Number(hechas[r.pid]) || 0;
+          const completo = n >= r.cantidad;
+          return (
+            <div key={r.pid} style={{ ...styles.renglonVerificar, ...(completo ? styles.renglonListo : null) }}>
+              <div style={{ flex: 1, minWidth: 180 }}>
+                <div style={{ fontWeight: 600 }}>{completo ? '✅ ' : ''}{r.nombre}</div>
+                <div style={{ fontSize: '0.8rem', color: '#667' }}>
+                  Ref. {r.referencia}
+                  {r.principal > 0 ? <strong style={{ color: '#b54708' }}> · {r.principal} de Bodega Principal</strong> : null}
+                </div>
+              </div>
+              <div style={{ fontSize: '1.15rem', fontWeight: 700, minWidth: 70, textAlign: 'center' }}>
+                {n} / {r.cantidad}
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={() => poner(r, n - 1)} disabled={n <= 0} style={{ ...styles.botonVerificar, ...(n <= 0 ? styles.deshabilitado : null) }} aria-label="Quitar una">−</button>
+                <button onClick={() => poner(r, n + 1)} disabled={completo} style={{ ...styles.botonVerificar, ...(completo ? styles.deshabilitado : null) }}>+1</button>
+                <button onClick={() => poner(r, r.cantidad)} disabled={completo} style={{ ...styles.botonVerificar, ...styles.botonCompleto, ...(completo ? styles.deshabilitado : null) }}>✓ Completo</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <p style={{ margin: '14px 0 0' }}>
+        <button onClick={reiniciar} style={styles.botonTexto}>Empezar de cero</button>
+      </p>
+    </div>
+  );
+}
+
 export default function CotizacionDistribuidorPage({ params }) {
   const { id } = usePromise(params);
   const [cotizacion, setCotizacion] = useState(null);
   const [cargando, setCargando] = useState(true);
-  const [modo, setModo] = useState('ver'); // ver | editar | facturar
+  const [modo, setModo] = useState('ver'); // ver | editar | facturar | verificar
   const [lineas, setLineas] = useState([]);
   const [productos, setProductos] = useState([]);
   const [bodegas, setBodegas] = useState([]);
@@ -326,6 +441,9 @@ export default function CotizacionDistribuidorPage({ params }) {
   }
 
   const pendiente = cotizacion.estado === 'pendiente';
+  // Verificado = todas las unidades de todos los productos marcadas
+  // (lib/verificacionDistribuidor.js).
+  const verificada = Boolean(cotizacion.verificacion?.completa_en);
 
   return (
     <Shell title={`Cotización ${cotizacion.numero}`}>
@@ -336,6 +454,9 @@ export default function CotizacionDistribuidorPage({ params }) {
             <>
               {pendiente ? (
                 <>
+                  <button onClick={() => { setError(''); setAviso(''); setModo('verificar'); }} style={styles.botonSecundario}>
+                    {verificada ? '✅ Verificado' : '☑️ Verificar pedido'}
+                  </button>
                   <button onClick={() => abrir('facturar')} style={styles.boton}>🧾 Facturar</button>
                   <button onClick={() => abrir('editar')} style={styles.botonSecundario}>✏️ Editar</button>
                 </>
@@ -360,7 +481,13 @@ export default function CotizacionDistribuidorPage({ params }) {
         {aviso ? <div className="pos-no-imprimir" style={styles.ok}>{aviso}</div> : null}
         {error ? <div className="pos-no-imprimir" style={styles.error}>{error}</div> : null}
 
-        {modo !== 'ver' ? (
+        {modo === 'verificar' ? (
+          <VerificarPedido
+            cotizacion={cotizacion}
+            alCambiar={(v) => setCotizacion((c) => ({ ...c, verificacion: v }))}
+            alSalir={() => setModo('ver')}
+          />
+        ) : modo !== 'ver' ? (
           <div style={styles.hoja}>
             <h2 style={{ marginTop: 0, fontSize: 18 }}>
               {modo === 'editar' ? 'Editar cotización' : 'Facturar cotización'} · {cotizacion.distribuidor_nombre}
@@ -368,6 +495,11 @@ export default function CotizacionDistribuidorPage({ params }) {
             {modo === 'facturar' ? (
               <p style={{ color: '#667', marginTop: 0, fontSize: '0.9rem' }}>
                 Revisa y ajusta lo que vas a entregar. Al guardar se crea la venta en el POS y se descuenta el inventario. En automático, cada producto sale de Bodega Distribuidor y lo que falte, de Principal.
+              </p>
+            ) : null}
+            {modo === 'facturar' && !verificada ? (
+              <p style={{ ...styles.alistarCaja, margin: '0 0 12px' }}>
+                ⚠️ Este pedido todavía no se ha verificado. Puedes facturarlo igual, o primero tocar "Verificar pedido" para revisar la caja.
               </p>
             ) : null}
             <EditorLineas lineas={lineas} setLineas={setLineas} productos={productos} stockDe={modo === 'facturar' ? stockDe : null} repartoDe={modo === 'facturar' ? repartoDe : null} />
@@ -602,6 +734,12 @@ const styles = {
     padding: '8px 6px', border: 'none', background: 'none', color: '#667', cursor: 'pointer', fontSize: '0.85rem', textDecoration: 'underline',
   },
   deshabilitado: { opacity: 0.45, cursor: 'not-allowed' },
+  progreso: { height: 10, borderRadius: 999, background: '#eef0f3', overflow: 'hidden' },
+  progresoBarra: { height: '100%', background: 'var(--teal, #0d9488)', transition: 'width .2s' },
+  renglonVerificar: { display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 10, background: '#fff' },
+  renglonListo: { background: '#ecfdf3', borderColor: '#abefc6' },
+  botonVerificar: { minWidth: 44, height: 40, padding: '0 12px', borderRadius: 8, border: '1px solid #ddd', background: '#fff', fontWeight: 700, fontSize: '1rem', cursor: 'pointer' },
+  botonCompleto: { background: 'var(--teal, #0d9488)', color: '#fff', border: 'none', fontSize: '0.9rem' },
   hoja: { background: '#fff', border: '1px solid #eee', borderRadius: 10, padding: 24 },
   tabla: { width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' },
   th: { textAlign: 'left', padding: '6px 8px', borderBottom: '2px solid #eee', color: '#667' },

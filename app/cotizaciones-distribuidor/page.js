@@ -79,6 +79,7 @@ export default function CotizacionesDistribuidorPage() {
                   </span>
                   {c.venta_id ? <span style={{ color: '#667', fontSize: '0.8rem' }}> · venta #{c.venta_id}</span> : null}
                   {c.editada_en && c.estado === 'pendiente' ? <span style={{ color: '#667', fontSize: '0.8rem' }}> · editada</span> : null}
+                  {c.verificada_en && c.estado === 'pendiente' ? <span style={{ color: '#067647', fontSize: '0.8rem', fontWeight: 600 }}> · ✅ verificada</span> : null}
                 </td>
               </tr>
             ))}
