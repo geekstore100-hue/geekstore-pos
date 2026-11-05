@@ -28,6 +28,16 @@ export async function POST(request) {
 
     paso('buscando el producto');
     let [p] = await sql`SELECT * FROM productos WHERE sede = ${sede} AND sede_codigo = ${codigo}`;
+    // Sin precio de venta no se publica (nov 2026): pasó que un producto
+    // quedó sin precio, no salía en la página y nadie se enteró. Se avisa
+    // aquí mismo, en el POS de la sede, al tocar "Publicar en la web".
+    if (!(precio > 0) && !(Number(p?.precio_venta) > 0)) {
+      return responder(400, {
+        ok: false,
+        codigo: 'precio',
+        error: `"${nombre || p?.nombre || codigo}" no tiene precio de venta. Ponle el precio en el POS y vuelve a tocar "Publicar en la web".`,
+      });
+    }
     if (!p) {
       if (!nombre) return responder(400, { ok: false, codigo: 'datos', error: 'Falta el nombre del producto' });
       paso('creando la ficha web');

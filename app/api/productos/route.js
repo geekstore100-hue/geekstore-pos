@@ -3,7 +3,7 @@ import sql from '../../../lib/db';
 import { esUrlYoutubeValida } from '../../../lib/youtube';
 import { normalizarEspecificaciones } from '../../../lib/especificaciones';
 import { guardarPrecioAnterior } from '../../../lib/precioAnterior';
-import { DATOS_SEDES } from '../../../lib/sedes';
+import { DATOS_SEDES, faltantesWeb } from '../../../lib/sedes';
 import { altoDeFicha, esCategoriaColeccionable, MENSAJE_FALTA_ALTO } from '../../../lib/figuras';
 
 export async function GET(request) {
@@ -86,7 +86,16 @@ export async function GET(request) {
       // Productos de una sede: su stock es el que manda su POS; sin costos.
       return NextResponse.json({
         ok: true,
-        productos: productos.map(({ precio_costo, precio_distribuidor, ...p }) => ({ ...p, stock: Number(p.sede_stock) || 0 })),
+        // estado_web (nov 2026): si ya sale en geekstore.com.co o qué le
+        // falta — las mismas reglas del catálogo (ver faltantesWeb).
+        productos: productos.map(({ precio_costo, precio_distribuidor, ...p }) => {
+          const stock = Number(p.sede_stock) || 0;
+          const faltan = faltantesWeb(p);
+          if (p.mostrar_en_tienda === false) faltan.unshift('Marcar "Publicar en geekstore.com.co"');
+          if (p.activo === false) faltan.unshift('Activarlo');
+          if (stock <= 0) faltan.push('Stock (el POS de la sede lo tiene en 0)');
+          return { ...p, stock, estado_web: { enLaPagina: faltan.length === 0, faltan } };
+        }),
       });
     }
     return NextResponse.json({ ok: true, productos });

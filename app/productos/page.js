@@ -322,6 +322,15 @@ export default function ProductosPage() {
   useEffect(() => {
     if (!editarPendiente || productos.length === 0) return;
     const p = productos.find((x) => String(x.id) === String(editarPendiente));
+    // Producto de una sede (Venecia) abierto con la sesión de ADMINISTRADOR
+    // (nov 2026): por ejemplo "Editar ficha web" desde un celular donde ya
+    // estaba abierto el POS de Kennedy. La lista arranca en Kennedy y no lo
+    // encontraba, así que el editor no abría. Se cambia la lista a Venecia
+    // y se vuelve a buscar ahí (este efecto corre otra vez cuando carga).
+    if (!p && !sedeSesion && !verSede) {
+      setVerSede('venecia');
+      return;
+    }
     setEditarPendiente(null);
     window.history.replaceState({}, '', '/productos');
     if (p) editarProducto(p);
@@ -1141,6 +1150,7 @@ export default function ProductosPage() {
     // Ficha de sede: para publicarla en la página tiene que estar completa.
     if (esDeSede && form.mostrar_en_tienda) {
       const faltan = [];
+      if (!(Number(form.precio_venta) > 0)) faltan.push('el precio de venta (se pone en el POS de Venecia)');
       if (!portadaActual) faltan.push('una foto');
       const largo = String(form.descripcion || '').trim().length;
       if (largo < 400) faltan.push(`la descripción de al menos 400 letras (lleva ${largo})`);
@@ -1349,6 +1359,11 @@ export default function ProductosPage() {
               Código en el POS de Venecia: <b>{form.sede_codigo || form.referencia}</b>. El precio y el stock los manda ese POS.
             </p>
           )}
+          {esDeSede && !(Number(form.precio_venta) > 0) && (
+            <p style={{ padding: '10px 12px', borderRadius: '8px', background: '#fee2e2', color: '#991b1b', fontWeight: 600, fontSize: '14px', marginTop: 0 }}>
+              ⚠️ Sin precio de venta: así no sale en la página. Ponle el precio en el POS de Venecia.
+            </p>
+          )}
 
           {!esDeSede && (<>
           <label style={{ display: 'block', marginBottom: '8px' }}>Tipo de producto</label>
@@ -1542,9 +1557,16 @@ export default function ProductosPage() {
               Precio de venta
               <input type="number" step="0.01" value={form.precio_venta} readOnly={esDeSede} onChange={(e) => setForm({ ...form, precio_venta: e.target.value })} style={{ ...styles.input, ...(esDeSede ? { background: '#f3f5f9' } : null) }} />
               {esDeSede && (
-                <span style={{ display: 'block', marginTop: '4px', fontWeight: 400, fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  Para cambiarlo, cámbialo en el POS de Venecia.
-                </span>
+                Number(form.precio_venta) > 0 ? (
+                  <span style={{ display: 'block', marginTop: '4px', fontWeight: 400, fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    Para cambiarlo, cámbialo en el POS de Venecia.
+                  </span>
+                ) : (
+                  <span style={{ display: 'block', marginTop: '6px', padding: '8px 10px', borderRadius: '8px', background: '#fee2e2', color: '#991b1b', fontWeight: 600, fontSize: '13px' }}>
+                    ⚠️ Este producto no tiene precio de venta y así NO sale en la página. Ponle el precio en el POS
+                    de Venecia y vuelve a tocar "Editar ficha web" (o "Sincronizar web").
+                  </span>
+                )
               )}
             </label>
             {!form.id && (
@@ -2087,7 +2109,7 @@ export default function ProductosPage() {
                 {!sedeSesion && !verSede && <th style={styles.th}>Precio distribuidor</th>}
                 <th style={styles.th}>Stock</th>
                 <th style={styles.th}>Activo</th>
-                <th style={styles.th}>En tienda</th>
+                <th style={styles.th}>{sedeSesion || verSede ? "En la página" : "En tienda"}</th>
                 <th style={styles.th}></th>
               </tr>
             </thead>
@@ -2116,7 +2138,17 @@ export default function ProductosPage() {
                   <td style={styles.td}>{p.es_inventariable === false ? '—' : p.stock}</td>
                   <td style={styles.td}>{p.activo ? 'Sí' : 'No'}</td>
                   <td style={styles.td}>
-                    {p.mostrar_en_tienda === false ? (
+                    {p.estado_web ? (
+                      // Productos de Venecia (nov 2026): si de verdad sale en la
+                      // página o qué le falta (ver app/api/productos GET).
+                      p.estado_web.enLaPagina ? (
+                        <span style={styles.tagWebOk}>En la página</span>
+                      ) : (
+                        <span style={styles.tagWebFalta} title={p.estado_web.faltan.join(', ')}>
+                          Falta: {p.estado_web.faltan.join(', ')}
+                        </span>
+                      )
+                    ) : p.mostrar_en_tienda === false ? (
                       <span style={styles.tagOculto}>No</span>
                     ) : (
                       'Sí'
@@ -2461,6 +2493,8 @@ const styles = {
     borderRadius: '999px',
     padding: '2px 8px',
   },
+  tagWebOk: { display: 'inline-block', padding: '2px 8px', borderRadius: '999px', background: '#dcfce7', color: '#166534', fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap' },
+  tagWebFalta: { display: 'inline-block', padding: '2px 8px', borderRadius: '8px', background: '#fef3c7', color: '#92400e', fontSize: '12px', fontWeight: 600, maxWidth: '260px' },
   tagOculto: {
     fontSize: '11px',
     fontWeight: 600,
