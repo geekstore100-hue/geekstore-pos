@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Shell from '../../components/Shell';
 import { tipoDeProducto, camposFaltantes } from '../../lib/plantillasFicha';
 import { quitarFondoFoto } from '../../lib/quitarFondoCliente';
+import { cajaDelProducto } from '../../lib/recorteFoto';
 import { ajustarDescripcion, REGLAS_DESCRIPCION_IA } from '../../lib/descripcionProducto';
 import { esCategoriaColeccionable, altoDeFicha, conAlto, valorAltoDeFicha, MENSAJE_FALTA_ALTO } from '../../lib/figuras';
 
@@ -52,6 +53,9 @@ export default function ProductosPage() {
   const [portadaNueva, setPortadaNueva] = useState(null);
   const [mensajePortada, setMensajePortada] = useState('');
   const [trabajandoPortada, setTrabajandoPortada] = useState(false);
+  // Foto de "Ayuda de IA" en tamaño original (nov 2026): la misma foto sirve
+  // de portada — Venecia toma UNA sola foto.
+  const [fotoAnalisisOriginal, setFotoAnalisisOriginal] = useState(null);
   const [portadaActual, setPortadaActual] = useState(null);
 
   // "Nuevo producto" con ayuda de IA: una foto para que la IA sugiera
@@ -486,19 +490,15 @@ export default function ProductosPage() {
 
         const esBlanco = (r, g, b) => r > 245 && g > 245 && b > 245;
 
-        let minX = width, minY = height, maxX = 0, maxY = 0, encontrado = false;
-        for (let y = 0; y < height; y++) {
-          for (let x = 0; x < width; x++) {
-            const i = (y * width + x) * 4;
-            if (!esBlanco(datos[i], datos[i + 1], datos[i + 2])) {
-              encontrado = true;
-              if (x < minX) minX = x;
-              if (x > maxX) maxX = x;
-              if (y < minY) minY = y;
-              if (y > maxY) maxY = y;
-            }
-          }
+        // Nov 2026: se ignoran líneas y puntos finitos (restos del fondo) al
+        // buscar el producto — ver lib/recorteFoto.js.
+        const mascara = new Uint8Array(width * height);
+        for (let k = 0; k < width * height; k++) {
+          mascara[k] = esBlanco(datos[k * 4], datos[k * 4 + 1], datos[k * 4 + 2]) ? 0 : 1;
         }
+        const caja = cajaDelProducto(mascara, width, height);
+        const encontrado = Boolean(caja);
+        let { minX, minY, maxX, maxY } = caja || { minX: 0, minY: 0, maxX: 0, maxY: 0 };
 
         if (!encontrado) {
           resolve(dataUri); // la foto es toda blanca, no hay nada que recortar
@@ -527,14 +527,24 @@ export default function ProductosPage() {
     });
   }
 
+  // La foto para la IA también queda lista como portada: al editar, va
+  // directo al recuadro "Nueva portada" (sin subir nada todavía); al crear,
+  // con el botón "Usar también de portada".
+  function recibirFotoAnalisis(file) {
+    if (!file) return;
+    leerArchivoComoDataUri(file, (dataUri) => {
+      setFotoAnalisisOriginal(dataUri);
+      redimensionarParaIA(dataUri).then(setImagenAnalisis);
+      if (form.id) prepararPortadaNueva(dataUri, true);
+    });
+  }
+
   function onSeleccionarAnalisis(e) {
     const file = e.target.files?.[0];
     e.target.value = '';
     setMensajeIA('');
     setCategoriaSugeridaIA('');
-    leerArchivoComoDataUri(file, (dataUri) => {
-      redimensionarParaIA(dataUri).then(setImagenAnalisis);
-    });
+    recibirFotoAnalisis(file);
   }
 
   function onSoltarAnalisis(e) {
@@ -544,9 +554,7 @@ export default function ProductosPage() {
     if (!file || !file.type.startsWith('image/')) return;
     setMensajeIA('');
     setCategoriaSugeridaIA('');
-    leerArchivoComoDataUri(file, (dataUri) => {
-      redimensionarParaIA(dataUri).then(setImagenAnalisis);
-    });
+    recibirFotoAnalisis(file);
   }
 
   // Foto nueva de portada: quitarle el fondo con IA (queda en fondo blanco).
@@ -883,6 +891,7 @@ export default function ProductosPage() {
     setPortadaActual(p.imagen_key || null);
     setPortadaNueva(null);
     setMensajePortada('');
+    setFotoAnalisisOriginal(null);
     setAutoDistribuidor(false);
     setImagenAnalisis(null);
     setInfoAdicionalIA('');
@@ -958,13 +967,45 @@ export default function ProductosPage() {
     setErrorImagen('');
     setMensajePortada('');
     try {
-      const original = await leerComoDataUri(archivo);
-      const recortada = recortarActivo ? await recortarEspaciosBlancos(original) : original;
-      const lista = await achicarFotoProducto(recortada);
-      setPortadaNueva({ original: lista, actual: lista, sinFondo: false });
+      await prepararPortadaNueva(await leerComoDataUri(archivo), false);
     } catch {
       setErrorImagen('No se pudo leer la foto. Prueba con otra.');
     }
+  }
+
+  async function prepararPortadaNueva(original, deIA) {
+    const recortada = recortarActivo ? await recortarEspaciosBlancos(original) : original;
+    const lista = await achicarFotoProducto(recortada);
+    setPortadaNueva({ original: lista, actual: lista, sinFondo: false, deIA });
+  }
+
+  // Un solo toque (nov 2026): quitarle el fondo a la foto pendiente y
+  // dejarla de portada.
+  async function portadaRapida() {
+    if (!portadaNueva || !form.id) return;
+    setTrabajandoPortada(true);
+    setErrorImagen('');
+    try {
+      let imagen = portadaNueva.actual;
+      let sinFondo = portadaNueva.sinFondo;
+      if (!sinFondo) {
+        const r = await quitarFondoFoto(portadaNueva.original, { onProgreso: setMensajePortada });
+        imagen = r.imagen;
+        sinFondo = true;
+      }
+      setMensajePortada('Subiendo la portada…');
+      const fila = await subirFotoDataUri(imagen, 'portada-sin-fondo.jpg');
+      await marcarPortada(fila.id);
+      setPortadaActual(fila.imagen_key);
+      setPortadaNueva(null);
+      setMensajePortada('✓ Listo: quedó de portada, sin fondo.');
+      cargarImagenes(form.id);
+      cargarProductos();
+    } catch (err) {
+      setMensajePortada('');
+      setErrorImagen(`No se pudo dejar de portada: ${err?.message || 'error'}`);
+    }
+    setTrabajandoPortada(false);
   }
 
   async function quitarFondoPortadaNueva() {
@@ -1433,6 +1474,28 @@ export default function ProductosPage() {
               </div>
               {imagenAnalisis && (
                 <img src={imagenAnalisis} alt="Vista previa análisis" style={styles.previewIA} />
+              )}
+              {imagenAnalisis && form.id && portadaNueva?.deIA && (
+                <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    📸 Esta misma foto puede ser la portada:
+                  </span>
+                  <button type="button" onClick={portadaRapida} disabled={trabajandoPortada} style={{ ...styles.btnPrimario, marginLeft: 0 }}>
+                    {trabajandoPortada ? (mensajePortada || 'Procesando…') : '✨ Quitar fondo y dejar de portada'}
+                  </button>
+                </div>
+              )}
+              {imagenAnalisis && form.id && !portadaNueva && mensajePortada.startsWith('✓') && (
+                <p style={{ fontSize: '13px', color: 'var(--success, #15803d)', margin: '6px 0 0' }}>{mensajePortada}</p>
+              )}
+              {imagenAnalisis && !form.id && fotoAnalisisOriginal && !imagenProductoNueva && (
+                <button
+                  type="button"
+                  onClick={async () => setImagenProductoNueva(recortarActivo ? await recortarEspaciosBlancos(fotoAnalisisOriginal) : fotoAnalisisOriginal)}
+                  style={{ ...styles.btnSecundario, marginLeft: 0, marginTop: '8px' }}
+                >
+                  📸 Usar también de portada
+                </button>
               )}
               <label style={{ display: 'block', marginTop: '12px' }}>
                 Enlace del producto en la página del fabricante (opcional)
