@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Shell from '../../components/Shell';
+import { descargarExcelEtiquetas } from '../../lib/etiquetasOpenLabel';
 
 let contadorKey = 0;
 function nuevaLinea() {
@@ -49,6 +50,12 @@ export default function AjustesInventarioPage() {
   const [cargandoEdicion, setCargandoEdicion] = useState(false);
   // Último ajuste guardado, para ofrecer el enlace de imprimir.
   const [ultimoAjusteId, setUltimoAjusteId] = useState(null);
+  // Stickers de OpenLabel (nov 2026): Excel con una fila por unidad
+  // INCREMENTADA del ajuste (lib/etiquetasOpenLabel.js, el mismo de Facturas
+  // de compra). ultimoAjusteEtiquetas también sirve para los traspasos.
+  const [ultimoAjusteEtiquetas, setUltimoAjusteEtiquetas] = useState(null);
+  const [etiquetasId, setEtiquetasId] = useState(null);
+  const [avisoEtiquetas, setAvisoEtiquetas] = useState(null); // { texto, donde: 'form' | 'lista' }
   const formularioRef = useRef(null);
 
   useEffect(() => {
@@ -236,8 +243,59 @@ export default function AjustesInventarioPage() {
     setFilaBuscando(null);
   }
 
+  // Nov 2026: la casilla para buscar un producto NUEVO va siempre al final
+  // de la lista. Cada vez que se elige un producto, si ya no queda ninguna
+  // fila vacía, se agrega una al final (y "+ Agregar otro producto" lleva a
+  // esa misma casilla en vez de crear otra).
+  useEffect(() => {
+    const vacias = filas.filter((f) => !f.producto_id);
+    const ultima = filas[filas.length - 1];
+    if (filas.length && !vacias.length) {
+      setFilas((prev) => [...prev, nuevaLinea()]);
+    } else if (vacias.length && ultima && ultima.producto_id && !vacias.some((f) => f.busquedaProducto)) {
+      // Una fila vacía quedó en medio (por ejemplo arriba): se pasa al final.
+      setFilas((prev) => [...prev.filter((f) => f.producto_id), ...prev.filter((f) => !f.producto_id).slice(0, 1)]);
+    }
+  }, [filas]);
+
   function agregarFila() {
+    const vacia = filas.find((f) => !f.producto_id);
+    if (vacia) {
+      inputsBusqueda.current[vacia._key]?.focus();
+      return;
+    }
     setFilas((prev) => [...prev, nuevaLinea()]);
+  }
+
+  async function etiquetasDeAjuste(ajusteId, donde = 'lista') {
+    setEtiquetasId(ajusteId);
+    setAvisoEtiquetas(null);
+    const avisar = (texto) => setAvisoEtiquetas({ texto, donde });
+    try {
+      const res = await fetch(`/api/ajustes-inventario/${ajusteId}`);
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'No se pudo leer el ajuste');
+      const lineas = (data.items || [])
+        .filter((it) => it.objetivo !== 'disminuir')
+        .map((it) => {
+          const p = productos.find((x) => String(x.id) === String(it.producto_id));
+          return { referencia: it.referencia, nombre: it.nombre, cantidad: it.cantidad, precio_venta: p?.precio_venta };
+        });
+      if (!lineas.length) {
+        avisar(`El ajuste #${ajusteId} no tiene productos incrementados (solo disminuciones): no hay stickers que imprimir.`);
+        return;
+      }
+      const r = await descargarExcelEtiquetas(lineas, `etiquetas_openlabel_ajuste_${ajusteId}.xlsx`);
+      avisar(
+        r.sinPrecio.length
+          ? `Excel de stickers del ajuste #${ajusteId} descargado (${r.filas} etiquetas). Ojo: sin precio de venta (salen en $0): ${r.sinPrecio.join(', ')}.`
+          : `Excel de stickers del ajuste #${ajusteId} descargado (${r.filas} etiquetas). Ábrelo en OpenLabel para imprimir.`
+      );
+    } catch (e) {
+      avisar(`No se pudo crear el Excel de stickers: ${e?.message || 'error'}`);
+    } finally {
+      setEtiquetasId(null);
+    }
   }
 
   function quitarFila(key) {
@@ -406,6 +464,8 @@ export default function AjustesInventarioPage() {
           : `Ajuste #${data.ajusteId} guardado correctamente.`
     );
     setUltimoAjusteId(data.traspasoId ? null : data.ajusteId);
+    setUltimoAjusteEtiquetas(editando ? editando.id : data.ajusteId || null);
+    setAvisoEtiquetas(null);
     setFilas([nuevaLinea()]);
     setObservaciones('');
     setTraspasoOrigen(null);
@@ -630,8 +690,22 @@ export default function AjustesInventarioPage() {
                 </a>
               </>
             ) : null}
+            {ultimoAjusteEtiquetas ? (
+              <>
+                {' · '}
+                <button
+                  type="button"
+                  onClick={() => etiquetasDeAjuste(ultimoAjusteEtiquetas, 'form')}
+                  disabled={etiquetasId === ultimoAjusteEtiquetas}
+                  style={{ ...styles.enlaceAccion, border: 'none', background: 'none', padding: 0, cursor: 'pointer' }}
+                >
+                  {etiquetasId === ultimoAjusteEtiquetas ? 'Creando…' : '🏷️ Etiquetas OpenLabel'}
+                </button>
+              </>
+            ) : null}
           </p>
         )}
+        {avisoEtiquetas && avisoEtiquetas.donde === 'form' && <p style={{ color: 'var(--teal-dark)', fontSize: '14px' }}>{avisoEtiquetas.texto}</p>}
 
         <div style={styles.filaInferior}>
           <div style={{ flex: 1 }} />
@@ -654,6 +728,7 @@ export default function AjustesInventarioPage() {
       </div>
 
       <h3 style={{ marginBottom: '10px' }}>Ajustes recientes</h3>
+      {avisoEtiquetas && avisoEtiquetas.donde === 'lista' && <p style={{ color: 'var(--teal-dark)', fontSize: '14px', marginTop: 0 }}>{avisoEtiquetas.texto}</p>}
       <div className="pos-tabla-scroll" style={styles.tableCard}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
@@ -697,6 +772,15 @@ export default function AjustesInventarioPage() {
                       </button>
                     </div>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => etiquetasDeAjuste(a.id)}
+                    disabled={etiquetasId === a.id}
+                    title="Descarga el Excel para imprimir en OpenLabel los stickers de lo que entró en este ajuste"
+                    style={{ ...styles.enlaceAccion, border: 'none', background: 'none', padding: 0, cursor: 'pointer', display: 'block', marginBottom: '4px' }}
+                  >
+                    {etiquetasId === a.id ? 'Creando…' : '🏷️ Etiquetas'}
+                  </button>
                   {a.traspaso_id && (
                     <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                       <a href={`/traspasos/${a.traspaso_id}/imprimir`} target="_blank" rel="noreferrer" style={{ color: 'var(--teal-dark)', fontSize: '13px', fontWeight: 600, textDecoration: 'none' }}>
