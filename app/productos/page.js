@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Shell from '../../components/Shell';
 import { tipoDeProducto, camposFaltantes } from '../../lib/plantillasFicha';
 import { quitarFondoFoto } from '../../lib/quitarFondoCliente';
@@ -75,6 +75,14 @@ export default function ProductosPage() {
   const [analizandoIA, setAnalizandoIA] = useState(false);
   const [mensajeIA, setMensajeIA] = useState('');
   const [categoriaSugeridaIA, setCategoriaSugeridaIA] = useState('');
+  // Nov 2026: si el nombre lo puso Nelson (a mano o desde la factura de
+  // compra), la IA NO lo cambia: su sugerencia queda aparte con un botón
+  // "Usar este nombre". Solo reemplaza un nombre vacío o uno que ella misma
+  // había puesto antes.
+  const [nombreSugeridoIA, setNombreSugeridoIA] = useState('');
+  const nombreIARef = useRef('');
+  const formRef = useRef(null);
+  formRef.current = form; // la IA lee el nombre que hay cuando responde
   const [subcategoriaSugeridaIA, setSubcategoriaSugeridaIA] = useState('');
 
   // Si está activo, el precio de distribuidor se recalcula solo (costo +
@@ -198,6 +206,8 @@ export default function ProductosPage() {
     setMensajeIA('');
     setCategoriaSugeridaIA('');
     setSubcategoriaSugeridaIA('');
+    setNombreSugeridoIA('');
+    nombreIARef.current = '';
     setImagenProductoNueva(null);
     setFotosExtraNueva([]);
     setProcesandoExtra('');
@@ -781,9 +791,18 @@ export default function ProductosPage() {
         // cuadro para pegar el texto a mano.
         if (data.codigo === 'pagina_no_legible') setMostrarPegarTexto(true);
       } else {
+        const nombreActual = String(formRef.current?.nombre || '').trim();
+        const nombrePropio = Boolean(nombreActual) && nombreActual !== nombreIARef.current;
+        const nombreIA = String(data.nombre || '').trim();
+        if (nombrePropio) {
+          setNombreSugeridoIA(nombreIA && nombreIA !== nombreActual ? nombreIA : '');
+        } else if (nombreIA) {
+          nombreIARef.current = nombreIA;
+          setNombreSugeridoIA('');
+        }
         setForm((f) => ({
           ...f,
-          nombre: data.nombre || f.nombre,
+          nombre: nombrePropio ? f.nombre : nombreIA || f.nombre,
           // Sin cortar a mitad de palabra (lib/descripcionProducto.js).
           descripcion: ajustarDescripcion(data.descripcion || '', esDeSede ? DESCRIPCION_MAXIMA_SEDE : undefined),
           // La ficha técnica solo se reemplaza si la IA encontró datos; si
@@ -904,6 +923,8 @@ export default function ProductosPage() {
     setMensajeIA('');
     setCategoriaSugeridaIA('');
     setSubcategoriaSugeridaIA('');
+    setNombreSugeridoIA('');
+    nombreIARef.current = '';
     setMostrarForm(true);
     cargarSubcategorias(p.categoria_id || '');
     cargarImagenes(p.id);
@@ -1579,6 +1600,22 @@ export default function ProductosPage() {
             <label>
               Nombre
               <input required value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} style={styles.input} />
+              {nombreSugeridoIA ? (
+                <span style={{ display: 'block', marginTop: 4, fontSize: 12, color: 'var(--text-secondary)', fontWeight: 400 }}>
+                  La IA sugiere: «{nombreSugeridoIA}»{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      nombreIARef.current = nombreSugeridoIA;
+                      setForm((f) => ({ ...f, nombre: nombreSugeridoIA }));
+                      setNombreSugeridoIA('');
+                    }}
+                    style={{ border: 'none', background: 'none', padding: 0, color: 'var(--teal-dark)', fontWeight: 600, cursor: 'pointer', font: 'inherit' }}
+                  >
+                    Usar este nombre
+                  </button>
+                </span>
+              ) : null}
             </label>
             <label>
               Categoría
