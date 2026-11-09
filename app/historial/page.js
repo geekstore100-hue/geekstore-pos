@@ -93,6 +93,12 @@ export default function HistorialPage() {
     return Number(item.precio_unitario) * Number(item.cantidad) * 1; // precio_unitario ya es neto (con descuento aplicado)
   }
 
+  // Bodegas de donde salieron los productos de la venta abierta (sin servicios).
+  const bodegasVenta = detalle
+    ? [...new Set((detalle.items || []).filter((it) => it.es_inventariable !== false && it.bodega_nombre).map((it) => it.bodega_nombre))]
+    : [];
+  const bodegasMezcladas = bodegasVenta.length > 1;
+
   return (
     <Shell title="Historial">
       <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', marginBottom: '16px', flexWrap: 'wrap' }}>
@@ -193,6 +199,12 @@ export default function HistorialPage() {
                 <div style={styles.filaResumen}><span>Fecha y hora</span><strong>{fechaHora(detalle.venta.creado_en)}</strong></div>
                 <div style={styles.filaResumen}><span>Medio de pago</span><strong>{detalle.venta.medio_pago || '-'}</strong></div>
                 <div style={styles.filaResumen}><span>Vendedor</span><strong>{detalle.venta.vendedor_nombre || '-'}</strong></div>
+                {/* Nov 2026: de qué bodega salió. Normalmente es una sola para toda
+                    la venta; solo la venta rápida deja escoger bodega por producto,
+                    y en ese caso (bodegas mezcladas) se ve en cada ítem. */}
+                {bodegasVenta.length ? (
+                  <div style={styles.filaResumen}><span>Bodega</span><strong>{bodegasVenta.length === 1 ? bodegasVenta[0] : 'Varias (ver cada ítem)'}</strong></div>
+                ) : null}
                 {detalle.venta.cliente_nombre ? (
                   <div style={styles.filaResumen}>
                     <span>Cliente</span>
@@ -217,6 +229,7 @@ export default function HistorialPage() {
                     <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
                       <th style={styles.thChico}>Ref.</th>
                       <th style={styles.thChico}>Producto</th>
+                      {bodegasMezcladas ? <th style={styles.thChico}>Bodega</th> : null}
                       <th style={styles.thChico}>Precio</th>
                       <th style={styles.thChico}>Desc. %</th>
                       <th style={styles.thChico}>Cant.</th>
@@ -228,6 +241,7 @@ export default function HistorialPage() {
                       <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={styles.tdChico}>{item.referencia}</td>
                         <td style={styles.tdChico}>{item.nombre}</td>
+                        {bodegasMezcladas ? <td style={styles.tdChico}>{item.es_inventariable === false ? '—' : item.bodega_nombre || '—'}</td> : null}
                         <td style={styles.tdChico}>{moneda(item.precio_unitario)}</td>
                         <td style={styles.tdChico}>{item.descuento_porcentaje || 0}%</td>
                         <td style={styles.tdChico}>{item.cantidad}</td>
