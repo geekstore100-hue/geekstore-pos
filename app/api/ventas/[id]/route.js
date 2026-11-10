@@ -34,6 +34,8 @@ export async function GET(request, { params }) {
         p.nombre,
         p.es_inventariable,
         m.bodega_id,
+        -- Nov 2026: de qué bodega salió cada ítem (se ve en el detalle).
+        b.nombre AS bodega_nombre,
         m.cantidad,
         m.precio_unitario,
         m.descuento_porcentaje,
@@ -44,6 +46,7 @@ export async function GET(request, { params }) {
              ELSE COALESCE((to_jsonb(m) ->> 'costo_unitario')::numeric, p.precio_costo, 0) END AS costo_unitario
       FROM movimientos_stock m
       JOIN productos p ON p.id = m.producto_id
+      LEFT JOIN bodegas b ON b.id = m.bodega_id
       WHERE m.venta_id = ${id}
       ORDER BY m.id ASC
     `;

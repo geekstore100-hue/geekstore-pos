@@ -51,6 +51,8 @@ Formato de esos valores: conectores siempre escritos "USB-C", "USB-A", "Lightnin
 
 REGLA MÁS IMPORTANTE: en "especificaciones" pon SOLO datos que aparezcan escritos en la información del fabricante, en la foto (por ejemplo impresos en la caja o en una etiqueta) o en la información adicional del usuario. Si un dato no aparece, NO lo pongas y NO lo supongas. Es mejor una ficha corta y cierta que una larga con datos inventados. Si no hay ningún dato técnico que se pueda verificar, deja "especificaciones" como [].
 
+SI EL PRODUCTO ES UN VIDEOJUEGO (un juego para consola o PC, en físico o en código; NO una consola, un control ni un accesorio): mucha gente que lo ve en la tienda no sabe de qué se trata, así que la "descripcion" TIENE que contarlo. Primero una frase con qué juego es (su género y para qué consola). Después 1 o 2 frases de qué trata: la historia o la premisa y qué haces tú como jugador (por ejemplo: explorar un mundo abierto, pelear contra jefes, armar tu equipo, jugar con amigos en línea). Luego de 2 a 3 líneas con "✓ " con lo que más se disfruta (modo historia, multijugador, cooperativo local, mundo abierto, etc.). Para esto SÍ puedes usar lo que sabes del juego (es información pública), pero SOLO si reconoces el título con seguridad; no inventes personajes, misiones ni modos. Si no lo reconoces, describe solo lo que se ve en la caja y en la información de arriba. No cuentes el final ni giros de la historia. Lo que sabes por tu cuenta va en la descripción, NUNCA en "especificaciones" (ahí sigue la regla de solo datos verificables).
+
 Si la información del fabricante está en otro idioma, tradúcela al español de Colombia (las marcas y los nombres de modelos se dejan igual). Ignora precios, envíos, cupones, reseñas y datos de la tienda que publica la página: solo interesa el producto.`;
 
 export async function POST(request) {
@@ -61,6 +63,7 @@ export async function POST(request) {
       enlaceFabricante,
       textoFabricante,
       maxDescripcion,
+      nombre,
     } = await request.json();
 
     const enlace = String(enlaceFabricante || '').trim();
@@ -125,6 +128,13 @@ export async function POST(request) {
       bloques.push(
         `INFORMACIÓN DEL FABRICANTE (${fuenteFabricante === 'enlace' ? `texto sacado de su página web: ${enlace}` : 'texto copiado de su página web'}). Es la fuente más confiable para la ficha técnica:\n<<<\n${infoFabricante}\n>>>`
       );
+    }
+    // Nov 2026: el nombre que ya escribió Nelson (por ejemplo desde la factura
+    // de compra) ayuda a saber qué producto es; sobre todo con juegos, donde
+    // la foto de la caja a veces no basta para reconocer el título.
+    const nombreUsuario = String(nombre || '').trim().slice(0, 160);
+    if (nombreUsuario) {
+      bloques.push(`Nombre que ya le puso el usuario a este producto (úsalo para saber qué es): "${nombreUsuario}"`);
     }
     if (infoAdicional && infoAdicional.trim()) {
       bloques.push(

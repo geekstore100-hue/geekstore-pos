@@ -782,6 +782,9 @@ export default function ProductosPage() {
           textoFabricante: textoFabricante.trim() || undefined,
           // Venecia: descripción 50 letras más corta (la IA se pasaba).
           maxDescripcion: esDeSede ? DESCRIPCION_MAXIMA_SEDE : undefined,
+          // El nombre ya escrito (a mano o desde la factura de compra) le dice
+          // a la IA qué producto es; con juegos, para contar de qué tratan.
+          nombre: String(formRef.current?.nombre || '').trim() || undefined,
         }),
       });
       const data = await res.json();
