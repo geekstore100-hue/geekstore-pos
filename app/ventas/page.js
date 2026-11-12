@@ -766,6 +766,7 @@ export default function VentasPage() {
       filaResumen('Transferencia', moneda(r.ventasTransferencia)),
       Number(r.ventasOtro) > 0 ? filaResumen('Otros medios', moneda(r.ventasOtro)) : '',
       Number(r.devolucionDinero) > 0 ? filaResumen('Devoluciones', `-${moneda(r.devolucionDinero)}`) : '',
+      Number(r.gastosCaja) > 0 ? filaResumen('Gastos pagados de la caja', `-${moneda(r.gastosCaja)}`) : '',
     ].join('');
 
     const html = `<!DOCTYPE html>
@@ -1446,6 +1447,9 @@ export default function VentasPage() {
                 {Number(cierreTurno.resumen.devolucionDinero) > 0 && (
                   <div style={styles.filaResumenTurno}><span>Devoluciones de dinero</span><strong>-{moneda(cierreTurno.resumen.devolucionDinero)}</strong></div>
                 )}
+                {Number(cierreTurno.resumen.gastosCaja) > 0 && (
+                  <div style={styles.filaResumenTurno}><span>Gastos pagados de la caja</span><strong>-{moneda(cierreTurno.resumen.gastosCaja)}</strong></div>
+                )}
                 <div style={{ ...styles.filaResumenTurno, borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '4px' }}>
                   <span>Dinero esperado en caja</span><strong>{moneda(cierreTurno.resumen.dineroEsperado)}</strong>
                 </div>
@@ -1508,6 +1512,9 @@ export default function VentasPage() {
                   <div style={styles.filaResumenTurno}><span>Ventas por transferencia</span><strong>{moneda(resumenTurno.ventasTransferencia)}</strong></div>
                   <div style={styles.filaResumenTurno}><span>Otros medios de pago</span><strong>{moneda(resumenTurno.ventasOtro)}</strong></div>
                   <div style={styles.filaResumenTurno}><span>Devolución de dinero</span><strong>{moneda(resumenTurno.devolucionDinero)}</strong></div>
+                  {Number(resumenTurno.gastosCaja) > 0 && (
+                    <div style={styles.filaResumenTurno}><span>Gastos pagados de la caja</span><strong>-{moneda(resumenTurno.gastosCaja)}</strong></div>
+                  )}
                   <div style={{ ...styles.filaResumenTurno, borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '4px', fontWeight: 700 }}>
                     <span>Total de ventas</span><span>{moneda(resumenTurno.totalVentas)}</span>
                   </div>

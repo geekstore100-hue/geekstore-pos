@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { hayTablaGastos } from '../../../../lib/gastos';
 import sql from '../../../../lib/db';
 
 // Historial de turnos con su resumen de caja, para la pantalla de
@@ -105,11 +106,23 @@ export async function GET(request) {
             LIMIT 60
           `;
 
+    // Nov 2026: gastos pagados con plata de la caja (lib/gastos.js).
+    const gastosPorTurno = new Map();
+    if (turnos.length && (await hayTablaGastos().catch(() => false))) {
+      const filas = await sql`
+        SELECT turno_id, SUM(valor) AS total FROM gastos
+        WHERE de_caja = true AND anulado = false AND turno_id = ANY(${turnos.map((t) => Number(t.id))}::int[])
+        GROUP BY turno_id
+      `;
+      for (const f of filas) gastosPorTurno.set(Number(f.turno_id), Number(f.total));
+    }
+
     const resultado = turnos.map((t) => {
       const baseInicial = Number(t.base_inicial);
       const ventasEfectivo = Number(t.ventas_efectivo);
       const devolucionDinero = Number(t.devolucion_dinero);
-      const dineroEsperado = baseInicial + ventasEfectivo - devolucionDinero;
+      const gastosCaja = gastosPorTurno.get(Number(t.id)) || 0;
+      const dineroEsperado = baseInicial + ventasEfectivo - devolucionDinero - gastosCaja;
       const dineroReal = t.dinero_real_caja === null ? null : Number(t.dinero_real_caja);
       const diferencia = dineroReal === null ? null : dineroReal - dineroEsperado;
       return {
@@ -125,6 +138,7 @@ export async function GET(request) {
         ventas_otro: Number(t.ventas_otro),
         total_ventas: Number(t.total_ventas),
         devolucion_dinero: devolucionDinero,
+        gastos_caja: gastosCaja,
         dinero_esperado: dineroEsperado,
         dinero_real_caja: dineroReal,
         diferencia,

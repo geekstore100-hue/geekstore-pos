@@ -136,6 +136,9 @@ export default function TurnosHistorialPage() {
                           <div style={styles.filaResumen}><span>Ventas por transferencia</span><strong>{moneda(t.ventas_transferencia)}</strong></div>
                           <div style={styles.filaResumen}><span>Otros medios de pago</span><strong>{moneda(t.ventas_otro)}</strong></div>
                           <div style={styles.filaResumen}><span>Devolución de dinero</span><strong>{moneda(t.devolucion_dinero)}</strong></div>
+                          {Number(t.gastos_caja) > 0 && (
+                            <div style={styles.filaResumen}><span>Gastos pagados de la caja</span><strong>-{moneda(t.gastos_caja)}</strong></div>
+                          )}
                           {t.observaciones && (
                             <div style={styles.filaResumen}><span>Observaciones</span><span>{t.observaciones}</span></div>
                           )}

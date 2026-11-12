@@ -59,13 +59,15 @@ export const links = [
   },
   { href: '/devoluciones', label: 'Devoluciones', icon: IconDevolucion },
   {
-    href: '/gastos/facturas-compra',
+    href: '/gastos',
     label: 'Gastos',
     icon: IconGastos,
-    // Por ahora solo tiene una subcategoría (Nelson la pidió así, dejando
-    // espacio para que más adelante entren otros tipos de gasto aparte de
-    // facturas de compra).
-    children: [{ href: '/gastos/facturas-compra', label: 'Factura de compra', icon: IconGastos }],
+    // Nov 2026: "Gastos del negocio" (arriendo, servicios, nómina…) además de
+    // las facturas de compra de mercancía.
+    children: [
+      { href: '/gastos', label: 'Gastos del negocio', icon: IconGastos },
+      { href: '/gastos/facturas-compra', label: 'Factura de compra', icon: IconGastos },
+    ],
   },
   { href: '/garantias-proveedor', label: 'Garantías a proveedor', icon: IconGarantia },
   { href: '/reteica', label: 'Certificados ReteICA', icon: IconCertificado },
