@@ -22,7 +22,7 @@ export async function GET(request) {
     const desde = fechaValida(searchParams.get('desde')) ? searchParams.get('desde') : `${hoy.slice(0, 8)}01`;
     const hasta = fechaValida(searchParams.get('hasta')) ? searchParams.get('hasta') : hoy;
     const gastos = await sql`
-      SELECT id, fecha::text AS fecha, categoria, concepto, beneficiario, beneficiario_doc, valor, medio_pago,
+      SELECT id, fecha::text AS fecha, categoria, concepto, beneficiario, beneficiario_doc, contacto_id, valor, medio_pago,
              de_caja, turno_id, notas, creado_en, anulado, anulado_en, motivo_anulacion
       FROM gastos
       WHERE fecha BETWEEN ${desde} AND ${hasta}
@@ -35,11 +35,9 @@ export async function GET(request) {
       porCategoria[g.categoria] = (porCategoria[g.categoria] || 0) + Number(g.valor);
       total += Number(g.valor);
     }
-    const beneficiarios = await sql`
-      SELECT DISTINCT ON (lower(beneficiario)) beneficiario, beneficiario_doc
-      FROM gastos WHERE beneficiario IS NOT NULL AND beneficiario <> ''
-      ORDER BY lower(beneficiario), id DESC
-      LIMIT 200
+    const contactos = await sql`
+      SELECT id, nombre, documento, telefono FROM gastos_contactos
+      WHERE activo = true ORDER BY lower(nombre) LIMIT 1000
     `;
     const [turno] = await sql`SELECT id FROM turnos WHERE estado = 'abierto' LIMIT 1`;
     return NextResponse.json({
@@ -49,7 +47,7 @@ export async function GET(request) {
       gastos,
       total,
       porCategoria,
-      beneficiarios,
+      contactos,
       categorias: CATEGORIAS,
       mediosPago: MEDIOS_PAGO_GASTO,
       turnoAbiertoId: turno?.id || null,
@@ -67,8 +65,17 @@ export async function POST(request) {
     const fecha = fechaValida(b.fecha) ? b.fecha : hoyBogota();
     const categoria = CATEGORIAS.includes(b.categoria) ? b.categoria : null;
     const concepto = texto(b.concepto, 200);
-    const beneficiario = texto(b.beneficiario, 120) || null;
-    const beneficiarioDoc = texto(b.beneficiario_doc, 30) || null;
+    let beneficiario = texto(b.beneficiario, 120) || null;
+    let beneficiarioDoc = texto(b.beneficiario_doc, 30) || null;
+    // "Pagado a" elegido de los contactos: el nombre y el documento salen de ahí.
+    let contactoId = null;
+    if (Number(b.contacto_id) > 0) {
+      const [c] = await sql`SELECT id, nombre, documento FROM gastos_contactos WHERE id = ${Number(b.contacto_id)}`;
+      if (!c) return NextResponse.json({ ok: false, error: 'Ese contacto ya no existe: elígelo de nuevo' }, { status: 400 });
+      contactoId = c.id;
+      beneficiario = c.nombre;
+      beneficiarioDoc = c.documento || null;
+    }
     const valor = Math.round(Number(b.valor));
     const medioPago = MEDIOS_PAGO_GASTO.includes(b.medio_pago) ? b.medio_pago : null;
     // Solo el efectivo puede salir de la caja; si llega marcado con otro medio
@@ -101,8 +108,8 @@ export async function POST(request) {
 
     try {
       const [g] = await sql`
-        INSERT INTO gastos (fecha, categoria, concepto, beneficiario, beneficiario_doc, valor, medio_pago, de_caja, turno_id, notas, id_local)
-        VALUES (${fecha}, ${categoria}, ${concepto}, ${beneficiario}, ${beneficiarioDoc}, ${valor}, ${medioPago}, ${deCaja}, ${turnoId}, ${notas}, ${idLocal})
+        INSERT INTO gastos (fecha, categoria, concepto, beneficiario, beneficiario_doc, contacto_id, valor, medio_pago, de_caja, turno_id, notas, id_local)
+        VALUES (${fecha}, ${categoria}, ${concepto}, ${beneficiario}, ${beneficiarioDoc}, ${contactoId}, ${valor}, ${medioPago}, ${deCaja}, ${turnoId}, ${notas}, ${idLocal})
         RETURNING id
       `;
       return NextResponse.json({ ok: true, id: g.id });

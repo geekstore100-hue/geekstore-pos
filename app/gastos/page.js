@@ -43,8 +43,7 @@ const FORM_VACIO = {
   fecha: hoyISO(),
   categoria: '',
   concepto: '',
-  beneficiario: '',
-  beneficiario_doc: '',
+  contacto_id: null,
   valor: '',
   medio_pago: '',
   de_caja: false,
@@ -84,10 +83,11 @@ export default function GastosPage() {
   const turnoAbierto = Boolean(datos?.turnoAbiertoId);
   const puedeDeCaja = form.medio_pago === 'Efectivo' && turnoAbierto;
 
-  // Al escribir un beneficiario que ya se usó antes, se trae su NIT/cédula.
-  function elegirBeneficiario(nombre) {
-    const previo = (datos?.beneficiarios || []).find((b) => b.beneficiario.toLowerCase() === nombre.trim().toLowerCase());
-    setForm((f) => ({ ...f, beneficiario: nombre, beneficiario_doc: previo && !f.beneficiario_doc ? previo.beneficiario_doc || '' : f.beneficiario_doc }));
+  const contactos = datos?.contactos || [];
+  const contactoElegido = contactos.find((c) => c.id === form.contacto_id) || null;
+  function alGuardarContacto(c, lista) {
+    setDatos((d) => ({ ...d, contactos: lista }));
+    setForm((f) => ({ ...f, contacto_id: c.id }));
   }
 
   async function guardar(imprimir) {
@@ -131,8 +131,7 @@ export default function GastosPage() {
       fecha: hoyISO(),
       categoria: g.categoria,
       concepto: g.concepto,
-      beneficiario: g.beneficiario || '',
-      beneficiario_doc: g.beneficiario_doc || '',
+      contacto_id: contactos.some((c) => c.id === g.contacto_id) ? g.contacto_id : null,
       valor: String(Math.round(Number(g.valor))),
       medio_pago: g.medio_pago,
       de_caja: false,
@@ -213,19 +212,9 @@ export default function GastosPage() {
               onChange={(e) => cambiar('concepto', e.target.value)}
             />
           </label>
-          <label className="gs-ancho2">
-            Pagado a (persona o empresa)
-            <input list="gs-beneficiarios" value={form.beneficiario} maxLength={120} placeholder="Ej. Inmobiliaria / dueño del local" onChange={(e) => elegirBeneficiario(e.target.value)} />
-            <datalist id="gs-beneficiarios">
-              {(datos?.beneficiarios || []).map((b) => (
-                <option key={b.beneficiario} value={b.beneficiario} />
-              ))}
-            </datalist>
-          </label>
-          <label>
-            NIT o cédula
-            <input value={form.beneficiario_doc} maxLength={30} onChange={(e) => cambiar('beneficiario_doc', e.target.value)} />
-          </label>
+          <div className="gs-ancho3">
+            <SelectorContacto contactos={contactos} elegido={contactoElegido} onElegir={(c) => cambiar('contacto_id', c ? c.id : null)} onGuardado={alGuardarContacto} />
+          </div>
           <label>
             Cómo se pagó
             <select value={form.medio_pago} onChange={(e) => setForm((f) => ({ ...f, medio_pago: e.target.value, de_caja: e.target.value === 'Efectivo' ? f.de_caja : false }))}>
@@ -346,6 +335,147 @@ export default function GastosPage() {
     </Shell>
   );
 }
+
+// "Pagado a" (nov 2026): se busca entre los contactos guardados y se elige;
+// si no está, se crea una vez (nombre, NIT/cédula, teléfono) y queda guardado.
+function SelectorContacto({ contactos, elegido, onElegir, onGuardado }) {
+  const [texto, setTexto] = useState('');
+  const [abierto, setAbierto] = useState(false);
+  const [editando, setEditando] = useState(null); // null | { id?, nombre, documento, telefono }
+  const [error, setError] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  const cajaRef = useRef(null);
+
+  useEffect(() => {
+    function fuera(e) {
+      if (cajaRef.current && !cajaRef.current.contains(e.target)) setAbierto(false);
+    }
+    document.addEventListener('mousedown', fuera);
+    return () => document.removeEventListener('mousedown', fuera);
+  }, []);
+
+  const norm = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const q = norm(texto.trim());
+  const filtrados = contactos.filter((c) => !q || norm(c.nombre).includes(q) || norm(c.documento).includes(q)).slice(0, 30);
+  const exacto = contactos.some((c) => norm(c.nombre) === q);
+
+  async function guardar() {
+    setError('');
+    if (!editando.nombre.trim()) return setError('Escribe el nombre.');
+    setGuardando(true);
+    try {
+      const res = await fetch(editando.id ? `/api/gastos/contactos/${editando.id}` : '/api/gastos/contactos', {
+        method: editando.id ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editando),
+      });
+      const data = await res.json().catch(() => ({ ok: false }));
+      if (!data.ok) setError(data.error || 'No se pudo guardar el contacto');
+      else {
+        const lista = [...contactos.filter((c) => c.id !== data.contacto.id), data.contacto].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+        onGuardado(data.contacto, lista);
+        setEditando(null);
+        setTexto('');
+      }
+    } catch {
+      setError('Sin conexión: no se guardó el contacto');
+    }
+    setGuardando(false);
+  }
+
+  if (editando) {
+    return (
+      <div style={estilosContacto.caja}>
+        <strong style={{ fontSize: '14px' }}>{editando.id ? 'Editar contacto' : 'Nuevo contacto para "Pagado a"'}</strong>
+        <div className="gs-form" style={{ marginTop: '8px' }}>
+          <label>
+            Nombre (persona o empresa)
+            <input autoFocus value={editando.nombre} maxLength={120} onChange={(e) => setEditando({ ...editando, nombre: e.target.value })} />
+          </label>
+          <label>
+            NIT o cédula
+            <input value={editando.documento || ''} maxLength={30} onChange={(e) => setEditando({ ...editando, documento: e.target.value })} />
+          </label>
+          <label>
+            Teléfono (opcional)
+            <input value={editando.telefono || ''} maxLength={30} onChange={(e) => setEditando({ ...editando, telefono: e.target.value })} />
+          </label>
+        </div>
+        {error ? <p style={{ color: 'var(--danger)', margin: '8px 0 0', fontSize: '14px' }}>{error}</p> : null}
+        <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+          <button type="button" onClick={guardar} disabled={guardando} style={styles.btnPrimario}>{guardando ? 'Guardando…' : 'Guardar contacto'}</button>
+          <button type="button" onClick={() => { setEditando(null); setError(''); }} style={styles.btnSecundario}>Cancelar</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (elegido) {
+    return (
+      <div>
+        <span style={estilosContacto.etiqueta}>Pagado a</span>
+        <div style={estilosContacto.elegido}>
+          <span>
+            <strong>{elegido.nombre}</strong>
+            {elegido.documento ? <span style={{ color: 'var(--text-secondary)' }}> · {elegido.documento}</span> : null}
+            {elegido.telefono ? <span style={{ color: 'var(--text-secondary)' }}> · {elegido.telefono}</span> : null}
+          </span>
+          <span style={{ display: 'flex', gap: '6px' }}>
+            <button type="button" onClick={() => setEditando({ ...elegido })} style={styles.btnChico}>Editar</button>
+            <button type="button" onClick={() => onElegir(null)} style={styles.btnChico}>Cambiar</button>
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={cajaRef} style={{ position: 'relative' }}>
+      <span style={estilosContacto.etiqueta}>Pagado a (persona o empresa)</span>
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <input
+          value={texto}
+          placeholder={contactos.length ? 'Busca el contacto (nombre o NIT)…' : 'Todavía no hay contactos: créalo con "+ Nuevo"'}
+          onChange={(e) => { setTexto(e.target.value); setAbierto(true); }}
+          onFocus={() => setAbierto(true)}
+          style={{ ...estilosContacto.input, flex: 1 }}
+        />
+        <button type="button" onClick={() => setEditando({ nombre: texto.trim(), documento: '', telefono: '' })} style={styles.btnSecundario}>
+          + Nuevo contacto
+        </button>
+      </div>
+      {abierto && (filtrados.length || (q && !exacto)) ? (
+        <ul style={estilosContacto.lista}>
+          {filtrados.map((c) => (
+            <li key={c.id}>
+              <button type="button" style={estilosContacto.opcion} onClick={() => { onElegir(c); setTexto(''); setAbierto(false); }}>
+                <strong>{c.nombre}</strong>
+                {c.documento ? <span style={{ color: 'var(--text-secondary)' }}> · {c.documento}</span> : null}
+              </button>
+            </li>
+          ))}
+          {q && !exacto ? (
+            <li>
+              <button type="button" style={{ ...estilosContacto.opcion, color: 'var(--teal-dark)', fontWeight: 600 }} onClick={() => setEditando({ nombre: texto.trim(), documento: '', telefono: '' })}>
+                + Crear contacto “{texto.trim()}”
+              </button>
+            </li>
+          ) : null}
+        </ul>
+      ) : null}
+      <small style={{ color: 'var(--text-secondary)' }}>Opcional. Se guarda como contacto y la próxima vez solo lo eliges.</small>
+    </div>
+  );
+}
+
+const estilosContacto = {
+  etiqueta: { display: 'block', fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' },
+  input: { padding: '9px', borderRadius: '8px', border: '1px solid var(--border)', font: 'inherit', fontSize: '14px' },
+  lista: { position: 'absolute', zIndex: 20, left: 0, right: 0, top: '100%', margin: '4px 0 0', padding: '4px', listStyle: 'none', background: '#fff', border: '1px solid var(--border)', borderRadius: '8px', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', maxHeight: '260px', overflowY: 'auto' },
+  opcion: { display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', border: 'none', background: 'none', cursor: 'pointer', font: 'inherit', fontSize: '14px', borderRadius: '6px' },
+  elegido: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', padding: '9px 12px', border: '1px solid var(--teal)', borderRadius: '8px', background: '#f0fdfa', fontSize: '14px', flexWrap: 'wrap' },
+  caja: { padding: '12px', border: '1px dashed var(--teal)', borderRadius: '8px', background: '#fbfffe' },
+};
 
 const styles = {
   card: { background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '16px 18px' },
