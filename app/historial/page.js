@@ -19,8 +19,8 @@ function esHoy(iso) {
 // Nov 2026: ventas REPETIDAS. Si se fue el internet, la caja podía mandar la
 // misma venta varias veces al volver la conexión (ya se corrigió, ver
 // lib/ventaUnica.js). Aquí se marcan las que parecen copia de otra anterior:
-// mismo total, medio de pago, vendedor y número de ítems, con menos de 2
-// minutos de diferencia. Al anular, el servidor revisa además que tengan
+// mismos productos y cantidades, mismo total, medio de pago y vendedor, con
+// menos de 2 minutos de diferencia. Al anular, el servidor revisa además que tengan
 // exactamente los mismos productos.
 function buscarRepetidas(ventas) {
   const activas = ventas.filter((v) => !v.anulada).slice().sort((a, b) => a.id - b.id);
@@ -35,6 +35,9 @@ function buscarRepetidas(ventas) {
         (u.medio_pago || '') === (v.medio_pago || '') &&
         (u.vendedor_nombre || '') === (v.vendedor_nombre || '') &&
         Number(u.items) === Number(v.items) &&
+        // Mismos productos (si el servidor ya manda la "firma"): antes dos
+        // ventas distintas del mismo valor y a la misma hora salían marcadas.
+        (u.firma === undefined || v.firma === undefined || u.firma === v.firma) &&
         Math.abs(new Date(u.creado_en).getTime() - t) <= 120000
       ) {
         repetidaDe[v.id] = u.id;

@@ -29,13 +29,22 @@ export async function GET(request) {
               -- lee así para que no falle si aún no se corrió
               -- migracion_ventas_evento.sql.
               (to_jsonb(v) ->> 'evento') AS evento,
-              (SELECT COUNT(*) FROM movimientos_stock m WHERE m.venta_id = v.id) AS items,
+              mv.items,
+              -- Nov 2026: qué productos lleva (id x cantidad), para que el
+              -- historial no marque como "repetidas" dos ventas distintas que
+              -- solo coinciden en total y hora.
+              mv.firma,
               -- Cliente: el de la venta (Venta rápida) o, si viene de un pedido
               -- de distribuidor, el nombre del distribuidor (oct 2026).
               COALESCE(NULLIF(to_jsonb(v) ->> 'cliente_nombre', ''), dist.distribuidor_nombre) AS cliente_nombre,
               dist.numero AS cotizacion_numero
             FROM ventas v
             LEFT JOIN vendedores ve ON ve.id = v.vendedor_id
+            LEFT JOIN LATERAL (
+              SELECT COUNT(*) AS items,
+                     string_agg(CASE WHEN m.tipo = 'venta' THEN m.producto_id::text || 'x' || m.cantidad::text END, ',' ORDER BY m.producto_id, m.cantidad) AS firma
+              FROM movimientos_stock m WHERE m.venta_id = v.id
+            ) mv ON true
             LEFT JOIN LATERAL (
               SELECT cd.distribuidor_nombre, cd.numero
               FROM cotizaciones_distribuidor cd
@@ -58,13 +67,22 @@ export async function GET(request) {
               -- lee así para que no falle si aún no se corrió
               -- migracion_ventas_evento.sql.
               (to_jsonb(v) ->> 'evento') AS evento,
-              (SELECT COUNT(*) FROM movimientos_stock m WHERE m.venta_id = v.id) AS items,
+              mv.items,
+              -- Nov 2026: qué productos lleva (id x cantidad), para que el
+              -- historial no marque como "repetidas" dos ventas distintas que
+              -- solo coinciden en total y hora.
+              mv.firma,
               -- Cliente: el de la venta (Venta rápida) o, si viene de un pedido
               -- de distribuidor, el nombre del distribuidor (oct 2026).
               COALESCE(NULLIF(to_jsonb(v) ->> 'cliente_nombre', ''), dist.distribuidor_nombre) AS cliente_nombre,
               dist.numero AS cotizacion_numero
             FROM ventas v
             LEFT JOIN vendedores ve ON ve.id = v.vendedor_id
+            LEFT JOIN LATERAL (
+              SELECT COUNT(*) AS items,
+                     string_agg(CASE WHEN m.tipo = 'venta' THEN m.producto_id::text || 'x' || m.cantidad::text END, ',' ORDER BY m.producto_id, m.cantidad) AS firma
+              FROM movimientos_stock m WHERE m.venta_id = v.id
+            ) mv ON true
             LEFT JOIN LATERAL (
               SELECT cd.distribuidor_nombre, cd.numero
               FROM cotizaciones_distribuidor cd
