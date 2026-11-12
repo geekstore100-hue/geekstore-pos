@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Shell from '../../components/Shell';
 
 // Fecha de HOY en hora de Colombia (AAAA-MM-DD). Antes usaba
@@ -14,6 +14,35 @@ function primerDiaMesISO() {
 }
 function esHoy(iso) {
   return new Date(iso).toDateString() === new Date().toDateString();
+}
+
+// Nov 2026: ventas REPETIDAS. Si se fue el internet, la caja podía mandar la
+// misma venta varias veces al volver la conexión (ya se corrigió, ver
+// lib/ventaUnica.js). Aquí se marcan las que parecen copia de otra anterior:
+// mismo total, medio de pago, vendedor y número de ítems, con menos de 2
+// minutos de diferencia. Al anular, el servidor revisa además que tengan
+// exactamente los mismos productos.
+function buscarRepetidas(ventas) {
+  const activas = ventas.filter((v) => !v.anulada).slice().sort((a, b) => a.id - b.id);
+  const repetidaDe = {};
+  activas.forEach((v, i) => {
+    const t = new Date(v.creado_en).getTime();
+    for (let j = 0; j < i; j++) {
+      const u = activas[j];
+      if (repetidaDe[u.id]) continue; // se compara contra la original, no contra otra copia
+      if (
+        Number(u.total) === Number(v.total) &&
+        (u.medio_pago || '') === (v.medio_pago || '') &&
+        (u.vendedor_nombre || '') === (v.vendedor_nombre || '') &&
+        Number(u.items) === Number(v.items) &&
+        Math.abs(new Date(u.creado_en).getTime() - t) <= 120000
+      ) {
+        repetidaDe[v.id] = u.id;
+        break;
+      }
+    }
+  });
+  return repetidaDe;
 }
 
 export default function HistorialPage() {
@@ -56,12 +85,19 @@ export default function HistorialPage() {
     setDetalle(null);
   }
 
-  async function anularVenta(id) {
-    if (!window.confirm('¿Seguro que quieres anular esta venta? Esto devuelve el stock descontado.')) return;
+  async function anularVenta(id, copiaDe = null) {
+    const pregunta = copiaDe
+      ? `La venta N.º ${id} parece repetida de la N.º ${copiaDe} (mismo total, vendedor y hora). Antes de anularla, ábrelas y revisa que tengan los mismos productos.\n\n¿Anular la N.º ${id}? Esto devuelve el stock descontado y la quita del cuadre de caja.`
+      : '¿Seguro que quieres anular esta venta? Esto devuelve el stock descontado.';
+    if (!window.confirm(pregunta)) return;
     setErrorAnular('');
     setAnulandoId(id);
-    const res = await fetch(`/api/ventas/${id}`, { method: 'POST' });
-    const data = await res.json();
+    const res = await fetch(`/api/ventas/${id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(copiaDe ? { duplicada: true } : {}),
+    });
+    const data = await res.json().catch(() => ({ ok: false, error: 'No se pudo anular la venta' }));
     setAnulandoId(null);
 
     if (data.ok) {
@@ -99,6 +135,9 @@ export default function HistorialPage() {
     : [];
   const bodegasMezcladas = bodegasVenta.length > 1;
 
+  const repetidaDe = useMemo(() => buscarRepetidas(ventas), [ventas]);
+  const cuantasRepetidas = Object.keys(repetidaDe).length;
+
   return (
     <Shell title="Historial">
       <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', marginBottom: '16px', flexWrap: 'wrap' }}>
@@ -114,11 +153,18 @@ export default function HistorialPage() {
       </div>
 
       {errorAnular && <p style={{ color: 'var(--danger)' }}>{errorAnular}</p>}
+      {cuantasRepetidas ? (
+        <p style={styles.avisoRepetidas}>
+          ⚠️ {cuantasRepetidas === 1 ? 'Hay 1 venta que parece repetida' : `Hay ${cuantasRepetidas} ventas que parecen repetidas`} (misma venta guardada más de una vez,
+          normalmente al volver el internet). Están marcadas abajo: ábrelas, compara los productos con la original y anula las copias.
+        </p>
+      ) : null}
 
       <div className="pos-tabla-scroll" style={styles.tableCard}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+              <th style={styles.th}>N.º</th>
               <th style={styles.th}>Fecha y hora</th>
               <th style={styles.th}>Medio de pago</th>
               <th style={styles.th}>Vendedor</th>
@@ -132,6 +178,7 @@ export default function HistorialPage() {
           <tbody>
             {ventas.map((v) => (
               <tr key={v.id} style={{ ...styles.filaClickeable, ...(v.anulada ? styles.filaAnulada : {}) }}>
+                <td style={{ ...styles.td, fontWeight: 600 }} onClick={() => abrirDetalle(v.id)}>{v.id}</td>
                 <td style={styles.td} onClick={() => abrirDetalle(v.id)}>{fechaHora(v.creado_en)}</td>
                 <td style={styles.td} onClick={() => abrirDetalle(v.id)}>{v.medio_pago || '-'}</td>
                 <td style={styles.td} onClick={() => abrirDetalle(v.id)}>{v.vendedor_nombre || '-'}</td>
@@ -143,6 +190,11 @@ export default function HistorialPage() {
                 <td style={styles.td} onClick={() => abrirDetalle(v.id)}>{moneda(v.total)}</td>
                 <td style={styles.td} onClick={() => abrirDetalle(v.id)}>
                   {v.anulada ? <span style={styles.badgeAnulada}>Anulada</span> : <span style={styles.badgeActiva}>Activa</span>}
+                  {repetidaDe[v.id] ? (
+                    <span style={styles.badgeRepetida} title="Mismo total, medio de pago, vendedor y hora que otra venta: puede ser la misma venta guardada dos veces">
+                      ⚠️ ¿Repetida de N.º {repetidaDe[v.id]}?
+                    </span>
+                  ) : null}
                   {v.evento ? (
                     <span style={{ ...styles.badgeActiva, background: '#eef2ff', color: '#4338ca', marginLeft: '6px' }} title="Venta de evento: no está en el turno de la tienda">
                       {v.evento}
@@ -160,9 +212,9 @@ export default function HistorialPage() {
                   >
                     🖨️
                   </a>
-                  {!v.anulada && esHoy(v.creado_en) && (
+                  {!v.anulada && (esHoy(v.creado_en) || repetidaDe[v.id]) && (
                     <button
-                      onClick={(e) => { e.stopPropagation(); anularVenta(v.id); }}
+                      onClick={(e) => { e.stopPropagation(); anularVenta(v.id, repetidaDe[v.id] || null); }}
                       disabled={anulandoId === v.id}
                       style={styles.btnAnular}
                     >
@@ -174,7 +226,7 @@ export default function HistorialPage() {
             ))}
             {ventas.length === 0 && !cargando && (
               <tr>
-                <td style={styles.td} colSpan={8}>Sin ventas en ese rango.</td>
+                <td style={styles.td} colSpan={9}>Sin ventas en ese rango.</td>
               </tr>
             )}
           </tbody>
@@ -185,7 +237,7 @@ export default function HistorialPage() {
         <div style={styles.overlay} onMouseDown={cerrarPanel}>
           <div style={styles.panelLateral} onMouseDown={(e) => e.stopPropagation()}>
             <div style={styles.panelHeader}>
-              <h3 style={{ margin: 0 }}>Detalle de venta</h3>
+              <h3 style={{ margin: 0 }}>Venta N.º {detalle?.venta?.id || ''}</h3>
               <button type="button" onClick={cerrarPanel} style={styles.btnCerrarPanel}>×</button>
             </div>
 
@@ -257,9 +309,14 @@ export default function HistorialPage() {
 
                 <CostoYGanancia detalle={detalle} moneda={moneda} />
 
-                {!detalle.venta.anulada && esHoy(detalle.venta.creado_en) && (
+                {!detalle.venta.anulada && repetidaDe[detalle.venta.id] ? (
+                  <div style={{ ...styles.avisoRepetidas, marginTop: '16px' }}>
+                    ⚠️ Parece repetida de la venta N.º {repetidaDe[detalle.venta.id]}. Compara los productos con esa antes de anular.
+                  </div>
+                ) : null}
+                {!detalle.venta.anulada && (esHoy(detalle.venta.creado_en) || repetidaDe[detalle.venta.id]) && (
                   <button
-                    onClick={() => anularVenta(detalle.venta.id)}
+                    onClick={() => anularVenta(detalle.venta.id, repetidaDe[detalle.venta.id] || null)}
                     disabled={anulandoId === detalle.venta.id}
                     style={{ ...styles.btnAnular, width: '100%', marginTop: '16px', padding: '10px' }}
                   >
@@ -387,6 +444,8 @@ const styles = {
   filaAnulada: { opacity: 0.55, textDecoration: 'line-through' },
   badgeActiva: { color: 'var(--teal-dark)', fontSize: '12px', fontWeight: 600 },
   badgeAnulada: { color: 'var(--danger)', fontSize: '12px', fontWeight: 600 },
+  badgeRepetida: { display: 'block', marginTop: '4px', color: '#9a5b00', fontSize: '11px', fontWeight: 700 },
+  avisoRepetidas: { margin: '0 0 12px', padding: '10px 14px', borderRadius: '8px', background: '#fff7e6', border: '1px solid #f5c377', color: '#7a4a00', fontSize: '14px' },
   btnAnular: {
     padding: '7px 12px',
     borderRadius: '8px',

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../../lib/db';
+import { originalDeDuplicada } from '../../../../lib/ventaUnica';
 
 export async function GET(request, { params }) {
   try {
@@ -68,6 +69,7 @@ export async function GET(request, { params }) {
 export async function POST(request, { params }) {
   try {
     const { id } = await params;
+    const cuerpo = await request.json().catch(() => ({}));
 
     const [venta] = await sql`
       SELECT id, anulada, ((creado_en::timestamptz AT TIME ZONE 'America/Bogota')::date = (now() AT TIME ZONE 'America/Bogota')::date) AS es_hoy
@@ -81,7 +83,22 @@ export async function POST(request, { params }) {
       return NextResponse.json({ ok: false, error: 'Esta venta ya está anulada' }, { status: 409 });
     }
     if (!venta.es_hoy) {
-      return NextResponse.json({ ok: false, error: 'Solo se pueden anular ventas del día actual' }, { status: 409 });
+      // Nov 2026: una venta REPETIDA (la misma venta guardada dos veces al
+      // sincronizar después de un corte de internet) sí se puede anular
+      // aunque sea de otro día, pero solo si de verdad es copia de otra
+      // venta activa (ver lib/ventaUnica.js). Las demás siguen como antes.
+      const original = cuerpo?.duplicada ? await originalDeDuplicada(id) : null;
+      if (!original) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: cuerpo?.duplicada
+              ? 'Esta venta no es copia de otra (cambian los productos, el total, el vendedor o la hora). Solo se pueden anular ventas del día actual.'
+              : 'Solo se pueden anular ventas del día actual',
+          },
+          { status: 409 }
+        );
+      }
     }
 
     const movimientos = await sql`

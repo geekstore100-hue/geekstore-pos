@@ -89,6 +89,12 @@ export default function VentasPage() {
   const [ventasPendientes, setVentasPendientes] = useState([]);
   const [enLinea, setEnLinea] = useState(true);
   const [sincronizando, setSincronizando] = useState(false);
+  // Nov 2026: el "no sincronices dos veces a la vez" se revisaba con el
+  // estado de React, pero el aviso de "volvió el internet" y el reintento de
+  // cada 45 s se crean una sola vez al abrir la pantalla y siempre veían
+  // "false": podían arrancar varias sincronizaciones juntas y mandar la misma
+  // venta 2 o 3 veces. Una ref sí ve el valor real.
+  const sincronizandoRef = useRef(false);
 
   // El stock que se muestra ya descuenta lo vendido sin conexión que todavía
   // no se ha podido enviar (ver aplicarAjustesPendientes arriba).
@@ -262,7 +268,20 @@ export default function VentasPage() {
   // datos encendida sin parar y movía muchísimos datos. Ahora solo recarga
   // el catálogo si de verdad se mandó (o se rechazó) alguna venta pendiente.
   async function sincronizarVentasPendientes() {
-    if (sincronizando) return;
+    if (sincronizandoRef.current) return;
+    // Además, si Vender está abierta en dos pestañas o ventanas del mismo
+    // navegador (comparten las ventas pendientes), solo una sincroniza.
+    if (typeof navigator !== 'undefined' && navigator.locks?.request) {
+      return navigator.locks.request('pos-sincronizar-ventas', { ifAvailable: true }, async (candado) => {
+        if (candado) await sincronizarAhora();
+      });
+    }
+    return sincronizarAhora();
+  }
+
+  async function sincronizarAhora() {
+    if (sincronizandoRef.current) return;
+    sincronizandoRef.current = true;
     setSincronizando(true);
     let huboCambios = false;
     try {
@@ -280,13 +299,20 @@ export default function VentasPage() {
               vendedor_id: venta.vendedor_id,
               items: venta.items,
               fecha_offline: venta.creadoEnISO,
+              // Código único de esta venta: si ya llegó antes (por ejemplo
+              // se perdió la respuesta), el servidor no la guarda otra vez.
+              id_local: venta.id_local || venta.idLocal,
             }),
           });
         } catch (e) {
           setEnLinea(false);
           break; // sigue sin internet — se reintenta en el próximo ciclo
         }
-        const data = await res.json();
+        // Internet a medias: a veces llega una página de error en vez de la
+        // respuesta. No se marca como rechazada: se reintenta luego (y si sí
+        // alcanzó a guardarse, el código único evita el duplicado).
+        const data = await res.json().catch(() => null);
+        if (!data) break;
         huboCambios = true;
         if (data.ok) {
           await eliminarVentaPendiente(venta.idLocal);
@@ -298,6 +324,7 @@ export default function VentasPage() {
     } finally {
       await cargarVentasPendientes();
       if (huboCambios) cargarTodo(); // el stock cambió: ahí sí vale la pena recargar
+      sincronizandoRef.current = false;
       setSincronizando(false);
     }
   }
@@ -880,7 +907,12 @@ export default function VentasPage() {
       precio_unitario: i.precio_unitario,
       descuento_porcentaje: i.descuento_porcentaje || 0,
     }));
+    // Nov 2026: el código único se crea ANTES de intentar mandarla. Si el
+    // envío falla y la venta queda pendiente, se guarda con el mismo código:
+    // así, si en realidad sí había llegado al servidor, no queda repetida.
+    const idLocalVenta = generarIdLocal();
     const cuerpoVenta = {
+      id_local: idLocalVenta,
       medio_pago: pagosBody ? undefined : pestanaVenta.medioPago,
       pagos: pagosBody || undefined,
       vendedor_id: pestanaVenta.vendedorId ? Number(pestanaVenta.vendedorId) : null,
@@ -935,7 +967,14 @@ export default function VentasPage() {
       await guardarVentaComoPendiente();
       return;
     }
-    const data = await res.json();
+    const data = await res.json().catch(() => null);
+    if (!data) {
+      // Respuesta rota (internet a medias): se guarda como pendiente con el
+      // mismo código; si ya había quedado en el servidor, no se repite.
+      setEnLinea(false);
+      await guardarVentaComoPendiente();
+      return;
+    }
     setGuardando(false);
 
     if (data.ok) {
@@ -972,7 +1011,7 @@ export default function VentasPage() {
         hour: '2-digit',
         minute: '2-digit',
       });
-      const idLocal = generarIdLocal();
+      const idLocal = idLocalVenta;
       await guardarVentaPendiente({
         idLocal,
         ...cuerpoVenta,

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../lib/db';
 import { costoListo, consultaGuardarCosto } from '../../../lib/costoVenta';
+import { idLocalListo, limpiarIdLocal, ventaPorIdLocal, esDuplicadoIdLocal } from '../../../lib/ventaUnica';
 
 async function bodegaPrincipalId() {
   const [b] = await sql`SELECT id FROM bodegas WHERE nombre = 'Principal'`;
@@ -81,7 +82,18 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const { items, medio_pago, vendedor_id, pagos: pagosBody, fecha_offline } = await request.json();
+    const { items, medio_pago, vendedor_id, pagos: pagosBody, fecha_offline, id_local } = await request.json();
+
+    // Nov 2026 (ver lib/ventaUnica.js): si esta misma venta ya llegó antes
+    // (se reenvió al volver el internet), se responde con la que ya quedó y
+    // NO se crea otra. Va antes de revisar el stock: la primera vez ya lo
+    // descontó, y si no, el reintento saldría como "stock insuficiente".
+    const idLocal = limpiarIdLocal(id_local);
+    const conIdLocal = Boolean(idLocal) && (await idLocalListo());
+    if (conIdLocal) {
+      const previa = await ventaPorIdLocal(idLocal);
+      if (previa) return NextResponse.json({ ok: true, ventaId: previa.id, total: previa.total, pagos: previa.pagos, repetida: true });
+    }
 
     // fecha_offline: cuando una venta se hizo sin conexión (ver /ventas y
     // lib/offlineVentas.js) y se está sincronizando después, este es el
@@ -211,14 +223,23 @@ export async function POST(request) {
     const pagosAGuardar = esPagoCombinado ? pagos : [{ medio_pago, monto: total }];
 
     const consultas = [
-      sql`
-        WITH nueva AS (
-          INSERT INTO ventas (total, medio_pago, vendedor_id, turno_id, creado_en)
-          VALUES (${total}, ${medioPagoGuardado}, ${vendedor_id || null}, ${turnoAbierto.id}, COALESCE(${fechaVenta}, now()))
-          RETURNING id
-        )
-        SELECT id, set_config('pos.id_venta', id::text, true) FROM nueva
-      `,
+      conIdLocal
+        ? sql`
+            WITH nueva AS (
+              INSERT INTO ventas (total, medio_pago, vendedor_id, turno_id, creado_en, id_local)
+              VALUES (${total}, ${medioPagoGuardado}, ${vendedor_id || null}, ${turnoAbierto.id}, COALESCE(${fechaVenta}, now()), ${idLocal})
+              RETURNING id
+            )
+            SELECT id, set_config('pos.id_venta', id::text, true) FROM nueva
+          `
+        : sql`
+            WITH nueva AS (
+              INSERT INTO ventas (total, medio_pago, vendedor_id, turno_id, creado_en)
+              VALUES (${total}, ${medioPagoGuardado}, ${vendedor_id || null}, ${turnoAbierto.id}, COALESCE(${fechaVenta}, now()))
+              RETURNING id
+            )
+            SELECT id, set_config('pos.id_venta', id::text, true) FROM nueva
+          `,
     ];
 
     // El detalle de pago se guarda siempre en pagos_venta (aunque sea un
@@ -273,6 +294,12 @@ export async function POST(request) {
           },
           { status: 409 }
         );
+      }
+      // Dos envíos de la misma venta al mismo tiempo: el índice único frena
+      // el segundo (no se guarda nada de ese) y se responde con la primera.
+      if (conIdLocal && esDuplicadoIdLocal(error)) {
+        const ya = await ventaPorIdLocal(idLocal);
+        if (ya) return NextResponse.json({ ok: true, ventaId: ya.id, total: ya.total, pagos: ya.pagos, repetida: true });
       }
       throw error;
     }
