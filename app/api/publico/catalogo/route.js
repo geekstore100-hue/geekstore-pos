@@ -243,6 +243,10 @@ export async function GET(request) {
             ? 'public, durable, s-maxage=1800, stale-while-revalidate=300'
             : 'public, durable, s-maxage=300, stale-while-revalidate=60',
           'Cache-Control': 'public, max-age=0, must-revalidate',
+          // Netlify NO separa la caché por parámetros de la URL a menos que
+          // se le diga: sin esto, ?agotados=1 recibía la copia guardada del
+          // catálogo normal (nov 2026).
+          'Netlify-Vary': 'query=agotados|sedes',
         },
       }
     );
