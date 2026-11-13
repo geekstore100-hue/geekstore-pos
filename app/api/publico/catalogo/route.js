@@ -113,8 +113,19 @@ export async function GET(request) {
       imagenesPorProducto.set(fila.producto_id, lista);
     }
 
+    // AGOTADOS (nov 2026): con ?agotados=1 se devuelven SOLO los productos
+    // físicos activos y publicados que hoy no tienen stock. La tienda los usa
+    // para que /producto/[id] de un agotado no dé "página no encontrada"
+    // (Google los estaba sacando: 166 errores 404 en Search Console) y muestre
+    // "Agotado — avísame cuando llegue". El catálogo normal (sin el
+    // parámetro) no cambia: sigue trayendo solo lo que tiene stock.
+    const soloAgotados = new URL(request.url).searchParams.get('agotados') === '1';
     const resultado = productos
-      .filter((p) => p.es_inventariable === false || Number(p.stock_total) > 0)
+      .filter((p) =>
+        soloAgotados
+          ? p.es_inventariable !== false && !(Number(p.stock_total) > 0)
+          : p.es_inventariable === false || Number(p.stock_total) > 0
+      )
       .map((p) => {
         // La portada (la que se marcó como portada en Productos del POS) va
         // SIEMPRE de primera — la tienda usa la primera foto como portada.
@@ -140,7 +151,7 @@ export async function GET(request) {
             Number(p.precio_anterior) > Number(p.precio_venta) && Number(p.precio_venta) > 0
               ? Number(p.precio_anterior)
               : null,
-          available: Number(p.stock_total) || 0,
+          available: soloAgotados ? 0 : Number(p.stock_total) || 0,
           warehouses: bodegasPorProducto.get(p.id) || [],
           image: images[0] ?? null,
           images,
@@ -160,7 +171,7 @@ export async function GET(request) {
     // con su WhatsApp) y whatsappOnly: true — por ahora NO se pagan en la
     // página: el botón es "Pedir por WhatsApp". La tienda vieja no pide
     // ?sedes=1, así que no los ve.
-    if (new URL(request.url).searchParams.get('sedes') === '1') {
+    if (!soloAgotados && new URL(request.url).searchParams.get('sedes') === '1') {
       let deSedes = [];
       try {
         deSedes = await sql`
@@ -227,7 +238,10 @@ export async function GET(request) {
       { productos: resultado },
       {
         headers: {
-          'Netlify-CDN-Cache-Control': 'public, durable, s-maxage=300, stale-while-revalidate=60',
+          // Los agotados cambian poco y la tienda los pide poco: 30 minutos.
+          'Netlify-CDN-Cache-Control': soloAgotados
+            ? 'public, durable, s-maxage=1800, stale-while-revalidate=300'
+            : 'public, durable, s-maxage=300, stale-while-revalidate=60',
           'Cache-Control': 'public, max-age=0, must-revalidate',
         },
       }
