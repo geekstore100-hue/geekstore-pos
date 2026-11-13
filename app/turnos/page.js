@@ -112,7 +112,10 @@ export default function TurnosHistorialPage() {
                       )}
                     </td>
                     <td style={styles.td}>{moneda(t.total_ventas)}</td>
-                    <td style={styles.td}>{moneda(t.dinero_esperado)}</td>
+                    <td style={styles.td} title={t.esperado_sin_base ? 'Sin contar la base' : 'Incluye la base (regla anterior)'}>
+                      {moneda(t.dinero_esperado)}
+                      {t.esperado_sin_base ? <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)' }}>sin la base</span> : null}
+                    </td>
                     <td style={styles.td}>{t.dinero_real_caja === null ? '-' : moneda(t.dinero_real_caja)}</td>
                     <td style={styles.td}>
                       {t.diferencia === null ? (
@@ -130,7 +133,7 @@ export default function TurnosHistorialPage() {
                     <tr>
                       <td style={styles.td} colSpan={8}>
                         <div style={styles.detalle}>
-                          <div style={styles.filaResumen}><span>Base inicial</span><strong>{moneda(t.base_inicial)}</strong></div>
+                          <div style={styles.filaResumen}><span>Base inicial{t.esperado_sin_base ? ' (no se cuenta en el cierre)' : ''}</span><strong>{moneda(t.base_inicial)}</strong></div>
                           <div style={styles.filaResumen}><span>Ventas en efectivo</span><strong>{moneda(t.ventas_efectivo)}</strong></div>
                           <div style={styles.filaResumen}><span>Ventas por tarjeta</span><strong>{moneda(t.ventas_tarjeta)}</strong></div>
                           <div style={styles.filaResumen}><span>Ventas por transferencia</span><strong>{moneda(t.ventas_transferencia)}</strong></div>

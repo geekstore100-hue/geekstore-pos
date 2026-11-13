@@ -48,7 +48,9 @@ export async function POST(request) {
     }
 
     const resumen = await calcularResumen(turno);
-    const dineroEsperado = resumen.dineroEsperado;
+    // El arqueo cuenta TODO el efectivo de la caja, incluida la base (el
+    // cierre, en cambio, se compara sin la base: lib/turnoSinBase.js).
+    const dineroEsperado = resumen.dineroEnCaja;
     const diferencia = dineroContado - dineroEsperado;
 
     const [arqueo] = await sql`

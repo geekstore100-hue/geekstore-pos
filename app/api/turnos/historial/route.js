@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server';
 import { hayTablaGastos } from '../../../../lib/gastos';
 import sql from '../../../../lib/db';
+import { asegurarTurnoSinBase, dineroEsperadoTurno } from '../../../../lib/turnoSinBase';
 
 // Historial de turnos con su resumen de caja, para la pantalla de
 // historial de turnos. ventas y devoluciones se agregan por separado antes
 // de unir con turnos para no duplicar sumas (fan-out del join).
 export async function GET(request) {
   try {
+    await asegurarTurnoSinBase().catch(() => {});
     const { searchParams } = new URL(request.url);
     const desde = searchParams.get('desde');
     const hasta = searchParams.get('hasta');
@@ -22,6 +24,7 @@ export async function GET(request) {
               t.dinero_real_caja,
               t.observaciones,
               t.estado,
+              (to_jsonb(t) ->> 'esperado_sin_base')::boolean AS esperado_sin_base,
               COALESCE(vs.ventas_efectivo, 0) AS ventas_efectivo,
               COALESCE(vs.ventas_tarjeta, 0) AS ventas_tarjeta,
               COALESCE(vs.ventas_transferencia, 0) AS ventas_transferencia,
@@ -68,6 +71,7 @@ export async function GET(request) {
               t.dinero_real_caja,
               t.observaciones,
               t.estado,
+              (to_jsonb(t) ->> 'esperado_sin_base')::boolean AS esperado_sin_base,
               COALESCE(vs.ventas_efectivo, 0) AS ventas_efectivo,
               COALESCE(vs.ventas_tarjeta, 0) AS ventas_tarjeta,
               COALESCE(vs.ventas_transferencia, 0) AS ventas_transferencia,
@@ -122,7 +126,8 @@ export async function GET(request) {
       const ventasEfectivo = Number(t.ventas_efectivo);
       const devolucionDinero = Number(t.devolucion_dinero);
       const gastosCaja = gastosPorTurno.get(Number(t.id)) || 0;
-      const dineroEsperado = baseInicial + ventasEfectivo - devolucionDinero - gastosCaja;
+      const sinBase = t.esperado_sin_base === true;
+      const dineroEsperado = dineroEsperadoTurno({ sinBase, baseInicial, ventasEfectivo, devolucionDinero, gastosCaja });
       const dineroReal = t.dinero_real_caja === null ? null : Number(t.dinero_real_caja);
       const diferencia = dineroReal === null ? null : dineroReal - dineroEsperado;
       return {
@@ -140,6 +145,7 @@ export async function GET(request) {
         devolucion_dinero: devolucionDinero,
         gastos_caja: gastosCaja,
         dinero_esperado: dineroEsperado,
+        esperado_sin_base: sinBase,
         dinero_real_caja: dineroReal,
         diferencia,
       };

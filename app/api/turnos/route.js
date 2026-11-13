@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../lib/db';
+import { asegurarTurnoSinBase } from '../../../lib/turnoSinBase';
 
 // Devuelve el turno abierto actualmente (o null si la caja está cerrada).
 export async function GET() {
@@ -17,7 +18,9 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const baseInicial = Number(body.base_inicial) || 0;
+    // Acepta "200000" o "$200.000" (el campo ahora se ve con puntos).
+    const baseInicial = Number(String(body.base_inicial ?? '').replace(/[^\d]/g, '')) || 0;
+    await asegurarTurnoSinBase();
 
     const [existente] = await sql`SELECT id FROM turnos WHERE estado = 'abierto' LIMIT 1`;
     if (existente) {
@@ -25,8 +28,8 @@ export async function POST(request) {
     }
 
     const [turno] = await sql`
-      INSERT INTO turnos (base_inicial, estado)
-      VALUES (${baseInicial}, 'abierto')
+      INSERT INTO turnos (base_inicial, estado, esperado_sin_base)
+      VALUES (${baseInicial}, 'abierto', true)
       RETURNING *
     `;
     return NextResponse.json({ ok: true, turno });

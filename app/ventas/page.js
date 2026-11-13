@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Shell from '../../components/Shell';
 import ChequeoSemanal from '../../components/ChequeoSemanal';
 import ArqueoCaja from '../../components/ArqueoCaja';
+import { imprimirTicketVenta } from '../../lib/ticketVenta';
 import {
   generarIdLocal,
   guardarVentaPendiente,
@@ -361,7 +362,7 @@ export default function VentasPage() {
       setResumenTurno(data.resumen);
       // Se deja precargado el dinero esperado: si al contar la caja coincide,
       // el usuario no tiene que escribir nada más; si no coincide, lo ajusta.
-      setDineroReal(String(data.resumen.dineroEsperado));
+      setDineroReal(String(Math.max(0, Math.round(Number(data.resumen.dineroEsperado) || 0))));
     }
     setCargandoResumen(false);
   }
@@ -540,6 +541,14 @@ export default function VentasPage() {
   function moneda(n) {
     return `$${Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
   }
+  // Campos de plata (nov 2026): se ven como "$200.000" pero se guardan solo
+  // los dígitos ("200000").
+  function soloDigitos(texto) {
+    return String(texto || '').replace(/\D/g, '').replace(/^0+(?=\d)/, '').slice(0, 10);
+  }
+  function verPesos(digitos) {
+    return digitos === '' ? '' : `$${Number(digitos).toLocaleString('es-CO')}`;
+  }
 
   // --- Pago combinado (ej. parte en efectivo y parte con tarjeta) ---
 
@@ -593,153 +602,11 @@ export default function VentasPage() {
   // el mismo diálogo de impresión de Windows/Chrome), pero no se abre ninguna
   // ventana nueva que haya que acordarse de cerrar, y el iframe se borra
   // solo apenas termina.
-  function imprimirTicket({ ventaId, items, totalVenta, pagos, vendedorNombre, listaUsada, fecha, sinConexion }) {
-    const filasHtml = items
-      .map((i) => {
-        const desc = Number(i.descuento_porcentaje) || 0;
-        const sub = i.cantidad * Number(i.precio_unitario) * (1 - desc / 100);
-        return `
-          <tr><td colspan="2" style="padding-top:6px;">${escaparHtml(i.nombre)}</td></tr>
-          <tr><td colspan="2" class="ref">Ref. ${escaparHtml(i.referencia || '-')}</td></tr>
-          <tr>
-            <td>${i.cantidad} x ${moneda(i.precio_unitario)}${desc ? ` (-${desc}%)` : ''}</td>
-            <td style="text-align:right;">${moneda(sub)}</td>
-          </tr>`;
-      })
-      .join('');
-
-    // Nota sobre calidad de impresión: el papel es de 80mm, pero en la
-    // mayoría de impresoras térmicas el área que realmente imprime es un
-    // poco más angosta (por eso se usa menos de 80mm de ancho de contenido)
-    // — si se usa el ancho completo, el borde derecho queda fuera del área
-    // imprimible y sale cortado. También se usa una fuente de palo
-    // (sans-serif) en negrita en vez de una fuente con trazos finos tipo
-    // máquina de escribir, porque en impresión térmica se ve más nítida y
-    // menos "borrosa".
-    //
-    // Antes el body iba centrado (margin: 0 auto) con 72mm de ancho. Eso
-    // se ve perfecto en "Guardar como PDF" (el navegador sí centra bien
-    // dentro de la página), pero muchas impresoras térmicas NO centran:
-    // el cabezal imprime siempre pegado al borde izquierdo del área
-    // imprimible, así que el "margen" que el centrado dejaba a la derecha
-    // terminaba empujando el contenido justo al borde y se cortaba —
-    // mientras a la izquierda solo quedaba papel en blanco de más, que no
-    // se nota. Por eso ahora el contenido va pegado a la izquierda (sin
-    // centrar) y más angosto (68mm en vez de 72mm), dejando un colchón
-    // amplio de sobra a la derecha para que ninguna impresora lo corte.
-    // Si de todas formas algún ticket sale cortado o borroso, revisa en
-    // el cuadro de impresión de Windows/Chrome que la Escala esté en 100%
-    // (no "Ajustar al papel"), los márgenes en "Ninguno", y el tamaño de
-    // papel configurado como 80mm / Recibo, no Carta/A4.
-    const html = `<!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8" />
-        <title>Ticket ${ventaId}</title>
-        <style>
-          @page { size: 80mm auto; margin: 0; }
-          * { box-sizing: border-box; }
-          body {
-            width: 68mm;
-            margin: 0;
-            padding: 4px 0 10px;
-            font-family: Arial, Helvetica, sans-serif;
-            font-weight: 600;
-            font-size: 13px;
-            color: #000;
-          }
-          h1 { font-size: 17px; text-align: center; margin: 0 0 2px; letter-spacing: 1px; }
-          p { margin: 3px 0; }
-          .centro { text-align: center; }
-          .ref { font-size: 11px; font-weight: 400; color: #333; padding-bottom: 2px; }
-          table { width: 100%; border-collapse: collapse; }
-          hr { border: none; border-top: 1px dashed #000; margin: 8px 0; }
-          .total-fila td { font-size: 15px; font-weight: 700; padding-top: 6px; }
-        </style>
-      </head>
-      <body>
-        <h1>GEEK STORE</h1>
-        ${
-          sinConexion
-            ? '<p class="centro" style="border:1px solid #000;padding:3px;">*** SIN CONEXIÓN - PENDIENTE DE SINCRONIZAR ***</p>'
-            : ''
-        }
-        <p class="centro">Venta #${ventaId}</p>
-        <p class="centro">${fecha}</p>
-        <hr />
-        <table>${filasHtml}</table>
-        <hr />
-        <table>
-          <tr class="total-fila"><td>TOTAL</td><td style="text-align:right;">${moneda(totalVenta)}</td></tr>
-        </table>
-        <hr />
-        ${
-          pagos.length > 1
-            ? pagos.map((p) => `<p>${escaparHtml(p.medio_pago)}: ${moneda(p.monto)}</p>`).join('')
-            : `<p>Medio de pago: ${escaparHtml(pagos[0]?.medio_pago || '-')}</p>`
-        }
-        ${vendedorNombre ? `<p>Vendedor: ${escaparHtml(vendedorNombre)}</p>` : ''}
-        <p>Lista de precios: ${listaUsada === 'distribuidor' ? 'Distribuidor' : 'Principal'}</p>
-        <hr />
-        <p class="centro">¡Gracias por su compra!</p>
-      </body>
-      </html>`;
-
-    // iframe invisible: no aparece como ventana, no lo bloquea el navegador
-    // como pop-up, y no queda nada por cerrar.
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = 'none';
-    iframe.setAttribute('aria-hidden', 'true');
-    document.body.appendChild(iframe);
-
-    let limpiado = false;
-    const limpiar = () => {
-      if (limpiado) return;
-      limpiado = true;
-      if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
-    };
-
-    const doc = iframe.contentWindow.document;
-    doc.open();
-    doc.write(html);
-    doc.close();
-
-    // Al terminar de imprimir (o al cancelar el diálogo), se quita el
-    // iframe y el cursor vuelve al buscador.
-    let terminado = false;
-    const terminarImpresion = () => {
-      if (terminado) return;
-      terminado = true;
-      limpiar();
-      enfocarBuscador();
-    };
-
-    const ventanaIframe = iframe.contentWindow;
-    ventanaIframe.addEventListener('afterprint', terminarImpresion);
-    // Por si el navegador no dispara "afterprint" en un iframe (pasa en
-    // algunos casos), se limpia igual pasado un tiempo prudente (acá sin
-    // mover el cursor, para no quitárselo a alguien que ya esté escribiendo).
-    setTimeout(limpiar, 30000);
-
-    // Un pequeño margen para que el navegador termine de montar el
-    // documento antes de mandar a imprimir.
-    setTimeout(() => {
-      try {
-        ventanaIframe.focus();
-        // En Chrome, print() se queda esperando hasta que se cierra el
-        // diálogo de impresión, así que al llegar a la línea siguiente ya
-        // se imprimió (o se canceló).
-        ventanaIframe.print();
-        terminarImpresion();
-      } catch {
-        terminarImpresion();
-      }
-    }, 200);
+  // El ticket (80 mm) se arma e imprime en lib/ticketVenta.js (nov 2026: se
+  // sacó de aquí para que Historial pueda imprimir copias con el mismo
+  // formato). Ver las notas de impresión allá.
+  function imprimirTicket(datos) {
+    imprimirTicketVenta(datos, enfocarBuscador);
   }
 
   function escaparHtml(texto) {
@@ -811,7 +678,8 @@ export default function VentasPage() {
         <table>${filasResumen}</table>
         <hr />
         <table>
-          <tr><td>Dinero esperado</td><td style="text-align:right;">${moneda(r.dineroEsperado)}</td></tr>
+          ${r.sinBase ? `<tr><td>Base (queda en caja)</td><td style="text-align:right;">${moneda(r.baseInicial)}</td></tr>` : ''}
+          <tr><td>Dinero esperado${r.sinBase ? ' sin base' : ''}</td><td style="text-align:right;">${moneda(r.dineroEsperado)}</td></tr>
           ${c.dineroReal !== null && c.dineroReal !== undefined ? `<tr><td>Dinero contado</td><td style="text-align:right;">${moneda(c.dineroReal)}</td></tr>` : ''}
         </table>
         ${
@@ -1395,10 +1263,12 @@ export default function VentasPage() {
             <label style={styles.labelCampo}>
               Base inicial
               <input
-                type="number"
-                step="0.01"
-                value={baseInicial}
-                onChange={(e) => setBaseInicial(e.target.value)}
+                type="text"
+                inputMode="numeric"
+                placeholder="$0"
+                value={verPesos(baseInicial)}
+                onChange={(e) => setBaseInicial(soloDigitos(e.target.value))}
+                onKeyDown={(e) => { if (e.key === 'Enter') abrirTurno(); }}
                 style={styles.inputCampo}
                 autoFocus
               />
@@ -1451,7 +1321,7 @@ export default function VentasPage() {
                   <div style={styles.filaResumenTurno}><span>Gastos pagados de la caja</span><strong>-{moneda(cierreTurno.resumen.gastosCaja)}</strong></div>
                 )}
                 <div style={{ ...styles.filaResumenTurno, borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '4px' }}>
-                  <span>Dinero esperado en caja</span><strong>{moneda(cierreTurno.resumen.dineroEsperado)}</strong>
+                  <span>Dinero esperado en caja{cierreTurno.resumen.sinBase ? ' (sin la base)' : ''}</span><strong>{moneda(cierreTurno.resumen.dineroEsperado)}</strong>
                 </div>
                 <div style={styles.filaResumenTurno}><span>Dinero contado</span><strong>{moneda(cierreTurno.dineroReal)}</strong></div>
                 {(() => {
@@ -1506,12 +1376,15 @@ export default function VentasPage() {
             ) : (
               resumenTurno && (
                 <>
-                  <div style={styles.filaResumenTurno}><span>Base inicial</span><strong>{moneda(resumenTurno.baseInicial)}</strong></div>
+                  <div style={styles.filaResumenTurno}>
+                    <span>Base inicial{resumenTurno.sinBase ? ' (se queda en la caja, no se cuenta)' : ''}</span>
+                    <strong>{moneda(resumenTurno.baseInicial)}</strong>
+                  </div>
                   <div style={styles.filaResumenTurno}><span>Ventas en efectivo</span><strong>{moneda(resumenTurno.ventasEfectivo)}</strong></div>
                   <div style={styles.filaResumenTurno}><span>Ventas por tarjeta</span><strong>{moneda(resumenTurno.ventasTarjeta)}</strong></div>
                   <div style={styles.filaResumenTurno}><span>Ventas por transferencia</span><strong>{moneda(resumenTurno.ventasTransferencia)}</strong></div>
                   <div style={styles.filaResumenTurno}><span>Otros medios de pago</span><strong>{moneda(resumenTurno.ventasOtro)}</strong></div>
-                  <div style={styles.filaResumenTurno}><span>Devolución de dinero</span><strong>{moneda(resumenTurno.devolucionDinero)}</strong></div>
+                  <div style={styles.filaResumenTurno}><span>Devoluciones de dinero</span><strong>{Number(resumenTurno.devolucionDinero) > 0 ? '-' : ''}{moneda(resumenTurno.devolucionDinero)}</strong></div>
                   {Number(resumenTurno.gastosCaja) > 0 && (
                     <div style={styles.filaResumenTurno}><span>Gastos pagados de la caja</span><strong>-{moneda(resumenTurno.gastosCaja)}</strong></div>
                   )}
@@ -1519,19 +1392,25 @@ export default function VentasPage() {
                     <span>Total de ventas</span><span>{moneda(resumenTurno.totalVentas)}</span>
                   </div>
                   <div style={styles.dineroEsperado}>
-                    <span>Dinero esperado en caja</span><strong>{moneda(resumenTurno.dineroEsperado)}</strong>
+                    <span>Dinero esperado en caja{resumenTurno.sinBase ? ' (sin la base)' : ''}</span><strong>{moneda(resumenTurno.dineroEsperado)}</strong>
                   </div>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '6px 0 0' }}>
+                    {resumenTurno.sinBase
+                      ? 'Efectivo de las ventas, menos devoluciones y gastos pagados de la caja. Cuenta lo que hay en la caja SIN la base.'
+                      : 'Base + efectivo de las ventas, menos devoluciones y gastos pagados de la caja (turno abierto con la regla anterior).'}
+                  </p>
                 </>
               )
             )}
 
             <label style={{ ...styles.labelCampo, marginTop: '16px' }}>
-              Dinero real en caja *
+              {resumenTurno?.sinBase ? 'Dinero real en caja, sin la base *' : 'Dinero real en caja *'}
               <input
-                type="number"
-                step="0.01"
-                value={dineroReal}
-                onChange={(e) => setDineroReal(e.target.value)}
+                type="text"
+                inputMode="numeric"
+                placeholder="$0"
+                value={verPesos(dineroReal)}
+                onChange={(e) => setDineroReal(soloDigitos(e.target.value))}
                 style={styles.inputCampo}
               />
             </label>
@@ -1760,7 +1639,9 @@ const styles = {
   listaCarrito: { flex: 1, overflowY: 'auto', marginBottom: '12px' },
   itemCarrito: { borderBottom: '1px solid var(--border)', padding: '10px 0' },
   itemFilaPrincipal: { display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px' },
-  itemNombre: { flex: 1, minWidth: 0, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  // Nov 2026: el nombre completo, en varias líneas si hace falta (antes se
+  // cortaba con "…" y no se sabía qué cargador era).
+  itemNombre: { flex: 1, minWidth: 0, fontWeight: 600, whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: 1.3 },
   itemSubtotal: { fontWeight: 600, whiteSpace: 'nowrap' },
   itemSubtitulo: { fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' },
   btnQuitar: { border: 'none', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '16px', flexShrink: 0 },

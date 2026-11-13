@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Shell from '../../components/Shell';
+import { imprimirTicketVenta, fechaTicket } from '../../lib/ticketVenta';
 
 // Fecha de HOY en hora de Colombia (AAAA-MM-DD). Antes usaba
 // toISOString(), que da la fecha en hora UTC (5 horas adelante): después de
@@ -58,6 +59,33 @@ export default function HistorialPage() {
   const [detalle, setDetalle] = useState(null);
   const [cargandoDetalle, setCargandoDetalle] = useState(false);
   const [anulandoId, setAnulandoId] = useState(null);
+  const [imprimiendoId, setImprimiendoId] = useState(null);
+
+  // Copia del ticket de 80 mm (nov 2026), igual al que sale al vender, con
+  // "COPIA" arriba (y "VENTA ANULADA" si lo está). Ver lib/ticketVenta.js.
+  async function imprimirCopiaTicket(id) {
+    setImprimiendoId(id);
+    setErrorAnular('');
+    try {
+      const res = await fetch(`/api/ventas/${id}`);
+      const d = await res.json().catch(() => ({}));
+      if (!d.ok) throw new Error(d.error || 'No se pudo cargar la venta');
+      const pagos = (d.pagos || []).filter((p) => Number(p.monto) > 0);
+      imprimirTicketVenta({
+        ventaId: d.venta.id,
+        items: d.items || [],
+        totalVenta: d.venta.total,
+        pagos: pagos.length ? pagos : [{ medio_pago: d.venta.medio_pago, monto: d.venta.total }],
+        vendedorNombre: d.venta.vendedor_nombre || '',
+        fecha: fechaTicket(d.venta.creado_en),
+        copia: 'COPIA',
+        anulada: Boolean(d.venta.anulada),
+      });
+    } catch (e) {
+      setErrorAnular(`No se pudo imprimir la copia: ${e.message}`);
+    }
+    setImprimiendoId(null);
+  }
   const [errorAnular, setErrorAnular] = useState('');
 
   async function cargar() {
@@ -205,12 +233,22 @@ export default function HistorialPage() {
                   ) : null}
                 </td>
                 <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); imprimirCopiaTicket(v.id); }}
+                    disabled={imprimiendoId === v.id}
+                    title="Imprimir copia del ticket (80 mm)"
+                    aria-label={`Imprimir copia del ticket de la venta ${v.id}`}
+                    style={styles.btnImprimir}
+                  >
+                    🧾
+                  </button>
                   <a
                     href={`/historial/${v.id}/imprimir`}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={(e) => e.stopPropagation()}
-                    title="Imprimir comprobante de venta"
+                    title="Imprimir comprobante de venta (hoja carta)"
                     style={styles.btnImprimir}
                   >
                     🖨️
@@ -275,8 +313,16 @@ export default function HistorialPage() {
                   rel="noopener noreferrer"
                   style={{ ...styles.btnImprimir, display: 'inline-block', marginTop: '10px', padding: '8px 14px' }}
                 >
-                  🖨️ Imprimir comprobante
+                  🖨️ Comprobante (carta)
                 </a>
+                <button
+                  type="button"
+                  onClick={() => imprimirCopiaTicket(detalle.venta.id)}
+                  disabled={imprimiendoId === detalle.venta.id}
+                  style={{ ...styles.btnImprimir, display: 'inline-block', marginTop: '10px', padding: '8px 14px' }}
+                >
+                  🧾 {imprimiendoId === detalle.venta.id ? 'Preparando…' : 'Copia del ticket (80 mm)'}
+                </button>
 
                 <h4 style={{ marginTop: '20px', marginBottom: '8px' }}>Artículos</h4>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
