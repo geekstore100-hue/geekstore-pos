@@ -1685,6 +1685,112 @@ export default function ImportarBorradorPage() {
 }
 
 // ═══════════════════════════ PASO 1: FACTURA ═══════════════════════════
+// Nov 2026: el proveedor se elige ESCRIBIENDO (antes era una lista larga).
+// Filtra por nombre o NIT, sin tildes y por palabras; con la casilla vacía
+// muestra todos. Flechas ↑ ↓ y Enter para elegir, Esc para cerrar.
+function BuscadorProveedor({ proveedores, elegido, deshabilitado, nombreNuevo, onElegir }) {
+  const [texto, setTexto] = useState('');
+  const [abierto, setAbierto] = useState(false);
+  const [marcado, setMarcado] = useState(0);
+  const caja = useRef(null);
+  const actual = proveedores.find((p) => String(p.id) === String(elegido));
+  const etiqueta = (p) => `${p.nombre}${p.identificacion ? ` — ${p.identificacion}` : ''}`;
+  const textoNuevo = `＋ Proveedor nuevo${nombreNuevo ? `: ${nombreNuevo}` : ''}`;
+  const mostrado = abierto ? texto : elegido === 'nuevo' ? textoNuevo : actual ? etiqueta(actual) : '';
+
+  const norm = (s) => sinTildes(String(s || '')).toLowerCase();
+  const palabras = norm(texto).trim().split(/\s+/).filter(Boolean);
+  const filtrados = proveedores
+    .filter((p) => {
+      const t = norm(`${p.nombre} ${p.identificacion || ''}`);
+      return palabras.every((w) => t.includes(w));
+    })
+    .sort((a, b) => String(a.nombre).localeCompare(String(b.nombre), 'es'));
+  // Opciones: los que coinciden y, al final, "proveedor nuevo".
+  const escrito = texto.trim();
+  const opciones = [
+    ...filtrados.map((p) => ({ id: String(p.id), texto: etiqueta(p) })),
+    { id: 'nuevo', texto: nombreNuevo ? textoNuevo : escrito ? `＋ Proveedor nuevo: «${escrito}»` : '＋ Proveedor nuevo', nuevo: true },
+  ];
+
+  function elegir(op) {
+    setAbierto(false);
+    setTexto('');
+    caja.current?.querySelector('input')?.blur();
+    onElegir(op.id, op.nuevo ? escrito : '');
+  }
+  function tecla(e) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!abierto) {
+        setAbierto(true);
+        return;
+      }
+      const n = opciones.length;
+      setMarcado((m) => (e.key === 'ArrowDown' ? (m + 1) % n : (m - 1 + n) % n));
+    } else if (e.key === 'Enter') {
+      if (abierto && opciones[marcado]) {
+        e.preventDefault();
+        elegir(opciones[marcado]);
+      }
+    } else if (e.key === 'Escape') {
+      setAbierto(false);
+    }
+  }
+
+  return (
+    <div ref={caja} style={{ position: 'relative' }}>
+      <input
+        value={mostrado}
+        disabled={deshabilitado}
+        placeholder="Escribe el nombre o el NIT del proveedor…"
+        className={elegido ? '' : 'gs-falta'}
+        style={{ width: '100%' }}
+        role="combobox"
+        aria-expanded={abierto}
+        aria-autocomplete="list"
+        aria-label="Buscar proveedor"
+        autoComplete="off"
+        onFocus={(e) => {
+          setTexto('');
+          setMarcado(0);
+          setAbierto(true);
+          e.target.select();
+        }}
+        onChange={(e) => {
+          setTexto(e.target.value);
+          setMarcado(0);
+          setAbierto(true);
+        }}
+        onKeyDown={tecla}
+        // Al salir de la casilla sin elegir, queda el proveedor que estaba.
+        onBlur={() => setAbierto(false)}
+      />
+      {abierto && !deshabilitado ? (
+        <div className="gs-dropdown gs-dropdown-proveedor" role="listbox">
+          {!filtrados.length && escrito ? <div className="gs-opcion-lista gs-ayuda" style={{ cursor: 'default' }}>Ningún proveedor coincide con «{escrito}».</div> : null}
+          {opciones.map((op, k) => (
+            <div
+              key={op.id}
+              role="option"
+              aria-selected={k === marcado}
+              className={`gs-opcion-lista ${op.nuevo ? 'gs-txt-cian' : ''} ${k === marcado ? 'gs-opcion-marcada' : ''} ${String(elegido) === op.id ? 'gs-opcion-actual' : ''}`}
+              onMouseEnter={() => setMarcado(k)}
+              onMouseDown={(e) => {
+                e.preventDefault(); // que no se cierre antes de elegir
+                elegir(op);
+              }}
+            >
+              {op.texto}
+              {String(elegido) === op.id ? ' ✓' : ''}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function PasoFactura({
   borrador,
   setBorrador,
@@ -1712,25 +1818,26 @@ function PasoFactura({
       <div className="gs-card">
         <Seccion n="1" titulo="Datos de la factura" />
         <div className="gs-grid2">
-          <label className="gs-campo">
+          <div className="gs-campo">
             <span className="gs-label">Proveedor *</span>
-            <select value={proveedorElegido} onChange={(e) => cambiarProveedor(e.target.value)} disabled={bloqueadoProveedor}>
-              <option value="">— Elegir —</option>
-              <option value="nuevo">＋ Proveedor nuevo{!borrador.manual && borrador.proveedor.nombre ? `: ${borrador.proveedor.nombre}` : ''}</option>
-              {proveedores.map((p) => (
-                <option key={p.id} value={String(p.id)}>
-                  {p.nombre}
-                  {p.identificacion ? ` — ${p.identificacion}` : ''}
-                </option>
-              ))}
-            </select>
+            <BuscadorProveedor
+              proveedores={proveedores}
+              elegido={proveedorElegido}
+              deshabilitado={bloqueadoProveedor}
+              nombreNuevo={!borrador.manual ? borrador.proveedor.nombre : ''}
+              onElegir={(id, textoEscrito) => {
+                // Factura manual: lo que se escribió queda como nombre del proveedor nuevo.
+                if (id === 'nuevo' && borrador.manual && textoEscrito) setBorrador({ ...borrador, proveedor: { ...borrador.proveedor, nombre: textoEscrito } });
+                cambiarProveedor(id);
+              }}
+            />
             {!borrador.manual && borrador.proveedor.nombre ? (
               <span className="gs-ayuda">
                 En la factura: {borrador.proveedor.nombre}
                 {borrador.proveedor.identificacion ? ` · NIT ${borrador.proveedor.identificacion}` : ''}
               </span>
             ) : null}
-          </label>
+          </div>
           <label className="gs-campo">
             <span className="gs-label">Número de factura</span>
             <input value={encabezado.numero} onChange={(e) => setEncabezado({ ...encabezado, numero: e.target.value })} placeholder="Ej: FE-1234" />
@@ -3206,6 +3313,9 @@ function EstiloPoder() {
       .gs-dropdown{ position:absolute; left:16px; right:16px; top:calc(100% - 26px); background:var(--panel2); border:1px solid var(--linea2); border-radius:12px; z-index:30; max-height:280px; overflow-y:auto; box-shadow:0 12px 30px rgba(0,0,0,.5); }
       .gs-opcion-lista{ padding:10px 12px; cursor:pointer; border-bottom:1px solid var(--linea); font-size:14px; }
       .gs-opcion-lista:hover{ background:rgba(25,195,255,.08); }
+      .gs-opcion-marcada{ background:rgba(25,195,255,.14); }
+      .gs-opcion-actual{ font-weight:700; }
+      .gs-dropdown-proveedor{ left:0; right:0; top:calc(100% + 4px); max-height:300px; }
 
       .gs-lista-nuevos{ position:sticky; top:12px; background:var(--panel); border:1px solid var(--linea); border-radius:16px; padding:12px; max-height:calc(100vh - 120px); overflow-y:auto; }
       @media (max-width:900px){ .gs-lista-nuevos{ position:static; max-height:none; } }
