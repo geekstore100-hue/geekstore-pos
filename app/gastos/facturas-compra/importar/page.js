@@ -2318,6 +2318,23 @@ function EditorNuevo({
             </div>
             <div className="gs-ayuda">Cambia nombre, descripción, ficha, categoría y subcategoría. No toca fotos ni precios.</div>
             {l.mensajeIA ? <div className={`gs-ayuda ${/No se pudo|no se dejó/.test(l.mensajeIA) ? 'gs-txt-rojo' : ''}`}>{l.mensajeIA}</div> : null}
+            {/* Nov 2026: lo que escribió la IA se ve aquí mismo (la casilla de
+                la descripción queda más abajo, en la sección 6). */}
+            {l.nuevoAntesIA && !l.analizandoIA ? (
+              <div className="gs-resultado-ia">
+                <div className="gs-label">
+                  Descripción que escribió la IA ({n.descripcion.length} letras) · Ficha técnica: {n.especificaciones.filter((f) => String(f.nombre || '').trim() && String(f.valor || '').trim()).length} datos
+                </div>
+                <div className="gs-resultado-ia-texto">{n.descripcion || 'La IA no escribió descripción.'}</div>
+                <button
+                  type="button"
+                  className="gs-link"
+                  onClick={() => document.getElementById(`gs-descripcion-${i}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                >
+                  Editar descripción y ver la ficha ↓
+                </button>
+              </div>
+            ) : null}
             {l.mensajeFotosPagina ? <div className="gs-ayuda">{l.mensajeFotosPagina}</div> : null}
             {l.fotosPagina?.length ? (
               <div className="gs-fila" style={{ marginTop: '8px' }}>
@@ -2578,7 +2595,7 @@ function EditorNuevo({
       </div>
 
       {/* 6 · Descripción y ficha */}
-      <div className="gs-card">
+      <div className="gs-card" id={`gs-descripcion-${i}`} style={{ scrollMarginTop: '12px' }}>
         <Seccion
           n="6"
           titulo="Descripción y ficha técnica"
@@ -3077,6 +3094,8 @@ function EstiloPoder() {
       .gs-fila{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
       .gs-ayuda{ font-size:12.5px; color:var(--gris); display:block; margin-top:3px; }
       .gs-label{ font-size:12px; color:var(--gris); margin-bottom:4px; letter-spacing:.02em; }
+      .gs-resultado-ia{ margin-top:10px; padding:10px 12px; border:1px solid var(--linea2); border-radius:10px; background:rgba(255,255,255,.03); }
+      .gs-resultado-ia-texto{ white-space:pre-wrap; font-size:14px; line-height:1.5; color:#E8EEF8; margin:4px 0 6px; overflow-wrap:anywhere; }
       .gs-campo{ display:flex; flex-direction:column; min-width:0; }
       .gs-check{ display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer; padding:4px 0; }
       .gs-txt-rojo{ color:var(--rojo) !important; } .gs-txt-verde{ color:var(--verde) !important; } .gs-txt-amarillo{ color:var(--amarillo) !important; } .gs-txt-cian{ color:var(--cian2) !important; }
