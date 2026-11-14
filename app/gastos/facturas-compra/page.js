@@ -182,6 +182,9 @@ export default function FacturasCompraPage() {
           cantidad: 1,
           precio: Number(producto.precio_costo) || '',
           descuento_porcentaje: 0,
+          // Nov 2026: precio de venta de hoy y el NUEVO (vacío = no cambia).
+          venta_hoy: Math.round(Number(producto.precio_venta) || 0),
+          venta_nueva: '',
         },
       ];
     });
@@ -269,6 +272,15 @@ export default function FacturasCompraPage() {
       setErrorForm('Escribe la base sobre la que se calcula la retención de ReteICA');
       return;
     }
+    // Cambios de precio de venta (solo los que de verdad cambian).
+    const cambiosVenta = items
+      .filter((it) => String(it.venta_nueva ?? '').trim() !== '' && Math.round(Number(it.venta_nueva)) !== it.venta_hoy)
+      .map((it) => ({ ...it, nuevo: Math.round(Number(it.venta_nueva)) }));
+    const ventaInvalida = cambiosVenta.find((it) => !(it.nuevo > 0));
+    if (ventaInvalida) {
+      setErrorForm(`Revisa el nuevo precio de venta de "${ventaInvalida.nombre}" (déjalo vacío para no cambiarlo)`);
+      return;
+    }
 
     setGuardando(true);
     try {
@@ -298,22 +310,55 @@ export default function FacturasCompraPage() {
         return;
       }
       setMostrarForm(false);
+      // Precio de venta de los productos a los que se les escribió uno
+      // nuevo: se guarda en el POS y se actualiza en Alegra. La factura ya
+      // quedó guardada: si algo falla aquí, solo se avisa.
+      const ventasHechas = new Map();
+      const avisosVenta = [];
+      for (const it of cambiosVenta) {
+        try {
+          const rv = await fetch(`/api/productos/${it.producto_id}/precio-venta`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ precio_venta: it.nuevo }),
+          });
+          const dv = await rv.json();
+          if (!dv.ok) {
+            avisosVenta.push(`${it.referencia}: no se cambió el precio de venta (${dv.error}).`);
+            continue;
+          }
+          ventasHechas.set(it.producto_id, it.nuevo);
+          if (!dv.alegraOk) {
+            avisosVenta.push(
+              dv.alegra?.estado === 'no-esta'
+                ? `${it.referencia}: el precio quedó en el POS, pero ese producto no está en Alegra (créalo desde Productos → Pendientes en Alegra).`
+                : `${it.referencia}: el precio quedó en el POS pero NO en Alegra (${dv.alegra?.motivo || 'no respondió'}); cámbialo a mano en Alegra.`
+            );
+          }
+        } catch {
+          avisosVenta.push(`${it.referencia}: no se cambió el precio de venta (error de conexión).`);
+        }
+      }
+      const textoVentas = cambiosVenta.length
+        ? ` Precio de venta cambiado en ${ventasHechas.size} de ${cambiosVenta.length} producto(s)${avisosVenta.length ? '' : ', en el POS y en Alegra'}.${avisosVenta.length ? ` Ojo: ${avisosVenta.join(' ')}` : ''}`
+        : '';
       // Excel de stickers (OpenLabel) de lo que llegó en esta factura: se
-      // descarga solo, con el precio de venta actual de cada producto.
+      // descarga solo, con el precio de venta actual de cada producto (el
+      // nuevo, si se cambió aquí).
       try {
         const lineas = items.map((it) => {
           const p = productosTodos.find((x) => x.id === it.producto_id);
-          return { referencia: it.referencia, nombre: it.nombre, cantidad: it.cantidad, precio_venta: p?.precio_venta };
+          return { referencia: it.referencia, nombre: it.nombre, cantidad: it.cantidad, precio_venta: ventasHechas.get(it.producto_id) ?? p?.precio_venta };
         });
         const nombre = `etiquetas_openlabel_compra_${form.numero ? String(form.numero).replace(/[^\w-]+/g, '_') : data.facturaId}.xlsx`;
         const r = await descargarExcelEtiquetas(lineas, nombre);
         setAvisoEtiquetas(
-          r.sinPrecio.length
+          (r.sinPrecio.length
             ? `Se descargó el Excel de stickers. Ojo: sin precio de venta (salen en $0): ${r.sinPrecio.join(', ')}.`
-            : `Se descargó el Excel de stickers (${r.filas} etiquetas).`
+            : `Se descargó el Excel de stickers (${r.filas} etiquetas).`) + textoVentas
         );
       } catch {
-        setAvisoEtiquetas('La factura se guardó, pero no se pudo crear el Excel de stickers. Descárgalo con el botón 🏷️ de la factura.');
+        setAvisoEtiquetas(`La factura se guardó, pero no se pudo crear el Excel de stickers. Descárgalo con el botón 🏷️ de la factura.${textoVentas}`);
       }
       cargarFacturas();
       cargarProductos();
@@ -891,6 +936,7 @@ export default function FacturasCompraPage() {
                     <th style={styles.th}>Desc %</th>
                     <th style={styles.th}>Cantidad</th>
                     <th style={styles.th}>Subtotal</th>
+                    <th style={styles.th} title="Escribe un precio solo si lo quieres cambiar: queda en el POS y en Alegra">Precio de venta</th>
                     <th style={styles.th}></th>
                   </tr>
                 </thead>
@@ -932,6 +978,22 @@ export default function FacturasCompraPage() {
                           />
                         </td>
                         <td style={styles.td}>${moneda(sub)}</td>
+                        <td style={styles.td}>
+                          <input
+                            type="number"
+                            min="0"
+                            value={it.venta_nueva ?? ''}
+                            placeholder={it.venta_hoy > 0 ? String(it.venta_hoy) : ''}
+                            onChange={(e) => actualizarItem(it.producto_id, 'venta_nueva', e.target.value)}
+                            style={{ ...styles.inputCantidad, width: '110px' }}
+                            aria-label={`Nuevo precio de venta de ${it.nombre}`}
+                          />
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                            {String(it.venta_nueva ?? '').trim() !== '' && Math.round(Number(it.venta_nueva)) !== it.venta_hoy
+                              ? `Hoy $${moneda(it.venta_hoy)} → cambia`
+                              : `Hoy $${moneda(it.venta_hoy)}`}
+                          </div>
+                        </td>
                         <td style={styles.td}>
                           <button onClick={() => quitarItem(it.producto_id)} style={styles.btnQuitar}>Quitar</button>
                         </td>

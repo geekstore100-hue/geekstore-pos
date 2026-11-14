@@ -154,6 +154,10 @@ export default function ImportarBorradorPage() {
   const [errorAprobar, setErrorAprobar] = useState('');
   const [resultado, setResultado] = useState(null);
   const progreso = useRef({ proveedorId: null, facturaId: null, siguienteRef: null });
+  // Nov 2026: precio de venta NUEVO de productos que ya existen, escrito en
+  // el paso 4 ({ id del producto: precio }). Vacío = no se cambia. Al
+  // aprobar se guarda en el POS y se actualiza en Alegra.
+  const [ventasNuevas, setVentasNuevas] = useState({});
   const inputArchivo = useRef(null);
   // Asistente por pasos
   const [paso, setPaso] = useState(1);
@@ -212,6 +216,7 @@ export default function ImportarBorradorPage() {
     Object.values(fotos).forEach((f) => URL.revokeObjectURL(f.url));
     const principal = bodegas.find((x) => sinTildes(x.nombre).toLowerCase() === 'principal') || bodegas[0];
     progreso.current = { proveedorId: null, facturaId: null, siguienteRef: null };
+    setVentasNuevas({});
     setErrorArchivo('');
     setResultado(null);
     setErrorAprobar('');
@@ -439,6 +444,7 @@ export default function ImportarBorradorPage() {
     setRecordarRegla(true);
     const principal = bodegas.find((x) => sinTildes(x.nombre).toLowerCase() === 'principal') || bodegas[0];
     progreso.current = { proveedorId: null, facturaId: null, siguienteRef: null };
+    setVentasNuevas({});
     setAprendidos(ap);
     setProveedorElegido(provId);
     setFotos(fotosZip);
@@ -843,6 +849,36 @@ export default function ImportarBorradorPage() {
   // calcular (costo + % de la regla), a mano o no aplica. Si el campo no es
   // obligatorio y no decidió, se usa la regla del proveedor.
   const obligatorio = (c) => obligatorios.includes(c);
+
+  // Productos que YA existen en el POS y vienen en esta factura (uno por
+  // producto, aunque esté en dos líneas), con el costo de esta compra.
+  const existentes = (() => {
+    const mapa = new Map();
+    lineas.forEach((l) => {
+      // Los recién creados con el formulario completo ya traen su precio.
+      if (l.accion !== 'existente' || l.creadoConFormulario) return;
+      const p = productosPorId.get(Number(l.producto_id));
+      if (!p) return;
+      const costo = costoNetoParaPos(l, reglaCostos);
+      const e = mapa.get(Number(p.id)) || { p, cantidad: 0, costo: 0, sugerido: null };
+      e.cantidad += Number(l.cantidad) || 0;
+      if (costo > e.costo) {
+        e.costo = costo;
+        e.sugerido = precioVentaAutomatico(l, reglaCostos);
+      }
+      mapa.set(Number(p.id), e);
+    });
+    return [...mapa.values()];
+  })();
+  // Cambios de precio de venta pedidos: solo los que de verdad cambian.
+  const cambiosVenta = existentes
+    .map((e) => ({ ...e, nuevo: Math.round(Number(ventasNuevas[e.p.id])) }))
+    .filter((e) => String(ventasNuevas[e.p.id] ?? '').trim() !== '' && e.nuevo !== Math.round(Number(e.p.precio_venta) || 0));
+  const ventasInvalidas = cambiosVenta.filter((e) => !(e.nuevo > 0));
+  function cambiarVentaNueva(id, valor) {
+    setErrorAprobar('');
+    setVentasNuevas((v) => ({ ...v, [id]: valor }));
+  }
   const precioDistAutoDe = (l) => precioDistribuidorAutomatico({ ...l }, { ...reglaCostos, distribuidor: regla.distribuidor ?? 40 });
   const modoDistDe = (l) => l.nuevo.modoDist ?? (obligatorio('distribuidor') ? null : regla.distribuidor !== null ? 'calcular' : 'no_aplica');
   const precioDistDe = (l) => {
@@ -915,6 +951,7 @@ export default function ImportarBorradorPage() {
     if (regla.iva !== 'ignorar' && typeof encabezado?.precios_con_iva !== 'boolean') lista.push('Contesta si los precios de los artículos ya tienen el IVA incluido (paso 1).');
     if (Number(encabezado?.retencion_porcentaje) > 0 && !(Number(encabezado?.retencion_base) > 0)) lista.push('Escribe la base de la retención.');
     if (!activas.length) lista.push('No quedó ninguna línea para guardar.');
+    ventasInvalidas.forEach((e) => lista.push(`${e.p.nombre}: el nuevo precio de venta no es válido (paso 4). Déjalo vacío para no cambiarlo.`));
     lineas.forEach((l, i) => {
       const n = `Línea ${i + 1}`;
       if (l.accion === 'omitir') return;
@@ -1090,6 +1127,48 @@ export default function ImportarBorradorPage() {
         anotar(`Factura de compra guardada (${moneda(r.total)}) y mercancía sumada al inventario.`);
       }
 
+      // 3b) Precio de venta de productos que ya existían (POS y Alegra).
+      // Va después de la factura: si esto falla, la compra ya quedó guardada
+      // y solo se avisa. No se repite lo que ya se cambió.
+      const pr = progreso.current;
+      pr.ventasHechas = pr.ventasHechas || new Map(); // id → precio que quedó en el POS
+      pr.avisosVenta = pr.avisosVenta || [];
+      let soloPos = 0;
+      for (const e of cambiosVenta) {
+        const id = Number(e.p.id);
+        if (pr.ventasHechas.has(id)) continue;
+        const r = await pedirJson(`/api/productos/${id}/precio-venta`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ precio_venta: e.nuevo }),
+        }).catch(() => ({ ok: false, error: 'error de conexión' }));
+        if (!r.ok) {
+          pr.ventasHechas.set(id, null); // se intentó: no se repite solo
+          pr.avisosVenta.push(`${e.p.referencia} · ${e.p.nombre}: NO se cambió el precio de venta (${r.error}). Cámbialo en Productos.`);
+          continue;
+        }
+        pr.ventasHechas.set(id, e.nuevo);
+        if (r.ofertaQuitada) pr.avisosVenta.push(`${e.p.referencia} · ${e.p.nombre}: se quitó el "precio antes" (la oferta) porque el nuevo precio ya no es una rebaja.`);
+        if (!r.alegraOk) {
+          soloPos++;
+          pr.avisosVenta.push(
+            r.alegra?.estado === 'no-esta'
+              ? `${e.p.referencia} · ${e.p.nombre}: el precio quedó en ${moneda(e.nuevo)} en el POS, pero ese producto no está en Alegra. Créalo desde Productos → Pendientes en Alegra.`
+              : `${e.p.referencia} · ${e.p.nombre}: el precio quedó en ${moneda(e.nuevo)} en el POS, pero NO en Alegra (${r.alegra?.motivo || 'no respondió'}). Cámbialo a mano en Alegra.`
+          );
+        }
+      }
+      const hechas = [...pr.ventasHechas.values()].filter((v) => v !== null).length;
+      if (hechas && !pr.ventasAnotadas) {
+        pr.ventasAnotadas = true;
+        anotar(
+          soloPos
+            ? `Precio de venta cambiado en ${hechas} producto(s) en el POS; ${soloPos} no se pudo actualizar en Alegra.`
+            : `Precio de venta cambiado en ${hechas} producto(s), en el POS y en Alegra.`,
+          soloPos ? 'aviso' : 'ok'
+        );
+      }
+
       // 4) Códigos aprendidos de este proveedor
       const pares = ls
         .filter((l) => l.accion !== 'omitir' && l.producto_id && !l.manual)
@@ -1118,7 +1197,7 @@ export default function ImportarBorradorPage() {
 
       setResultado({
         facturaId: progreso.current.facturaId,
-        avisos: [...ls.flatMap((l) => l.avisos.map((a) => `Línea ${l.linea}: ${a}`)), ...(avisoStickers ? [avisoStickers] : [])],
+        avisos: [...ls.flatMap((l) => l.avisos.map((a) => `Línea ${l.linea}: ${a}`)), ...(progreso.current.avisosVenta || []), ...(avisoStickers ? [avisoStickers] : [])],
         etiquetas: lineasEtiquetas,
       });
       guardarLs();
@@ -1136,7 +1215,9 @@ export default function ImportarBorradorPage() {
       .map((l) => {
         if (l.creado) return { referencia: l.creado.referencia, nombre: l.nuevo.nombre, cantidad: l.cantidad, precio_venta: precioVentaDe(l) };
         const p = productosPorId.get(Number(l.producto_id));
-        return { referencia: p?.referencia, nombre: p?.nombre, cantidad: l.cantidad, precio_venta: p?.precio_venta };
+        // Si en esta factura se le cambió el precio de venta, el sticker sale con el nuevo.
+        const cambiado = progreso.current.ventasHechas?.get(Number(l.producto_id));
+        return { referencia: p?.referencia, nombre: p?.nombre, cantidad: l.cantidad, precio_venta: cambiado ?? p?.precio_venta };
       });
   }
   function nombreExcel() {
@@ -1161,9 +1242,12 @@ export default function ImportarBorradorPage() {
       ...activas.filter((l) => !(Number(l.cantidad) > 0) || !(costoLinea(l) > 0)).map((l) => `Línea ${l.linea}: cantidad o costo`),
     ],
     3: nuevas.filter(({ l }) => !l.creado && semaforoDe(l) === 'rojo').map(({ l }) => l.nuevo.nombre || `Línea ${l.linea}`),
-    4: nuevas
-      .filter(({ l }) => !l.creado && (!(Number(precioVentaDe(l)) > 0) || (obligatorio('distribuidor') && faltantesDe(l).obligatorios.includes('Distribuidor'))))
-      .map(({ l }) => l.nuevo.nombre || `Línea ${l.linea}`),
+    4: [
+      ...nuevas
+        .filter(({ l }) => !l.creado && (!(Number(precioVentaDe(l)) > 0) || (obligatorio('distribuidor') && faltantesDe(l).obligatorios.includes('Distribuidor'))))
+        .map(({ l }) => l.nuevo.nombre || `Línea ${l.linea}`),
+      ...ventasInvalidas.map((e) => `${e.p.nombre}: precio de venta`),
+    ],
   };
   const PASOS = [
     { n: 1, t: 'Factura' },
@@ -1365,7 +1449,7 @@ export default function ImportarBorradorPage() {
             {paso === 3 ? (
               nuevas.length === 0 ? (
                 <div className="gs-card">
-                  <p style={{ margin: 0 }}>Esta factura no tiene productos nuevos: todos ya existen en el POS. Sigue a <b>Revisar y aprobar</b>.</p>
+                  <p style={{ margin: 0 }}>Esta factura no tiene productos nuevos: todos ya existen en el POS. Sigue a <b>Precios</b> por si quieres cambiarles el precio de venta.</p>
                 </div>
               ) : (
                 <div className="gs-dos">
@@ -1471,6 +1555,10 @@ export default function ImportarBorradorPage() {
                 precioDistAutoDe={precioDistAutoDe}
                 cambiarNuevo={cambiarNuevo}
                 bloqueada={aprobando}
+                existentes={existentes}
+                ventasNuevas={ventasNuevas}
+                cambiarVentaNueva={cambiarVentaNueva}
+                ventasHechas={progreso.current.ventasHechas}
               />
             ) : null}
 
@@ -1497,6 +1585,7 @@ export default function ImportarBorradorPage() {
                 subtotal={subtotal}
                 retencionValor={retencionValor}
                 comparaFactura={comparaFactura}
+                cambiosVenta={cambiosVenta}
                 regla={regla}
                 duplicada={duplicada}
                 problemas={problemas()}
@@ -1514,7 +1603,7 @@ export default function ImportarBorradorPage() {
 
             {/* Navegación de abajo */}
             <div className="gs-nav">
-              <button type="button" className="gs-btn" disabled={paso === 1} onClick={() => irAPaso(paso - 1)}>
+              <button type="button" className="gs-btn" disabled={paso === 1} onClick={() => irAPaso(paso === 4 && nuevas.length === 0 ? 2 : paso - 1)}>
                 ← Anterior
               </button>
               {paso < 5 ? (
@@ -1533,7 +1622,7 @@ export default function ImportarBorradorPage() {
                         setErrorAprobar('Antes de seguir, decide las líneas ⚠️: elige el producto o márcalas como nuevas.');
                         return;
                       }
-                      irAPaso(paso === 2 && nuevas.length === 0 ? 5 : paso + 1);
+                      irAPaso(paso === 2 && nuevas.length === 0 ? (existentes.length ? 4 : 5) : paso + 1);
                     }}
                   >
                     Siguiente →
@@ -2567,11 +2656,15 @@ function EditorNuevo({
 }
 
 // ═══════════════════════════ PASO 4: PRECIOS ═══════════════════════════
-function PasoPrecios({ nuevas, regla, costoNetoDe, precioVentaDe, precioAutoDe, modoDistDe, precioDistDe, precioDistAutoDe, cambiarNuevo, bloqueada }) {
+function PasoPrecios({ nuevas, regla, costoNetoDe, precioVentaDe, precioAutoDe, modoDistDe, precioDistDe, precioDistAutoDe, cambiarNuevo, bloqueada, existentes, ventasNuevas, cambiarVentaNueva, ventasHechas }) {
+  const tablaExistentes = (
+    <PreciosExistentes existentes={existentes} ventasNuevas={ventasNuevas} cambiarVentaNueva={cambiarVentaNueva} ventasHechas={ventasHechas} bloqueada={bloqueada} />
+  );
   if (!nuevas.length) {
-    return <div className="gs-card">No hay productos nuevos: los precios de los que ya existen no se cambian aquí.</div>;
+    return existentes.length ? tablaExistentes : <div className="gs-card">Esta factura no tiene productos a los que ponerles precio.</div>;
   }
   return (
+    <>
     <div className="gs-card">
       <Seccion n="$" titulo="Precios de los productos nuevos" />
       <p className="gs-ayuda" style={{ marginTop: 0 }}>
@@ -2647,6 +2740,93 @@ function PasoPrecios({ nuevas, regla, costoNetoDe, precioVentaDe, precioAutoDe, 
       </div>
       <p className="gs-ayuda">Para todos a la vez: el precio distribuidor sugerido se cambia en el paso 1 (regla del proveedor).</p>
     </div>
+    {existentes.length ? tablaExistentes : null}
+    </>
+  );
+}
+
+// Nov 2026: precio de venta de los productos que YA existen. Nelson lo
+// cambia aquí mismo al ver el costo de esta compra; al aprobar se guarda en
+// el POS y se actualiza en Alegra. Casilla vacía = se queda como está.
+function PreciosExistentes({ existentes, ventasNuevas, cambiarVentaNueva, ventasHechas, bloqueada }) {
+  return (
+    <div className="gs-card">
+      <Seccion n="✏️" titulo="Productos que ya existen — cambiar precio de venta" />
+      <p className="gs-ayuda" style={{ marginTop: 0 }}>
+        Si con esta compra cambió el costo, escribe aquí el nuevo precio de venta. Al aprobar queda cambiado en el POS, en la tienda y <b>en Alegra</b>.
+        Deja la casilla vacía en los que no cambian.
+      </p>
+      <div className="gs-tabla-scroll">
+        <table className="gs-tabla">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th className="der">Costo antes</th>
+              <th className="der">Costo esta factura</th>
+              <th className="der">Venta hoy</th>
+              <th>Nueva venta</th>
+              <th className="der">Margen</th>
+            </tr>
+          </thead>
+          <tbody>
+            {existentes.map((e) => {
+              const id = Number(e.p.id);
+              const hoy = Math.round(Number(e.p.precio_venta) || 0);
+              const escrito = String(ventasNuevas[id] ?? '').trim();
+              const nuevo = Math.round(Number(escrito));
+              const cambia = escrito !== '' && nuevo !== hoy;
+              const invalido = cambia && !(nuevo > 0);
+              const hecho = ventasHechas?.has(id);
+              const pv = cambia && nuevo > 0 ? nuevo : hoy;
+              const margen = pv > 0 && e.costo > 0 ? ((pv - e.costo) / pv) * 100 : null;
+              const costoAntes = Number(e.p.precio_costo) || 0;
+              const subio = costoAntes > 0 && e.costo > costoAntes * 1.005;
+              const bajo = costoAntes > 0 && e.costo < costoAntes * 0.995;
+              return (
+                <tr key={id}>
+                  <td style={{ maxWidth: '280px' }}>
+                    <div className="gs-item-nombre">{e.p.nombre}</div>
+                    <div className="gs-ayuda">Ref. {e.p.referencia} · {e.cantidad} und</div>
+                  </td>
+                  <td className="der">{costoAntes > 0 ? moneda(costoAntes) : '—'}</td>
+                  <td className={`der ${subio ? 'gs-txt-rojo' : bajo ? 'gs-txt-verde' : ''}`}>
+                    {moneda(e.costo)}
+                    {subio ? ' ▲' : bajo ? ' ▼' : ''}
+                  </td>
+                  <td className="der">{hoy > 0 ? moneda(hoy) : '—'}</td>
+                  <td>
+                    <input
+                      type="number"
+                      min="0"
+                      value={ventasNuevas[id] ?? ''}
+                      placeholder={hoy > 0 ? String(hoy) : ''}
+                      disabled={bloqueada || hecho}
+                      className={invalido ? 'gs-falta' : ''}
+                      onChange={(ev) => cambiarVentaNueva(id, ev.target.value)}
+                      style={{ width: '120px' }}
+                      aria-label={`Nuevo precio de venta de ${e.p.nombre}`}
+                    />
+                    {cambia && !hecho && !bloqueada ? (
+                      <button type="button" className="gs-link" title="No cambiar el precio" onClick={() => cambiarVentaNueva(id, '')}>↺</button>
+                    ) : null}
+                    {e.sugerido && e.sugerido !== hoy && !cambia && !hecho && !bloqueada ? (
+                      <div>
+                        <button type="button" className="gs-link" onClick={() => cambiarVentaNueva(id, String(e.sugerido))}>
+                          Usar {moneda(e.sugerido)} (regla del proveedor)
+                        </button>
+                      </div>
+                    ) : null}
+                    {cambia && nuevo > 0 ? <div className="gs-ayuda">{nuevo > hoy ? 'Sube' : 'Baja'} {moneda(Math.abs(nuevo - hoy))}</div> : null}
+                  </td>
+                  <td className={`der ${margen !== null && margen < 15 ? 'gs-txt-rojo' : 'gs-txt-verde'}`}>{margen !== null ? `${margen.toFixed(0)} %` : '—'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="gs-ayuda">El margen se calcula con el costo de esta factura. Los stickers salen con el precio nuevo.</p>
+    </div>
   );
 }
 
@@ -2671,6 +2851,7 @@ function PasoRevisar({
   subtotal,
   retencionValor,
   comparaFactura,
+  cambiosVenta = [],
   regla,
   duplicada,
   problemas,
@@ -2790,6 +2971,38 @@ function PasoRevisar({
         </div>
       ) : null}
 
+      {cambiosVenta.length ? (
+        <div className="gs-card">
+          <Seccion n="✏️" titulo={`Cambios de precio de venta (${cambiosVenta.length})`} />
+          <div className="gs-tabla-scroll">
+            <table className="gs-tabla">
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th className="der">Venta hoy</th>
+                  <th className="der">Nueva venta</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cambiosVenta.map((e) => (
+                  <tr key={e.p.id}>
+                    <td>
+                      <div className="gs-item-nombre">{e.p.nombre}</div>
+                      <div className="gs-ayuda">Ref. {e.p.referencia}</div>
+                    </td>
+                    <td className="der">{moneda(e.p.precio_venta)}</td>
+                    <td className={`der ${e.nuevo > 0 ? '' : 'gs-txt-rojo'}`}><b>{e.nuevo > 0 ? moneda(e.nuevo) : 'No válido'}</b></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="gs-ayuda">
+            Al aprobar quedan así en el POS, en la tienda y en Alegra. <button type="button" className="gs-link" onClick={() => irAPaso(4)}>Editar precios</button>
+          </p>
+        </div>
+      ) : null}
+
       <div className="gs-card gs-aprobar">
         {problemas.length ? (
           <div className="gs-aviso">
@@ -2816,8 +3029,8 @@ function PasoRevisar({
           {aprobando ? 'Guardando…' : `✅ Aprobar factura${nuevas.filter(({ l }) => !l.creado && !l.creadoConFormulario).length ? ` (crea ${nuevas.filter(({ l }) => !l.creado && !l.creadoConFormulario).length} productos)` : ''}`}
         </button>
         <p className="gs-ayuda">
-          Al aprobar: se crean los productos nuevos (con fotos y en Alegra), se guarda la factura, se suma el inventario, el POS aprende los códigos del
-          proveedor y se descarga el Excel de stickers.
+          Al aprobar: se crean los productos nuevos (con fotos y en Alegra), se guarda la factura, se suma el inventario, se cambian los precios de venta
+          que escribiste (en el POS y en Alegra), el POS aprende los códigos del proveedor y se descarga el Excel de stickers.
         </p>
       </div>
     </div>
