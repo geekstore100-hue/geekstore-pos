@@ -1559,6 +1559,8 @@ export default function ImportarBorradorPage() {
                 ventasNuevas={ventasNuevas}
                 cambiarVentaNueva={cambiarVentaNueva}
                 ventasHechas={progreso.current.ventasHechas}
+                fotos={fotos}
+                verFoto={setFotoGrande}
               />
             ) : null}
 
@@ -2673,9 +2675,9 @@ function EditorNuevo({
 }
 
 // ═══════════════════════════ PASO 4: PRECIOS ═══════════════════════════
-function PasoPrecios({ nuevas, regla, costoNetoDe, precioVentaDe, precioAutoDe, modoDistDe, precioDistDe, precioDistAutoDe, cambiarNuevo, bloqueada, existentes, ventasNuevas, cambiarVentaNueva, ventasHechas }) {
+function PasoPrecios({ nuevas, regla, costoNetoDe, precioVentaDe, precioAutoDe, modoDistDe, precioDistDe, precioDistAutoDe, cambiarNuevo, bloqueada, existentes, ventasNuevas, cambiarVentaNueva, ventasHechas, fotos = {}, verFoto = () => {} }) {
   const tablaExistentes = (
-    <PreciosExistentes existentes={existentes} ventasNuevas={ventasNuevas} cambiarVentaNueva={cambiarVentaNueva} ventasHechas={ventasHechas} bloqueada={bloqueada} />
+    <PreciosExistentes existentes={existentes} ventasNuevas={ventasNuevas} cambiarVentaNueva={cambiarVentaNueva} ventasHechas={ventasHechas} bloqueada={bloqueada} verFoto={verFoto} />
   );
   if (!nuevas.length) {
     return existentes.length ? tablaExistentes : <div className="gs-card">Esta factura no tiene productos a los que ponerles precio.</div>;
@@ -2708,9 +2710,19 @@ function PasoPrecios({ nuevas, regla, costoNetoDe, precioVentaDe, precioAutoDe, 
               const md = modoDistDe(l);
               return (
                 <tr key={i}>
-                  <td style={{ maxWidth: '260px' }}>
-                    <div className="gs-item-nombre">{l.nuevo.nombre}</div>
-                    <div className="gs-ayuda">{l.cantidad} und</div>
+                  <td style={{ maxWidth: '320px' }}>
+                    <div className="gs-celda-producto">
+                      {fotos[l.nuevo.fotos?.[0]]?.url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={fotos[l.nuevo.fotos[0]].url} alt="" className="gs-foto-pos" style={{ width: 52, height: 52 }} onClick={() => verFoto(fotos[l.nuevo.fotos[0]].url)} />
+                      ) : (
+                        <div className="gs-sin-foto" style={{ width: 52, height: 52 }}>Sin foto</div>
+                      )}
+                      <div style={{ minWidth: 0 }}>
+                        <div className="gs-item-nombre">{l.nuevo.nombre}</div>
+                        <div className="gs-ayuda">{l.cantidad} und</div>
+                      </div>
+                    </div>
                   </td>
                   <td className="der">{moneda(costo)}</td>
                   <td>
@@ -2765,7 +2777,7 @@ function PasoPrecios({ nuevas, regla, costoNetoDe, precioVentaDe, precioAutoDe, 
 // Nov 2026: precio de venta de los productos que YA existen. Nelson lo
 // cambia aquí mismo al ver el costo de esta compra; al aprobar se guarda en
 // el POS y se actualiza en Alegra. Casilla vacía = se queda como está.
-function PreciosExistentes({ existentes, ventasNuevas, cambiarVentaNueva, ventasHechas, bloqueada }) {
+function PreciosExistentes({ existentes, ventasNuevas, cambiarVentaNueva, ventasHechas, bloqueada, verFoto = () => {} }) {
   return (
     <div className="gs-card">
       <Seccion n="✏️" titulo="Productos que ya existen — cambiar precio de venta" />
@@ -2801,9 +2813,14 @@ function PreciosExistentes({ existentes, ventasNuevas, cambiarVentaNueva, ventas
               const bajo = costoAntes > 0 && e.costo < costoAntes * 0.995;
               return (
                 <tr key={id}>
-                  <td style={{ maxWidth: '280px' }}>
-                    <div className="gs-item-nombre">{e.p.nombre}</div>
-                    <div className="gs-ayuda">Ref. {e.p.referencia} · {e.cantidad} und</div>
+                  <td style={{ maxWidth: '340px' }}>
+                    <div className="gs-celda-producto">
+                      <FotoPOS p={e.p} tam={52} onClick={() => verFoto(`/api/imagenes/${e.p.imagen_key}`)} />
+                      <div style={{ minWidth: 0 }}>
+                        <div className="gs-item-nombre">{e.p.nombre}</div>
+                        <div className="gs-ayuda">Ref. {e.p.referencia} · {e.cantidad} und</div>
+                      </div>
+                    </div>
                   </td>
                   <td className="der">{costoAntes > 0 ? moneda(costoAntes) : '—'}</td>
                   <td className={`der ${subio ? 'gs-txt-rojo' : bajo ? 'gs-txt-verde' : ''}`}>
@@ -3094,6 +3111,7 @@ function EstiloPoder() {
       .gs-fila{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
       .gs-ayuda{ font-size:12.5px; color:var(--gris); display:block; margin-top:3px; }
       .gs-label{ font-size:12px; color:var(--gris); margin-bottom:4px; letter-spacing:.02em; }
+      .gs-celda-producto{ display:flex; align-items:center; gap:10px; min-width:0; }
       .gs-resultado-ia{ margin-top:10px; padding:10px 12px; border:1px solid var(--linea2); border-radius:10px; background:rgba(255,255,255,.03); }
       .gs-resultado-ia-texto{ white-space:pre-wrap; font-size:14px; line-height:1.5; color:#E8EEF8; margin:4px 0 6px; overflow-wrap:anywhere; }
       .gs-campo{ display:flex; flex-direction:column; min-width:0; }
