@@ -13,7 +13,10 @@ export const dynamic = 'force-dynamic';
 //            items: [{ mov_id?, producto_id, cantidad, precio, descuento_porcentaje }] }
 //   - mov_id: la línea que ya existía (se actualiza). Sin mov_id: línea nueva.
 //   - Las líneas que no vengan se quitan de la factura.
-//   - La bodega no se cambia aquí.
+//   - bodega_id (nov 2026): si se cambia, TODA la mercancía de la factura se
+//     pasa de la bodega vieja a la nueva (ej. se guardó en Principal y era
+//     Bodega Distribuidor). Solo si en la bodega vieja todavía están esas
+//     unidades; si ya se vendieron o se movieron, no deja.
 //
 // Qué hace con el inventario, producto por producto:
 //   STOCK: suma o resta la diferencia de unidades en la bodega de la factura.
@@ -52,6 +55,7 @@ async function asegurarColumnas() {
 }
 
 function leerCambios(body) {
+  const bodega_id = Number(body.bodega_id) || null;
   const proveedor_id = Number(body.proveedor_id);
   if (!proveedor_id) throw new ErrorEdicion('Selecciona el proveedor');
   const fecha_creacion = String(body.fecha_creacion || '').slice(0, 10);
@@ -71,6 +75,7 @@ function leerCambios(body) {
   if (!items.length) throw new ErrorEdicion('La factura debe tener al menos un producto');
   return {
     numero: String(body.numero || '').trim() || null,
+    bodega_id,
     proveedor_id,
     fecha_creacion,
     fecha_vencimiento: /^\d{4}-\d{2}-\d{2}$/.test(fv) ? fv : null,
@@ -88,6 +93,14 @@ async function planear(id, body) {
 
   const [prov] = await sql`SELECT id, nombre FROM proveedores WHERE id = ${c.proveedor_id}`;
   if (!prov) throw new ErrorEdicion('El proveedor seleccionado ya no existe', 404);
+
+  // Cambio de bodega (sin bodega_id, o la misma: se queda donde estaba).
+  const bodegaVieja = Number(factura.bodega_id);
+  const bodegaNueva = c.bodega_id || bodegaVieja;
+  const cambiaBodega = bodegaNueva !== bodegaVieja;
+  const bodegas = await sql`SELECT id, nombre FROM bodegas WHERE id = ANY(${[bodegaVieja, bodegaNueva]})`;
+  const nombreBodega = (bid) => bodegas.find((b) => Number(b.id) === bid)?.nombre || `Bodega ${bid}`;
+  if (cambiaBodega && !bodegas.some((b) => Number(b.id) === bodegaNueva)) throw new ErrorEdicion('La bodega elegida ya no existe', 404);
 
   const viejas = await sql`
     SELECT id AS mov_id, producto_id, cantidad, precio_unitario, descuento_porcentaje, creado_en
@@ -119,7 +132,8 @@ async function planear(id, body) {
   const productos = await sql`
     SELECT p.id, p.referencia, p.nombre, p.precio_costo, p.es_inventariable,
            (SELECT COALESCE(SUM(s.cantidad), 0) FROM stock s WHERE s.producto_id = p.id) AS stock_total,
-           (SELECT COALESCE(SUM(s.cantidad), 0) FROM stock s WHERE s.producto_id = p.id AND s.bodega_id = ${factura.bodega_id}) AS stock_bodega
+           (SELECT COALESCE(SUM(s.cantidad), 0) FROM stock s WHERE s.producto_id = p.id AND s.bodega_id = ${factura.bodega_id}) AS stock_bodega,
+           (SELECT COALESCE(SUM(s.cantidad), 0) FROM stock s WHERE s.producto_id = p.id AND s.bodega_id = ${bodegaNueva}) AS stock_destino
     FROM productos p WHERE p.id = ANY(${ids})
   `;
   const prodPor = new Map(productos.map((p) => [Number(p.id), p]));
@@ -153,7 +167,12 @@ async function planear(id, body) {
       cantidad_antes: qOld,
       cantidad_despues: qNew,
       stock_bodega_antes: stockBodega,
-      stock_bodega_despues: stockBodega + dq,
+      // Con cambio de bodega salen de la vieja TODAS las unidades de la
+      // factura y entran a la nueva las de la factura corregida.
+      stock_bodega_despues: cambiaBodega ? stockBodega - qOld : stockBodega + dq,
+      ...(cambiaBodega
+        ? { stock_destino_antes: Number(p.stock_destino), stock_destino_despues: Number(p.stock_destino) + qNew }
+        : {}),
       costo_actual: costoHoy,
       costo_nuevo: costoHoy,
       ventas_corregidas: 0,
@@ -161,7 +180,11 @@ async function planear(id, body) {
       aviso: '',
     };
 
-    if (dq < 0 && stockBodega + dq < 0) {
+    if (cambiaBodega && stockBodega - qOld < 0) {
+      errores.push(
+        `${p.referencia || ''} ${p.nombre}: para pasarla a ${nombreBodega(bodegaNueva)} hay que sacar ${qOld} de ${nombreBodega(bodegaVieja)}, pero allá quedan ${stockBodega}. Ya se vendieron o se movieron: pasa a mano las que quedan con un traspaso.`.trim()
+      );
+    } else if (!cambiaBodega && dq < 0 && stockBodega + dq < 0) {
       errores.push(`${p.referencia || ''} ${p.nombre}: en la bodega de la factura quedan ${stockBodega} unidades y habría que sacar ${-dq}. Ya se vendieron o se movieron.`.trim());
     }
 
@@ -205,7 +228,7 @@ async function planear(id, body) {
         fila.ventas_corregidas = fila.recalcula_costo ? por.venta?.n || 0 : 0;
       }
     }
-    if (dq !== 0 || cambiaValor || fila.aviso) resumen.push(fila);
+    if (cambiaBodega || dq !== 0 || cambiaValor || fila.aviso) resumen.push(fila);
   }
 
   const subtotal = r2(lineas.reduce((a, l) => a + l.cantidad * l.precio * (1 - l.descuento_porcentaje / 100), 0));
@@ -225,6 +248,13 @@ async function planear(id, body) {
 
   return {
     factura,
+    bodega: {
+      cambia: cambiaBodega,
+      vieja: bodegaVieja,
+      nueva: bodegaNueva,
+      nombre_vieja: nombreBodega(bodegaVieja),
+      nombre_nueva: nombreBodega(bodegaNueva),
+    },
     cambios: c,
     lineas,
     quitadas,
@@ -252,6 +282,7 @@ export async function POST(request, { params }) {
     const body = await request.json();
     const plan = await planear(id, body);
     const vista = {
+      bodega: plan.bodega,
       resumen: plan.resumen,
       errores: plan.errores,
       totales: plan.totales,
@@ -261,11 +292,17 @@ export async function POST(request, { params }) {
     if (!body.aplicar) return NextResponse.json({ ok: true, vista });
     if (plan.errores.length) return NextResponse.json({ ok: false, error: plan.errores.join(' '), vista }, { status: 409 });
 
-    const { factura, cambios: c } = plan;
-    const bodega = factura.bodega_id;
+    const { cambios: c } = plan;
+    const bodega = plan.bodega.nueva;
     const q = [];
     // 1) Stock por producto (si hay que restar, solo si alcanza).
     for (const f of plan.resumen) {
+      if (plan.bodega.cambia) {
+        // Sale todo de la bodega vieja y entra lo corregido a la nueva.
+        if (f.cantidad_antes > 0) q.push(descontarStockSeguro(f.producto_id, plan.bodega.vieja, f.cantidad_antes));
+        if (f.cantidad_despues > 0) q.push(sumarStock(f.producto_id, bodega, f.cantidad_despues));
+        continue;
+      }
       const dq = f.cantidad_despues - f.cantidad_antes;
       if (dq > 0) q.push(sumarStock(f.producto_id, bodega, dq));
       if (dq < 0) q.push(descontarStockSeguro(f.producto_id, bodega, -dq));
@@ -285,7 +322,8 @@ export async function POST(request, { params }) {
     for (const l of plan.lineas) {
       if (l.accion === 'actualizar') {
         q.push(sql`
-          UPDATE movimientos_stock SET cantidad = ${l.cantidad}, precio_unitario = ${l.precio}, descuento_porcentaje = ${l.descuento_porcentaje}
+          UPDATE movimientos_stock SET cantidad = ${l.cantidad}, precio_unitario = ${l.precio}, descuento_porcentaje = ${l.descuento_porcentaje},
+            bodega_id = ${bodega}
           WHERE id = ${l.mov_id}
         `);
       } else {
@@ -298,7 +336,7 @@ export async function POST(request, { params }) {
     // 4) Encabezado y totales.
     const t = plan.totales;
     q.push(sql`
-      UPDATE facturas_compra SET numero = ${c.numero}, proveedor_id = ${c.proveedor_id}, fecha_creacion = ${c.fecha_creacion},
+      UPDATE facturas_compra SET numero = ${c.numero}, bodega_id = ${bodega}, proveedor_id = ${c.proveedor_id}, fecha_creacion = ${c.fecha_creacion},
         fecha_vencimiento = ${c.fecha_vencimiento}, notas = ${c.notas}, subtotal = ${t.subtotal_despues}, total = ${t.subtotal_despues},
         descuento_en_costo = ${plan.marcaDescuento}
       WHERE id = ${id}

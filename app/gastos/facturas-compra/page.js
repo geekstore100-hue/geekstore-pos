@@ -1161,6 +1161,7 @@ export default function FacturasCompraPage() {
                 detalle={detalleFactura}
                 productosTodos={productosTodos}
                 proveedores={proveedores}
+                bodegas={bodegas}
                 onCancelar={() => setEditandoFactura(false)}
                 onGuardado={async (vista) => {
                   setEditandoFactura(false);

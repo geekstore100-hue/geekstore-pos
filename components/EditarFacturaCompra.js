@@ -14,10 +14,11 @@ const dia = (d) => (d ? String(d).slice(0, 10) : '');
 
 let siguienteClave = 1;
 
-export default function EditarFacturaCompra({ detalle, productosTodos = [], proveedores = [], onCancelar, onGuardado }) {
+export default function EditarFacturaCompra({ detalle, productosTodos = [], proveedores = [], bodegas = [], onCancelar, onGuardado }) {
   const f = detalle.factura;
   const [enc, setEnc] = useState({
     numero: f.numero || '',
+    bodega_id: f.bodega_id ? String(f.bodega_id) : '',
     proveedor_id: f.proveedor_id ? String(f.proveedor_id) : '',
     fecha_creacion: dia(f.fecha_creacion),
     fecha_vencimiento: dia(f.fecha_vencimiento),
@@ -94,6 +95,7 @@ export default function EditarFacturaCompra({ detalle, productosTodos = [], prov
     return {
       aplicar,
       ...enc,
+      bodega_id: Number(enc.bodega_id) || undefined,
       proveedor_id: Number(enc.proveedor_id),
       items: lineas.map((l) => ({
         mov_id: l.mov_id,
@@ -191,7 +193,22 @@ export default function EditarFacturaCompra({ detalle, productosTodos = [], prov
         </div>
       </div>
       <label>Bodega</label>
-      <div style={{ fontSize: '14px' }}>{f.bodega_nombre} <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>(no se cambia)</span></div>
+      {/* Nov 2026: se puede cambiar; la mercancía de la factura se pasa a la
+          bodega nueva (ver app/api/facturas-compra/[id]/editar). */}
+      {bodegas.length ? (
+        <select value={enc.bodega_id} onChange={(e) => cambiarEnc('bodega_id', e.target.value)} aria-label="Bodega">
+          {bodegas.map((b) => (
+            <option key={b.id} value={String(b.id)}>{b.nombre}</option>
+          ))}
+        </select>
+      ) : (
+        <div style={{ fontSize: '14px' }}>{f.bodega_nombre}</div>
+      )}
+      {String(enc.bodega_id) !== String(f.bodega_id) && (
+        <div style={{ fontSize: '12px', color: '#93370d', marginTop: '4px' }}>
+          Al guardar, todas las unidades de esta factura pasan de {f.bodega_nombre} a {bodegas.find((b) => String(b.id) === String(enc.bodega_id))?.nombre}.
+        </div>
+      )}
 
       <label style={{ marginTop: '14px' }}>Productos</label>
       {lineas.map((l) => {
@@ -245,6 +262,11 @@ export default function EditarFacturaCompra({ detalle, productosTodos = [], prov
       {vista && (
         <div className="efc-vista">
           <strong>Así quedaría</strong>
+          {vista.bodega?.cambia && (
+            <div style={{ margin: '4px 0 0' }}>
+              Bodega: {vista.bodega.nombre_vieja} → <strong>{vista.bodega.nombre_nueva}</strong> (la mercancía de la factura se pasa allá).
+            </div>
+          )}
           {sinCambiosInventario ? (
             <p style={{ margin: '6px 0 0' }}>No cambia el stock ni el costo de ningún producto.</p>
           ) : (
@@ -252,7 +274,8 @@ export default function EditarFacturaCompra({ detalle, productosTodos = [], prov
               <thead>
                 <tr>
                   <th>Producto</th>
-                  <th>Stock bodega</th>
+                  <th>{vista.bodega?.cambia ? vista.bodega.nombre_vieja : 'Stock bodega'}</th>
+                  {vista.bodega?.cambia && <th>{vista.bodega.nombre_nueva}</th>}
                   <th>Costo</th>
                 </tr>
               </thead>
@@ -272,6 +295,11 @@ export default function EditarFacturaCompra({ detalle, productosTodos = [], prov
                     <td style={{ whiteSpace: 'nowrap', color: r.stock_bodega_despues < 0 ? 'var(--danger)' : undefined }}>
                       {r.stock_bodega_antes} → <strong>{r.stock_bodega_despues}</strong>
                     </td>
+                    {vista.bodega?.cambia && (
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        {r.stock_destino_antes} → <strong>{r.stock_destino_despues}</strong>
+                      </td>
+                    )}
                     <td style={{ whiteSpace: 'nowrap' }}>
                       {r.recalcula_costo ? (
                         <>{moneda(r.costo_actual)} → <strong>{moneda(r.costo_nuevo)}</strong></>
