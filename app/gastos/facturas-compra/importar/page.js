@@ -29,6 +29,7 @@ import { ajustarDescripcion, REGLAS_DESCRIPCION_IA, DESCRIPCION_MAXIMA } from '.
 import { CAMPOS_CONFIGURABLES, OBLIGATORIOS_POR_DEFECTO } from '../../../../lib/camposFactura';
 import { TARIFAS_RETEICA as TARIFAS_LISTA } from '../../../../lib/tarifasReteica';
 import { esCategoriaColeccionable, altoDeFicha } from '../../../../lib/figuras';
+import { esNombreDeJuego } from '../../../../lib/nombreJuego';
 
 // ASISTENTE DE FACTURA DE COMPRA (oct 2026), con el diseño "Poder" de la
 // tienda (oscuro, neón cian y magenta). Sirve para las dos formas de
@@ -623,6 +624,9 @@ export default function ImportarBorradorPage() {
       // La descripción vieja NO se manda como base (la IA la estiraba y
       // perdía el formato de "✓"): se escribe desde los datos.
       const r = await pedirIA({
+        // El nombre que ya tiene (el del borrador): la IA sabe qué es y, si es
+        // un juego con el formato de la tienda, no se lo cambia.
+        nombre: l.nuevo.nombre.trim() || undefined,
         imagenBase64: portada || undefined,
         enlaceFabricante: enlace || undefined,
         // Sin enlace ni texto pegado, la IA trabaja con lo que ya se sabe.
@@ -649,14 +653,16 @@ export default function ImportarBorradorPage() {
         ls.map((x, j) => {
           if (j !== i) return x;
           const desc = r.descripcion || '';
+          // Juego con el nombre en el formato de la tienda: se queda igual.
+          const nombreFijo = esNombreDeJuego(x.nuevo.nombre);
           return {
             ...x,
             analizandoIA: false,
             nuevoAntesIA: x.nuevo,
-            mensajeIA: `Listo (${r.iaUsada || 'IA'}). Revisa lo que cambió${desc.length < DESCRIPCION_MINIMA ? `; la descripción quedó de ${desc.length} letras, amplíala` : ''}.`,
+            mensajeIA: `Listo (${r.iaUsada || 'IA'}). ${nombreFijo ? 'El nombre del juego se dejó igual. ' : ''}Revisa lo que cambió${desc.length < DESCRIPCION_MINIMA ? `; la descripción quedó de ${desc.length} letras, amplíala` : ''}.`,
             nuevo: {
               ...x.nuevo,
-              nombre: r.nombre ? String(r.nombre).slice(0, 150) : x.nuevo.nombre,
+              nombre: nombreFijo ? x.nuevo.nombre : r.nombre ? String(r.nombre).slice(0, 150) : x.nuevo.nombre,
               descripcion: desc || x.nuevo.descripcion,
               especificaciones: Array.isArray(r.especificaciones) && r.especificaciones.length ? r.especificaciones : x.nuevo.especificaciones,
               categoria_id: cat ? String(cat.id) : x.nuevo.categoria_id,
