@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../lib/db';
+import { choqueSubcategoria } from '../../../lib/nombresCategoria';
 
 export async function GET(request) {
   try {
@@ -8,10 +9,10 @@ export async function GET(request) {
 
     const subcategorias = categoriaId
       ? await sql`
-          SELECT id, categoria_id, nombre
-          FROM subcategorias
-          WHERE categoria_id = ${categoriaId}
-          ORDER BY nombre ASC
+          SELECT s.id, s.categoria_id, s.nombre, (SELECT COUNT(*) FROM productos p WHERE p.subcategoria_id = s.id)::int AS productos
+          FROM subcategorias s
+          WHERE s.categoria_id = ${categoriaId}
+          ORDER BY s.nombre ASC
         `
       : await sql`
           SELECT id, categoria_id, nombre
@@ -35,6 +36,12 @@ export async function POST(request) {
     if (!nombre || !nombre.trim()) {
       return NextResponse.json({ ok: false, error: 'El nombre de la subcategoría es obligatorio' }, { status: 400 });
     }
+
+    // Nov 2026: tampoco repetidas con otra forma de escribirlas, ni con el
+    // nombre de una categoría (ver lib/nombresCategoria.js).
+    const [cats, subs] = await Promise.all([sql`SELECT id, nombre FROM categorias`, sql`SELECT id, categoria_id, nombre FROM subcategorias`]);
+    const choque = choqueSubcategoria(nombre, categoria_id, cats, subs);
+    if (choque) return NextResponse.json({ ok: false, error: choque }, { status: 409 });
 
     const [subcategoria] = await sql`
       INSERT INTO subcategorias (categoria_id, nombre)

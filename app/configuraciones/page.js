@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Shell from '../../components/Shell';
+import { claveNombre } from '../../lib/nombresCategoria';
 
 const SECCIONES = [
   { id: 'vendedores', label: 'Vendedores', descripcion: 'Quién vende' },
@@ -60,6 +61,15 @@ export default function ConfiguracionesPage() {
   const [errorSubcategoria, setErrorSubcategoria] = useState('');
   const [guardandoCategoria, setGuardandoCategoria] = useState(false);
   const [guardandoSubcategoria, setGuardandoSubcategoria] = useState(false);
+  // Nov 2026: todas las subcategorías (para marcar categorías repetidas) y
+  // "Unir con otra categoría".
+  const [todasSubcategorias, setTodasSubcategorias] = useState([]);
+  const [unir, setUnir] = useState({ destino: '', sub: '' });
+  const [subsDestino, setSubsDestino] = useState([]);
+  const [vistaUnir, setVistaUnir] = useState(null);
+  const [trabajandoUnir, setTrabajandoUnir] = useState(false);
+  const [mensajeUnir, setMensajeUnir] = useState('');
+  const [errorUnir, setErrorUnir] = useState('');
 
   // Etiquetas de producto: logo y tamaño físico de la etiqueta que se
   // imprime desde /etiquetas
@@ -130,9 +140,65 @@ export default function ConfiguracionesPage() {
   }
 
   async function cargarCategorias() {
-    const res = await fetch('/api/categorias');
+    const [res, resSubs] = await Promise.all([fetch('/api/categorias'), fetch('/api/subcategorias')]);
     const data = await res.json();
+    const dataSubs = await resSubs.json().catch(() => ({}));
     if (data.ok) setCategorias(data.categorias);
+    if (dataSubs.ok) setTodasSubcategorias(dataSubs.subcategorias);
+  }
+
+  // Si el nombre de una categoría es igual al de una subcategoría de otra
+  // (ej. "Juegos PS4" suelta y "Video Juegos › Juegos PS4"), está repetida.
+  function repetidaDe(c) {
+    const k = claveNombre(c.nombre);
+    const sub = todasSubcategorias.find((s) => Number(s.categoria_id) !== Number(c.id) && claveNombre(s.nombre) === k);
+    if (!sub) return null;
+    const padre = categorias.find((x) => Number(x.id) === Number(sub.categoria_id));
+    return padre ? { sub, padre } : null;
+  }
+
+  async function elegirDestinoUnir(destinoId, subSugerida = '') {
+    setVistaUnir(null);
+    setErrorUnir('');
+    setUnir({ destino: destinoId, sub: subSugerida });
+    if (!destinoId) return setSubsDestino([]);
+    const res = await fetch(`/api/subcategorias?categoria_id=${destinoId}`);
+    const data = await res.json();
+    setSubsDestino(data.ok ? data.subcategorias : []);
+  }
+
+  async function enviarUnir(aplicar) {
+    if (!categoriaSeleccionada || !unir.destino) return;
+    setErrorUnir('');
+    setMensajeUnir('');
+    setTrabajandoUnir(true);
+    try {
+      const res = await fetch('/api/categorias/unir', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          origen_id: categoriaSeleccionada.id,
+          destino_id: Number(unir.destino),
+          destino_subcategoria_id: Number(unir.sub) || null,
+          aplicar,
+        }),
+      });
+      const data = await res.json();
+      if (!data.ok) return setErrorUnir(data.error || 'No se pudo');
+      if (!aplicar) return setVistaUnir(data.vista);
+      const v = data.vista;
+      setMensajeUnir(
+        `✓ Listo: ${v.productos} producto(s) pasaron a "${v.destino}${v.destino_subcategoria ? ` › ${v.destino_subcategoria}` : ''}" y "${v.origen}" ya no existe.`
+      );
+      setVistaUnir(null);
+      setUnir({ destino: '', sub: '' });
+      setCategoriaSeleccionada(null);
+      cargarCategorias();
+    } catch {
+      setErrorUnir('Error de conexión');
+    } finally {
+      setTrabajandoUnir(false);
+    }
   }
 
   async function cargarSubcategorias(categoriaId) {
@@ -403,11 +469,21 @@ export default function ConfiguracionesPage() {
   }, []);
 
   useEffect(() => {
+    setVistaUnir(null);
+    setErrorUnir('');
     if (categoriaSeleccionada) {
       cargarSubcategorias(categoriaSeleccionada.id);
+      // Si está repetida, ya queda propuesto a dónde unirla.
+      const r = repetidaDe(categoriaSeleccionada);
+      if (r) elegirDestinoUnir(String(r.padre.id), String(r.sub.id));
+      else {
+        setUnir({ destino: '', sub: '' });
+        setSubsDestino([]);
+      }
     } else {
       setSubcategorias([]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categoriaSeleccionada]);
 
   async function crearCategoria(e) {
@@ -742,7 +818,15 @@ export default function ConfiguracionesPage() {
                               background: categoriaSeleccionada?.id === c.id ? 'var(--teal-bg, #e6faf7)' : 'transparent',
                             }}
                           >
-                            <td style={styles.td}>{c.nombre}</td>
+                            <td style={styles.td}>
+                              {c.nombre}{' '}
+                              <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>({c.productos ?? 0})</span>
+                              {repetidaDe(c) ? (
+                                <div style={{ fontSize: '12px', color: '#b54708', marginTop: '2px' }}>
+                                  ⚠️ Repetida: ya existe {repetidaDe(c).padre.nombre} › {repetidaDe(c).sub.nombre}
+                                </div>
+                              ) : null}
+                            </td>
                           </tr>
                         ))}
                         {categorias.length === 0 && (
@@ -788,7 +872,9 @@ export default function ConfiguracionesPage() {
                         )}
                         {categoriaSeleccionada && subcategorias.map((s) => (
                           <tr key={s.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                            <td style={styles.td}>{s.nombre}</td>
+                            <td style={styles.td}>
+                              {s.nombre} <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>({s.productos ?? 0})</span>
+                            </td>
                           </tr>
                         ))}
                         {categoriaSeleccionada && subcategorias.length === 0 && (
@@ -799,8 +885,73 @@ export default function ConfiguracionesPage() {
                       </tbody>
                     </table>
                   </div>
+
+                  {categoriaSeleccionada ? (
+                    <div style={{ ...styles.formCard, marginTop: '16px' }} className="unir-categoria">
+                      <strong>Unir “{categoriaSeleccionada.nombre}” con otra categoría</strong>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: '4px 0 10px' }}>
+                        Sus productos pasan a la categoría que elijas y “{categoriaSeleccionada.nombre}” se borra de la lista. No cambia precios, stock ni
+                        Alegra.
+                      </p>
+                      <label style={{ display: 'block', marginBottom: '8px' }}>
+                        Pasar a la categoría
+                        <select value={unir.destino} onChange={(e) => elegirDestinoUnir(e.target.value)} style={styles.input} aria-label="Categoría destino">
+                          <option value="">— Elegir —</option>
+                          {categorias
+                            .filter((c) => c.id !== categoriaSeleccionada.id)
+                            .map((c) => (
+                              <option key={c.id} value={String(c.id)}>{c.nombre}</option>
+                            ))}
+                        </select>
+                      </label>
+                      {unir.destino ? (
+                        <label style={{ display: 'block', marginBottom: '8px' }}>
+                          Subcategoría
+                          <select
+                            value={unir.sub}
+                            onChange={(e) => {
+                              setVistaUnir(null);
+                              setUnir((u) => ({ ...u, sub: e.target.value }));
+                            }}
+                            style={styles.input}
+                            aria-label="Subcategoría destino"
+                          >
+                            <option value="">Dejar cada producto con su subcategoría</option>
+                            {subsDestino.map((s) => (
+                              <option key={s.id} value={String(s.id)}>Todos a “{s.nombre}”</option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : null}
+                      {vistaUnir ? (
+                        <div style={{ background: '#f8fafc', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px', fontSize: '13px', margin: '8px 0' }}>
+                          <div>
+                            <b>{vistaUnir.productos}</b> producto(s) de “{vistaUnir.origen}” pasan a{' '}
+                            <b>{vistaUnir.destino}{vistaUnir.destino_subcategoria ? ` › ${vistaUnir.destino_subcategoria}` : ''}</b>.
+                          </div>
+                          {vistaUnir.subcategorias.map((s) => (
+                            <div key={s.nombre} style={{ color: 'var(--text-secondary)' }}>
+                              {s.nombre} ({s.productos}) → {s.queda}
+                            </div>
+                          ))}
+                          <div style={{ marginTop: '4px' }}>“{vistaUnir.origen}” se borra de la lista.</div>
+                        </div>
+                      ) : null}
+                      {errorUnir ? <p style={{ color: 'var(--danger)', fontSize: '13px' }}>{errorUnir}</p> : null}
+                      {!vistaUnir ? (
+                        <button type="button" style={styles.btnPrimario} disabled={!unir.destino || trabajandoUnir} onClick={() => enviarUnir(false)}>
+                          {trabajandoUnir ? 'Revisando…' : 'Revisar'}
+                        </button>
+                      ) : (
+                        <button type="button" style={styles.btnPrimario} disabled={trabajandoUnir} onClick={() => enviarUnir(true)}>
+                          {trabajandoUnir ? 'Uniendo…' : `Unir y borrar “${categoriaSeleccionada.nombre}”`}
+                        </button>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               </div>
+              {mensajeUnir ? <p style={{ color: 'var(--teal-dark, #0f766e)', fontWeight: 600 }} role="status">{mensajeUnir}</p> : null}
             </>
           )}
 
