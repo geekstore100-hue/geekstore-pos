@@ -41,6 +41,8 @@ export default function ProductosPage() {
   const [mostrarForm, setMostrarForm] = useState(false);
   const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
+  // Nov 2026: confirmación corta después de guardar (ej. precio cambiado también en Alegra).
+  const [avisoGuardado, setAvisoGuardado] = useState('');
 
   const [imagenes, setImagenes] = useState([]);
   const [cargandoImagenes, setCargandoImagenes] = useState(false);
@@ -1363,6 +1365,11 @@ export default function ProductosPage() {
     } else if (data.ok) {
       setMostrarForm(false);
       cargarProductos();
+      // Cambió el precio de venta: también quedó en Alegra.
+      if (data.alegraPrecio?.estado === 'actualizado') {
+        setAvisoGuardado(`✓ ${form.nombre}: precio de venta actualizado en el POS y en Alegra.`);
+        setTimeout(() => setAvisoGuardado(''), 8000);
+      }
     } else {
       setError(data.error || 'No se pudo guardar');
     }
@@ -2191,6 +2198,11 @@ export default function ProductosPage() {
         </div>
       )}
 
+      {avisoGuardado ? (
+        <p role="status" style={{ margin: '0 0 10px', padding: '8px 12px', borderRadius: '8px', background: 'rgba(16,185,129,.12)', color: 'var(--teal-dark, #0f766e)', fontWeight: 600 }}>
+          {avisoGuardado}
+        </p>
+      ) : null}
       <div style={styles.barraLista}>
         <input
           value={busqueda}

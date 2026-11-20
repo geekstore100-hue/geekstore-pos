@@ -5,6 +5,7 @@ import { normalizarEspecificaciones } from '../../../../lib/especificaciones';
 import { guardarPrecioAnterior } from '../../../../lib/precioAnterior';
 import { altoDeFicha, esCategoriaColeccionable, MENSAJE_FALTA_ALTO } from '../../../../lib/figuras';
 import { categoriaColeccionables } from '../../../../lib/sedes';
+import { actualizarPrecioEnAlegra } from '../../../../lib/alegraFacturacion';
 
 // Edición desde la sesión limitada de una sede (Venecia, ver lib/sedes.js):
 // solo sus productos y solo la ficha web — nombre, descripción, subcategoría
@@ -111,6 +112,10 @@ export async function PUT(request, { params }) {
       }
     }
 
+    // Precio de venta de antes: si cambia, se actualiza también en Alegra
+    // (nov 2026, ver más abajo).
+    const [previo] = await sql`SELECT precio_venta FROM productos WHERE id = ${id}`;
+
     const [producto] = await sql`
       UPDATE productos SET
         referencia = ${referencia.trim()},
@@ -151,7 +156,29 @@ export async function PUT(request, { params }) {
       if (!r.ok) avisoPrecioAnterior = r.aviso;
     }
 
-    return NextResponse.json({ ok: true, producto, ...(avisoPrecioAnterior ? { aviso: avisoPrecioAnterior } : {}) });
+    // Nov 2026: si cambió el precio de venta (sube o baja), se deja igual en
+    // Alegra (la cuenta de la facturación electrónica). El POS es el que
+    // manda: si Alegra falla, el producto queda guardado y solo se avisa.
+    let alegraPrecio = null;
+    let avisoAlegra = null;
+    const precioNuevo = Math.round(Number(precio_venta) || 0);
+    if (previo && precioNuevo > 0 && precioNuevo !== Math.round(Number(previo.precio_venta) || 0)) {
+      try {
+        alegraPrecio = await actualizarPrecioEnAlegra(producto.id);
+      } catch (error) {
+        alegraPrecio = { estado: 'error', motivo: error.message };
+      }
+      if (alegraPrecio.estado === 'no-esta') {
+        avisoAlegra = 'El precio quedó cambiado en el POS, pero este producto no está en Alegra: créalo desde Productos → Pendientes en Alegra.';
+      } else if (alegraPrecio.estado === 'no-confirmado') {
+        avisoAlegra = 'El precio quedó cambiado en el POS. Alegra recibió el cambio pero sigue mostrando otro precio: revísalo en Alegra.';
+      } else if (alegraPrecio.estado === 'error') {
+        avisoAlegra = `El precio quedó cambiado en el POS, pero NO en Alegra (${alegraPrecio.motivo}). Cámbialo a mano en Alegra.`;
+      }
+    }
+
+    const aviso = [avisoPrecioAnterior, avisoAlegra].filter(Boolean).join(' ');
+    return NextResponse.json({ ok: true, producto, ...(alegraPrecio ? { alegraPrecio } : {}), ...(aviso ? { aviso } : {}) });
   } catch (error) {
     if (String(error.message).includes('duplicate key')) {
       return NextResponse.json({ ok: false, error: 'Ya existe un producto con esa referencia' }, { status: 409 });
