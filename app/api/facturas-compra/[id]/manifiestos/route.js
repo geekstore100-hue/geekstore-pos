@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { getStore } from '@netlify/blobs';
 import sql from '../../../../../lib/db';
 import { leerDocumentoSubido } from '../../../../../lib/validarDocumento';
+import { guardarManifiesto } from '../../../../../lib/manifiestosGuardar';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,17 +39,7 @@ export async function POST(request, { params }) {
       return NextResponse.json({ ok: false, error: documento.error }, { status: 400 });
     }
 
-    const key = `${factura.numero || `FC-${factura.id}`}-${Date.now()}.${documento.ext}`;
-
-    const store = getStore('manifiestos-importacion');
-    await store.set(key, documento.buffer, { metadata: { contentType: documento.contentType } });
-
-    const [fila] = await sql`
-      INSERT INTO factura_compra_manifiestos (factura_compra_id, archivo_key, nombre_original, tipo_archivo, tamano_bytes)
-      VALUES (${id}, ${key}, ${documento.nombreOriginal}, ${documento.contentType}, ${documento.buffer.byteLength})
-      RETURNING id, archivo_key, nombre_original, tipo_archivo, tamano_bytes, subido_en
-    `;
-
+    const fila = await guardarManifiesto(factura, documento);
     return NextResponse.json({ ok: true, manifiesto: fila });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });

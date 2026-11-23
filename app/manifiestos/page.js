@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Shell from '../../components/Shell';
+import { abrirManifiesto } from '../../lib/manifiestoPartes';
 
 function fecha(iso) {
   if (!iso) return '-';
@@ -84,7 +85,15 @@ export default function ManifiestosPage() {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px' }}>
                   {r.manifiestos.map((m) => (
-                    <a key={m.id} href={`/api/manifiestos/${m.archivo_key}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: '13px' }}>
+                    <a
+                      key={m.id}
+                      href={`/api/manifiestos/${m.archivo_key}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        abrirManifiesto(m.archivo_key, m.nombre_original);
+                      }}
+                      style={{ fontSize: '13px' }}
+                    >
                       📄 {m.nombre_original || m.archivo_key}
                     </a>
                   ))}

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Shell from '../../../components/Shell';
 import { descargarExcelEtiquetas } from '../../../lib/etiquetasOpenLabel';
 import { achicarFoto, dataUrlABlob, fotosAPdf, cabeEnUnaSubida } from '../../../lib/manifiestoFotos';
+import { subirManifiesto, abrirManifiesto, MAXIMO_MB } from '../../../lib/manifiestoPartes';
 import ModalProductoNuevo from '../../../components/ModalProductoNuevo';
 import EditarFacturaCompra from '../../../components/EditarFacturaCompra';
 import { TARIFAS_RETEICA, TARIFAS_VIEJAS } from '../../../lib/tarifasReteica';
@@ -465,14 +466,12 @@ export default function FacturasCompraPage() {
   }
 
   // Sube UN archivo (PDF o foto) como manifiesto de esta factura.
+  // Nov 2026: hasta 15 MB; los archivos grandes se suben por partes
+  // (lib/manifiestoPartes.js).
   async function enviarManifiesto(archivo, nombre) {
-    const formData = new FormData();
-    formData.append('archivo', archivo, nombre);
-    const res = await fetch(`/api/facturas-compra/${detalleFactura.id}/manifiestos`, { method: 'POST', body: formData });
-    if (res.status === 413) throw new Error('El archivo es muy pesado para subirlo (máx. ~5 MB).');
-    const data = await res.json().catch(() => ({ ok: false, error: `El servidor respondió ${res.status}` }));
-    if (!data.ok) throw new Error(data.error || 'No se pudo subir el manifiesto');
-    setManifiestos((actual) => [...actual, data.manifiesto]);
+    const estado = (n, total) => setEstadoManifiesto(`Subiendo ${nombre} · parte ${n} de ${total}…`);
+    const manifiesto = await subirManifiesto(detalleFactura.id, archivo, nombre, estado);
+    setManifiestos((actual) => [...actual, manifiesto]);
   }
 
   // Foto con la cámara: se achica y queda en "páginas por subir".
@@ -1355,7 +1354,7 @@ export default function FacturasCompraPage() {
                 <div style={{ marginTop: '16px', borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
                   <label style={styles.etiquetaChica}>Manifiestos de importación</label>
                   <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '2px 0 8px' }}>
-                    El documento de aduana que vino con esta factura (PDF o foto) — guárdalo acá para encontrarlo
+                    El documento de aduana que vino con esta factura (PDF o foto, hasta {MAXIMO_MB} MB) — guárdalo acá para encontrarlo
                     rápido si te lo piden después.
                   </p>
                   {cargandoManifiestos ? (
@@ -1367,8 +1366,18 @@ export default function FacturasCompraPage() {
                       )}
                       {manifiestos.map((m) => (
                         <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 0' }}>
-                          <a href={`/api/manifiestos/${m.archivo_key}`} target="_blank" rel="noopener noreferrer" style={{ flex: 1, fontSize: '13px' }}>
+                          <a
+                            href={`/api/manifiestos/${m.archivo_key}`}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              abrirManifiesto(m.archivo_key, m.nombre_original);
+                            }}
+                            style={{ flex: 1, fontSize: '13px' }}
+                          >
                             📄 {m.nombre_original || m.archivo_key}
+                            {Number(m.tamano_bytes) > 0 ? (
+                              <span style={{ color: 'var(--text-secondary)' }}> · {(Number(m.tamano_bytes) / 1024 / 1024).toLocaleString('es-CO', { maximumFractionDigits: 1 })} MB</span>
+                            ) : null}
                           </a>
                           <button type="button" onClick={() => eliminarManifiesto(m.id)} style={{ ...styles.btnMiniLink, color: 'var(--danger)' }}>
                             Eliminar
