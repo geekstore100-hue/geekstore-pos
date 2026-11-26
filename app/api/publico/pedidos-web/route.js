@@ -41,15 +41,16 @@ export async function POST(request) {
     if (previa && previa.anulada !== true) {
       return NextResponse.json({ ok: true, ventaId: previa.id, total: Number(previa.total), repetida: true });
     }
-    if (previa) {
-      return NextResponse.json(
-        { ok: false, error: `La venta #${previa.id} de este pedido está ANULADA en el POS. Si hay que volver a registrarlo, hazlo a mano en Vender.` },
-        { status: 409 }
-      );
-    }
+    // Venta anulada (p. ej. quedó con productos equivocados): se vuelve a
+    // registrar. A la anulada se le cambia el id_local para liberar
+    // "web:<referencia>" (es único), en la misma transacción.
 
     const v = await prepararPedidoWeb(pedido);
-    const consultas = [
+    const consultas = [];
+    if (previa) {
+      consultas.push(sql`UPDATE ventas SET id_local = ${`${v.idLocal}:anulada:${previa.id}`.slice(0, 120)} WHERE id = ${previa.id} AND anulada = true`);
+    }
+    consultas.push(
       sql`
         WITH nueva AS (
           INSERT INTO ventas (total, medio_pago, vendedor_id, turno_id, creado_en, evento, cliente_nombre, cliente_telefono, id_local)
@@ -62,8 +63,8 @@ export async function POST(request) {
       sql`
         INSERT INTO pagos_venta (venta_id, medio_pago, monto)
         VALUES (current_setting('pos.id_venta')::int, ${v.medioPago}, ${v.total})
-      `,
-    ];
+      `
+    );
     for (const l of v.lineas) {
       if (l.inventariable) {
         consultas.push(sql`
@@ -97,7 +98,7 @@ export async function POST(request) {
     }
     return NextResponse.json({
       ok: true,
-      ventaId: resultados[0][0].id,
+      ventaId: resultados[previa ? 1 : 0][0].id,
       total: v.total,
       lineas: v.lineas.map((l) => ({ nombre: l.nombre, referencia: l.referencia, cantidad: l.cantidad, bodega: l.bodega_nombre })),
     });
