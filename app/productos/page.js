@@ -2427,7 +2427,10 @@ export default function ProductosPage() {
                       <tbody>
                         {facturasVentas.map((v, i) => (
                           <tr key={i}>
-                            <td style={styles.tdFactura}>#{v.venta_id}</td>
+                            <td style={styles.tdFactura}>
+                              {/* Clic → abre la venta en Historial (Nelson pidió poder verla desde acá). */}
+                              <a href={`/historial?ver=${v.venta_id}`} style={styles.linkFactura} title="Ver esta venta">#{v.venta_id}</a>
+                            </td>
                             <td style={styles.tdFactura}>{fecha(v.creado_en)}</td>
                             <td style={styles.tdFactura}>{v.cantidad}</td>
                             <td style={styles.tdFactura}>{moneda(v.precio_unitario)}</td>
@@ -2463,7 +2466,12 @@ export default function ProductosPage() {
                       <tbody>
                         {facturasCompras.map((f, i) => (
                           <tr key={i}>
-                            <td style={styles.tdFactura}>{f.numero || `#${f.factura_id}`}</td>
+                            <td style={styles.tdFactura}>
+                              {/* Clic → abre el detalle de la factura en Facturas de compra. */}
+                              <a href={`/gastos/facturas-compra?ver=${f.factura_id}`} style={styles.linkFactura} title="Ver esta factura">
+                                {f.numero || `#${f.factura_id}`}
+                              </a>
+                            </td>
                             <td style={styles.tdFactura}>{f.proveedor_nombre}</td>
                             <td style={styles.tdFactura}>{fecha(f.fecha_creacion)}</td>
                             <td style={styles.tdFactura}>{fecha(f.fecha_vencimiento)}</td>
@@ -2664,6 +2672,7 @@ const styles = {
     borderBottom: '1px solid var(--border)',
   },
   tdFactura: { padding: '8px 10px', borderBottom: '1px solid var(--border)' },
+  linkFactura: { color: 'var(--teal-dark)', fontWeight: 600, textDecoration: 'underline', cursor: 'pointer' },
   galeria: {
     display: 'flex',
     flexWrap: 'wrap',

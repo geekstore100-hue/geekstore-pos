@@ -98,6 +98,10 @@ export default function HistorialPage() {
 
   useEffect(() => {
     cargar();
+    // Desde la ficha de un producto (pestaña "Facturas de venta") se llega
+    // con ?ver=<id>: abre de una el detalle de esa venta, aunque sea de otro día.
+    const ver = Number(new URLSearchParams(window.location.search).get('ver'));
+    if (ver > 0) abrirDetalle(ver);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

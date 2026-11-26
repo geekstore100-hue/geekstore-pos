@@ -119,6 +119,14 @@ export default function FacturasCompraPage() {
     if (data.ok) setProductosTodos(data.productos);
   }
 
+  // Desde la ficha de un producto (pestaña "Facturas de compra") se llega
+  // con ?ver=<id>: abre de una el detalle de esa factura.
+  useEffect(() => {
+    const ver = Number(new URLSearchParams(window.location.search).get('ver'));
+    if (ver > 0) abrirDetalle(ver);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     cargarFacturas();
     cargarProveedores();
