@@ -7,6 +7,7 @@ import Sidebar from './Sidebar';
 import PanicoBoton from './PanicoBoton';
 import PanicoReceptor from './PanicoReceptor';
 import AvisoPedidoDistribuidor from './AvisoPedidoDistribuidor';
+import AvisoPedidosWeb from './AvisoPedidosWeb';
 
 // sede (nov 2026): nombre de la sede externa con sesión limitada (Geek
 // Store Venecia, ver lib/sesionSede.js). Se muestra solo una barra simple
@@ -150,6 +151,8 @@ export default function Shell({ title, children, sede = null }) {
           <span className="pos-badge" style={styles.badge}>Geek Store</span>
         </header>
         <main className="pos-main">
+          {/* Pedidos de la tienda pagados sin facturar (nov 2026). */}
+          {!sede ? <AvisoPedidosWeb /> : null}
           {pathname === '/ventas' && (
             <Link href="/ventas/rapida" className="pos-aviso-movil pos-no-imprimir" style={styles.avisoMovil}>
               📱 Estás en el celular: abre la <strong>Venta rápida</strong>, hecha para vender desde aquí →

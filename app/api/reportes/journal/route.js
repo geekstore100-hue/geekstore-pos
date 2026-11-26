@@ -117,7 +117,8 @@ export async function GET(request) {
       hasta,
       lineas: lineas.map((l) => {
         const d = distribuidorPorVenta.get(Number(l.venta_id));
-        const canal = d ? 'Distribuidor' : l.evento ? `Evento: ${l.evento}` : 'Mostrador';
+        // Nov 2026: los pedidos de geekstore.com.co (lib/pedidoWeb.js) van como canal propio.
+        const canal = d ? 'Distribuidor' : l.evento === 'Tienda web' ? 'Tienda web' : l.evento ? `Evento: ${l.evento}` : 'Mostrador';
         return { ...l, canal, cliente: l.cliente || (d ? d.distribuidor_nombre : '') };
       }),
       pagos,
