@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../../lib/db';
 import { DATOS_SEDES, faltantesWeb, whatsappSede } from '../../../../lib/sedes';
+import { apartadosActivos } from '../../../../lib/apartadosWeb';
 
 // Catálogo público del POS, en el MISMO formato que ya espera la tienda
 // (geekstore-tienda) desde su función getProducts() en lib/alegra.js —
@@ -99,6 +100,24 @@ export async function GET(request) {
       const lista = bodegasPorProducto.get(fila.producto_id) || [];
       lista.push({ name: fila.bodega_nombre, quantity: Number(fila.cantidad) });
       bodegasPorProducto.set(fila.producto_id, lista);
+    }
+
+    // Unidades apartadas para pedidos web ya pagados (nov 2026, ver
+    // lib/apartadosWeb.js): ya son de otro cliente, así que la página no las
+    // cuenta. Se restan del total y de Principal (de ahí salen los pedidos).
+    const apartados = await apartadosActivos();
+    if (apartados.size) {
+      for (const p of productos) {
+        const a = apartados.get(Number(p.id));
+        if (!a?.cantidad) continue;
+        p.stock_total = Math.max(0, Number(p.stock_total || 0) - a.cantidad);
+        const lista = bodegasPorProducto.get(p.id);
+        const ppal = lista?.find((x) => x.name === 'Principal');
+        if (ppal) {
+          ppal.quantity = Math.max(0, ppal.quantity - a.cantidad);
+          bodegasPorProducto.set(p.id, lista.filter((x) => x.quantity > 0));
+        }
+      }
     }
 
     const imagenes = await sql`

@@ -5,6 +5,7 @@ import { costoListo, consultaGuardarCosto } from '../../../../lib/costoVenta';
 import { esErrorDeGuardia } from '../../../../lib/transaccion';
 import { migracionVentasEvento, ErrorVenta, MENSAJE_MIGRACION } from '../../../../lib/ventaRapida';
 import { prepararPedidoWeb, idLocalPedido, CANAL_WEB } from '../../../../lib/pedidoWeb';
+import { asegurarApartados, consultaLiberar } from '../../../../lib/apartadosWeb';
 
 export const dynamic = 'force-dynamic';
 
@@ -81,6 +82,10 @@ export async function POST(request) {
         VALUES (${l.producto_id}, ${l.bodega_id}, 'venta', ${l.cantidad}, ${l.precio}, ${l.descuento}, current_setting('pos.id_venta')::int, ${v.nota})
       `);
     }
+    // Las unidades que estaban apartadas para este pedido ya se descontaron
+    // de verdad: el apartado se libera en la misma transacción.
+    await asegurarApartados();
+    consultas.push(consultaLiberar(v.referencia, 'vendido'));
     if (await costoListo()) consultas.push(consultaGuardarCosto('pos.id_venta'));
 
     let resultados;

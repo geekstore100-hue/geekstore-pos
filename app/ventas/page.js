@@ -1012,6 +1012,11 @@ export default function VentasPage() {
                     <div style={styles.stockInfo}>
                       <span style={styles.badgeStock}>Principal: {stockPrincipal}</span>
                       <span style={styles.badgeStock}>Distribuidor: {stockDistribuidor}</span>
+                      {Number(p.apartado_web) > 0 ? (
+                        <span style={styles.badgeApartado} title={`Pedido web: ${(p.apartado_refs || []).join(', ')}`}>
+                          🔒 {p.apartado_web} apartada{Number(p.apartado_web) === 1 ? '' : 's'} web
+                        </span>
+                      ) : null}
                     </div>
                   ) : (
                     <div style={styles.stockInfo}>
@@ -1020,7 +1025,9 @@ export default function VentasPage() {
                   )}
                   {/* El precio se ve SIEMPRE, aunque esté agotado (oct 2026). */}
                   {agotado && (
-                    <div style={styles.agotado}>{stockDistribuidor > 0 ? 'Sin stock en Principal' : 'Agotado'}</div>
+                    <div style={styles.agotado}>
+                      {Number(p.apartado_web) > 0 ? 'Apartado para pedido web' : stockDistribuidor > 0 ? 'Sin stock en Principal' : 'Agotado'}
+                    </div>
                   )}
                   <div style={styles.precio}>{moneda(precioSegunLista(p, activa.lista))}</div>
                 </div>
@@ -1592,6 +1599,14 @@ const styles = {
   fotoTarjeta: { width: '150px', height: '150px', objectFit: 'contain', background: 'transparent', borderRadius: '10px', margin: '8px auto', display: 'block' },
   nombre: { fontSize: '13px', fontWeight: 600, marginBottom: '4px', minHeight: '32px' },
   stockInfo: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', marginBottom: '6px' },
+  badgeApartado: {
+    fontSize: '11px',
+    fontWeight: 600,
+    padding: '2px 6px',
+    borderRadius: '6px',
+    background: '#FEF0C7',
+    color: '#93370D',
+  },
   badgeStock: {
     fontSize: '11px',
     color: 'var(--teal-dark)',

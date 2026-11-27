@@ -4,6 +4,7 @@ import { esUrlYoutubeValida } from '../../../lib/youtube';
 import { normalizarEspecificaciones } from '../../../lib/especificaciones';
 import { guardarPrecioAnterior } from '../../../lib/precioAnterior';
 import { DATOS_SEDES, faltantesWeb } from '../../../lib/sedes';
+import { apartadosActivos } from '../../../lib/apartadosWeb';
 import { altoDeFicha, esCategoriaColeccionable, MENSAJE_FALTA_ALTO } from '../../../lib/figuras';
 
 export async function GET(request) {
@@ -41,6 +42,19 @@ export async function GET(request) {
         GROUP BY p.id
         ORDER BY (p.imagen_key IS NULL) ASC, p.creado_en DESC, p.id DESC
       `;
+      // Unidades apartadas para pedidos web (ver lib/apartadosWeb.js): en
+      // Vender se muestra el stock de Principal SIN ellas (no se pueden
+      // vender) y aparte cuántas hay apartadas y para qué pedido.
+      const apartados = await apartadosActivos();
+      if (apartados.size) {
+        for (const p of productos) {
+          const a = apartados.get(Number(p.id));
+          if (!a?.cantidad) continue;
+          p.stock_principal = Math.max(0, Number(p.stock_principal || 0) - a.cantidad);
+          p.apartado_web = a.cantidad;
+          p.apartado_refs = a.referencias;
+        }
+      }
       return NextResponse.json({ ok: true, productos });
     }
 

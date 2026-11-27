@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import sql from '../../../../../lib/db';
 import { esErrorDeGuardia } from '../../../../../lib/transaccion';
 import { costoListo, consultaGuardarCosto } from '../../../../../lib/costoVenta';
+import { errorPorApartados } from '../../../../../lib/apartadosWeb';
 import {
   prepararLineas,
   consultasReemplazarLineas,
@@ -115,6 +116,31 @@ export async function POST(request, { params }) {
         }
       }
       for (const l of lineas) partes.set(l, [{ bodega, cantidad: l.cantidad }]);
+    }
+
+    // Unidades de Principal apartadas para pedidos web: no se venden (ver
+    // lib/apartadosWeb.js).
+    {
+      const dePrincipal = new Map();
+      const nombres = new Map();
+      for (const l of lineas) {
+        if (!l.inventariable) continue;
+        for (const parte of partes.get(l) || []) {
+          if (parte.bodega?.nombre !== 'Principal') continue;
+          dePrincipal.set(l.producto_id, (dePrincipal.get(l.producto_id) || 0) + parte.cantidad);
+          nombres.set(l.producto_id, l.nombre);
+        }
+      }
+      if (dePrincipal.size) {
+        const ids = [...dePrincipal.keys()];
+        const filas = await sql`
+          SELECT s.producto_id, s.cantidad FROM stock s JOIN bodegas b ON b.id = s.bodega_id
+          WHERE b.nombre = 'Principal' AND s.producto_id = ANY(${ids}::int[])
+        `;
+        const hay = new Map(filas.map((f) => [Number(f.producto_id), Number(f.cantidad)]));
+        const error = await errorPorApartados(dePrincipal, hay, nombres);
+        if (error) return NextResponse.json({ ok: false, error }, { status: 409 });
+      }
     }
 
     // Pagos (igual que en Vender).

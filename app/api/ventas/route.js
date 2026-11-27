@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import sql from '../../../lib/db';
 import { costoListo, consultaGuardarCosto } from '../../../lib/costoVenta';
+import { errorPorApartados } from '../../../lib/apartadosWeb';
 import { idLocalListo, limpiarIdLocal, ventaPorIdLocal, esDuplicadoIdLocal } from '../../../lib/ventaUnica';
 
 async function bodegaPrincipalId() {
@@ -169,7 +170,7 @@ export async function POST(request) {
     // sola consulta para todos los productos de la venta.
     const ids = [...new Set(items.map((i) => Number(i.producto_id)))];
     const filas = await sql`
-      SELECT p.id, p.es_inventariable, COALESCE(s.cantidad, 0) AS disponible
+      SELECT p.id, p.nombre, p.es_inventariable, COALESCE(s.cantidad, 0) AS disponible
       FROM productos p
       LEFT JOIN stock s ON s.producto_id = p.id AND s.bodega_id = ${bodegaId}
       WHERE p.id = ANY(${ids}::int[])
@@ -195,6 +196,14 @@ export async function POST(request) {
           { status: 409 }
         );
       }
+    }
+    // Unidades apartadas para pedidos web (pagados en la página y todavía sin
+    // facturar): no se pueden vender aquí (ver lib/apartadosWeb.js).
+    {
+      const nombres = new Map([...infoPorId].map(([id, f]) => [id, f.nombre]));
+      const disponibles = new Map([...infoPorId].map(([id, f]) => [id, Number(f.disponible)]));
+      const error = await errorPorApartados(pedidoPorId, disponibles, nombres);
+      if (error) return NextResponse.json({ ok: false, error }, { status: 409 });
     }
 
     const itemsConTotal = items.map((item) => {
